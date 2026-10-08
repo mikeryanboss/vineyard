@@ -49,6 +49,9 @@ type PaneKeys struct {
 	Bottom   key.Binding
 	NextFile key.Binding
 	PrevFile key.Binding
+	Toggle   key.Binding
+	Collapse key.Binding
+	Expand   key.Binding
 	Tab      key.Binding
 	Back     key.Binding
 }
@@ -62,6 +65,9 @@ var PaneKeyMap = PaneKeys{
 	Bottom:   key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
 	NextFile: key.NewBinding(key.WithKeys("]", "n"), key.WithHelp("]", "next file")),
 	PrevFile: key.NewBinding(key.WithKeys("[", "p"), key.WithHelp("[", "prev file")),
+	Toggle:   key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("enter", "fold file")),
+	Collapse: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "collapse all")),
+	Expand:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "expand all")),
 	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff")),
 	Back:     key.NewBinding(key.WithKeys("esc", "h", "left", "q"), key.WithHelp("esc", "back")),
 }

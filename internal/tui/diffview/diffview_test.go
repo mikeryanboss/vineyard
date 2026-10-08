@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/diff"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/testutil"
@@ -123,5 +124,51 @@ func TestWrapSpans_BreaksWideTextAcrossRows(t *testing.T) {
 func TestExpandTabs_UsesTabStops(t *testing.T) {
 	if got := expandTabs("a\tb\t\tc"); got != "a   b       c" {
 		t.Errorf("expandTabs = %q", got)
+	}
+}
+
+func TestDiffView_ToggleFoldsCurrentFile(t *testing.T) {
+	m := newView(72, 10)
+	m, _ = m.Update(testutil.Key("]"))
+	full := len(m.lines)
+	m, _ = m.Update(testutil.Key("enter"))
+	if len(m.lines) >= full {
+		t.Fatalf("folding file 1 left %d lines, was %d", len(m.lines), full)
+	}
+	if m.CurrentFile() != 0 {
+		t.Errorf("folded file should stay at the top, current = %d", m.CurrentFile())
+	}
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "▸ M internal/auth/login.go") {
+		t.Errorf("folded header should show ▸:\n%s", view)
+	}
+	m, _ = m.Update(testutil.Key("enter"))
+	if len(m.lines) != full {
+		t.Errorf("unfolding restored %d lines, want %d", len(m.lines), full)
+	}
+}
+
+func TestDiffView_CollapseAndExpandAll(t *testing.T) {
+	m := newView(72, 40)
+	full := len(m.lines)
+	m, _ = m.Update(testutil.Key("c"))
+	if want := len(m.Files()) * 4; len(m.lines)-len(renderSummary(m.files, 72, m.theme)) != want {
+		t.Errorf("collapsed lines = %d, want summary + %d (rule, header, rule, blank per file)", len(m.lines), want)
+	}
+	m, _ = m.Update(testutil.Key("e"))
+	if len(m.lines) != full {
+		t.Errorf("expand all restored %d lines, want %d", len(m.lines), full)
+	}
+}
+
+func TestDiffView_FoldSurvivesNewDiff(t *testing.T) {
+	m := newView(72, 40)
+	m, _ = m.Update(testutil.Key("c"))
+	m = m.SetDiff(sampleDiff + "diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+hi\n")
+	view := ansi.Strip(strings.Join(m.lines, "\n"))
+	if !strings.Contains(view, "▸ M internal/auth/login.go") {
+		t.Error("a file folded before a refresh should stay folded")
+	}
+	if !strings.Contains(view, "▾ A x.txt") {
+		t.Error("collapse all folds files present at the time only; x.txt arrived later and should be expanded")
 	}
 }

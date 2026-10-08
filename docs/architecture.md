@@ -101,11 +101,13 @@ with `--` is never mistaken for a file header. `diff.Pairs` and
 `diff.ChangedRanges` match removed lines with the added lines that replaced
 them and find the changed words.
 
-`diffview` renders a file summary, then each file with a header, old and new
-line numbers, Chroma syntax highlighting (single lines tokenised alone, and
+`diffview` renders a file summary, then each file as a card: a heavy rule, a
+header bar with a fold marker, a rule, then old and new line numbers, Chroma syntax highlighting (single lines tokenised alone, and
 switched off above 4000 lines), tinted backgrounds for added and removed lines,
 stronger tints on changed words, and wrapping at word boundaries. The rendered
-lines are cached and rebuilt only when the diff text, width, or theme changes.
+lines are cached and rebuilt only when the diff text, width, theme, or fold
+state changes. Files fold individually (`enter`) or all at once (`c`, `e`); fold
+state is keyed by path and survives diff refreshes.
 
 ## TUI Message Flow
 

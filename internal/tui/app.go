@@ -1107,7 +1107,7 @@ func (m Model) renderStatusBar() string {
 	case m.configOpen:
 		hints = m.settings.Hints()
 	case m.focus == focusPane && m.tab == tabDiff:
-		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"g/G", "top/bottom"}, {"tab", "preview"}, {"esc", "back"}}
+		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"enter", "fold"}, {"c/e", "fold all/none"}, {"g/G", "top/bottom"}, {"tab", "preview"}, {"esc", "back"}}
 	case m.focus == focusPane:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", "diff"}, {"esc", "back"}}
 	default:
