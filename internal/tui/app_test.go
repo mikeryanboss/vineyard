@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"image/color"
 	"os/exec"
 	"slices"
 	"strings"
@@ -496,5 +497,16 @@ func TestApp_ConfigNeverOverwritesAFileThatFailedToLoad(t *testing.T) {
 	m = keys(m, "C", "ctrl+s")
 	if len(backend.configs) != 0 {
 		t.Errorf("config saved despite the load error: %+v", backend.configs)
+	}
+}
+
+func TestTheme_LightUntilTerminalReportsDark(t *testing.T) {
+	m, _ := newTestModel(t, nil)
+	if m.theme.IsDark {
+		t.Fatal("a new model should start with the light theme")
+	}
+	m = update(m, tea.BackgroundColorMsg{Color: color.Black})
+	if !m.theme.IsDark {
+		t.Error("a terminal reporting a dark background should switch to the dark theme")
 	}
 }

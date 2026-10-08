@@ -1,0 +1,6 @@
+title = 'Start in the light theme until the terminal reports its background'
+status = 'done'
+priority = 'low'
+labels = ['tui', 'theme']
+created = 2026-10-08T21:25:00Z
+updated = 2026-10-08T21:25:00Z

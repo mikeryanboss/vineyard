@@ -184,7 +184,7 @@ type Model struct {
 
 // NewModel returns the root model showing sessions.
 func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
-	theme := common.NewTheme(true) // dark until the terminal reports its background
+	theme := common.NewTheme(false) // light until the terminal reports its background
 	m := Model{
 		backend:  backend,
 		opts:     opts,
