@@ -39,6 +39,7 @@ main.go
 | Session list | `internal/tui/list/` | |
 | Live preview and scrollback | `internal/tui/preview/` | |
 | Dialogs | `internal/tui/dialog/` | |
+| Config screen | `internal/tui/settings/` | `SaveConfigMsg` in `internal/tui/app.go` |
 | Theme, key bindings, shared messages | `internal/tui/common/` | |
 
 ## Repository Map
@@ -56,6 +57,7 @@ internal/tui/list/         session list view
 internal/tui/preview/      terminal mirror view
 internal/tui/diffview/     diff view
 internal/tui/dialog/       new-session and confirmation dialogs
+internal/tui/settings/     config screen
 internal/tui/common/       theme, keys, messages
 internal/tui/testutil/     golden-file helpers and fixtures
 .grapes/                   this repository's own issues

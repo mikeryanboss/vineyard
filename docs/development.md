@@ -53,7 +53,7 @@ back until things settle, dropping ticks so polling stays under the test's contr
 | Support another agent's prompts | `session/screen.go` | `TestScreenDetection` |
 | Diff appearance | `tui/diffview/`, colours in `tui/common/theme.go` | diffview golden tests |
 | List appearance | `tui/list/list.go` | list golden tests |
-| Config field | `config/config.go`, README | `config_test.go` |
+| Config field | `config/config.go`, `tui/settings/settings.go`, README | `config_test.go`, `settings_test.go` |
 | Persisted session field | `session/session.go` | `TestStore_RoundTrip`; keep old files loadable |
 
 When a change moves a responsibility or invalidates an invariant in

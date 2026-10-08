@@ -3,6 +3,7 @@ package tui
 import (
 	"os/exec"
 
+	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/tmux"
@@ -34,6 +35,7 @@ type Backend interface {
 	DiffStat(s session.Session) (git.Stat, error)
 
 	Save(sessions []session.Session) error
+	SaveConfig(cfg config.Config) error
 }
 
 // LiveBackend is the Backend backed by tmux, git, and the session store.
@@ -41,6 +43,8 @@ type LiveBackend struct {
 	*session.Manager
 	Tmux  *tmux.Client
 	Store session.Store
+	// Home is Vineyard's home directory, which holds config.toml.
+	Home string
 }
 
 func (b LiveBackend) Capture(s session.Session) (string, error) {
@@ -78,3 +82,5 @@ func (b LiveBackend) DiffStat(s session.Session) (git.Stat, error) {
 }
 
 func (b LiveBackend) Save(sessions []session.Session) error { return b.Store.Save(sessions) }
+
+func (b LiveBackend) SaveConfig(cfg config.Config) error { return config.Save(b.Home, cfg) }

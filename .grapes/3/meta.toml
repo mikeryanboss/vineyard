@@ -1,0 +1,6 @@
+title = 'Add a config screen like grapes'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'config']
+created = 2026-10-08T20:57:00Z
+updated = 2026-10-08T21:06:00Z

@@ -98,6 +98,36 @@ func ProjectDir(home, repoRoot string) string {
 	return filepath.Join(home, "projects", name)
 }
 
+// Save writes cfg to the configuration file in home. It writes a temporary
+// file and renames it into place, so a crash mid-write cannot corrupt the
+// file. Comments in a hand-written file are not preserved.
+func Save(home string, cfg Config) error {
+	content, err := toml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(home, ".config-*.toml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op after a successful rename
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), Path(home))
+}
+
 // Load reads the configuration file in home. A missing file yields defaults.
 // A malformed file yields clean defaults plus the parse error, so the TUI can
 // start and report the problem instead of refusing to run.

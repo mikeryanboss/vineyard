@@ -39,3 +39,9 @@ type LeavePaneMsg struct{}
 
 // SwitchTabMsg toggles the right pane between preview and diff.
 type SwitchTabMsg struct{}
+
+// SaveConfigMsg asks for the configuration to be written and applied.
+type SaveConfigMsg struct{ Config config.Config }
+
+// CloseConfigMsg leaves the config screen without saving.
+type CloseConfigMsg struct{}
