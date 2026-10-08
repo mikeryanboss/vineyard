@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os/exec"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,11 +28,13 @@ type fakeBackend struct {
 	enters   []string
 	killed   []string
 	resized  [][2]int
+	configs  []config.Config
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
 	return session.Session{
 		ID: session.Slug(opts.Title, "s"), Title: opts.Title, Program: opts.Program,
+		Branch:        opts.BranchPrefix + session.Slug(opts.Title, "s"),
 		PendingPrompt: opts.Prompt, AutoYes: opts.AutoYes, Status: session.StatusLoading,
 	}
 }
@@ -40,7 +43,7 @@ func (f *fakeBackend) Start(s session.Session, w, h int) (session.Session, error
 	if f.startErr != nil {
 		return s, f.startErr
 	}
-	s.Branch, s.Status = "test/"+s.ID, session.StatusRunning
+	s.Status = session.StatusRunning
 	return s, nil
 }
 
@@ -98,6 +101,13 @@ func (f *fakeBackend) Save(sessions []session.Session) error {
 	return nil
 }
 
+func (f *fakeBackend) SaveConfig(cfg config.Config) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.configs = append(f.configs, cfg)
+	return nil
+}
+
 const sampleDiff = `diff --git a/auth.go b/auth.go
 --- a/auth.go
 +++ b/auth.go
@@ -114,9 +124,10 @@ func newTestModel(t *testing.T, sessions []session.Session) (Model, *fakeBackend
 	tick = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
 	backend := &fakeBackend{screen: "✻ Thinking…\n\n> fix the redirect", diff: sampleDiff}
 	m := NewModel(backend, sessions, Options{
-		Config:   config.Config{DefaultProgram: "claude"},
-		RepoName: "shop",
-		Version:  "0.1.0",
+		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/"},
+		RepoName:   "shop",
+		Version:    "0.1.0",
+		ConfigPath: "~/.vineyard/config.toml",
 	})
 	return update(m, tea.WindowSizeMsg{Width: 110, Height: 26}), backend
 }
@@ -424,4 +435,66 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// press applies keys without running their commands, for keys whose only
+// command is a text input's cursor blink.
+func press(m Model, presses ...string) Model {
+	for _, k := range presses {
+		m = update(m, testutil.Key(k))
+	}
+	return m
+}
+
+func TestAppView_Config(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	m = keys(m, "C", "l")
+	testutil.RequireGolden(t, m.View().Content)
+}
+
+func TestApp_SavedConfigAppliesToTheNextSession(t *testing.T) {
+	m, backend := newTestModel(t, nil)
+	m = press(m, "C", "l", "j", "enter") // edit the branch prefix
+	for range len("test/") {
+		m = update(m, testutil.Key("backspace"))
+	}
+	m = typeText(m, "agents/")
+	m = press(m, "enter", "j", "enter") // and turn on auto-yes
+	m = keys(m, "ctrl+s")
+
+	if m.configOpen {
+		t.Fatal("saving should close the config screen")
+	}
+	if len(backend.configs) != 1 || backend.configs[0].BranchPrefix != "agents/" || !backend.configs[0].AutoYes {
+		t.Fatalf("saved configs = %+v", backend.configs)
+	}
+
+	m = keys(m, "n")
+	m = typeText(m, "Fix login")
+	m = keys(m, "enter")
+	s, ok := m.selected()
+	if !ok || s.Branch != "agents/fix-login" || !s.AutoYes {
+		t.Errorf("new session = %+v, want the saved prefix and auto-yes", s)
+	}
+}
+
+func TestApp_ConfigEscDiscardsEdits(t *testing.T) {
+	m, backend := newTestModel(t, nil)
+	m = keys(m, "C", "l", "j", "j", "enter", "esc", "esc") // auto-yes on, then leave
+	if m.configOpen || len(backend.configs) != 0 || m.opts.Config.AutoYes {
+		t.Errorf("esc should leave without saving: open %v, saved %+v, auto-yes %v", m.configOpen, backend.configs, m.opts.Config.AutoYes)
+	}
+	m = keys(m, "C", "l", "j", "j")
+	if strings.Contains(testutil.StripANSI(m.View().Content), "Auto-yes for new sessions  on") {
+		t.Error("reopening the screen should show the saved config, not the discarded edit")
+	}
+}
+
+func TestApp_ConfigNeverOverwritesAFileThatFailedToLoad(t *testing.T) {
+	m, backend := newTestModel(t, nil)
+	m.opts.ConfigErr = errors.New("config.toml: expected value")
+	m = keys(m, "C", "ctrl+s")
+	if len(backend.configs) != 0 {
+		t.Errorf("config saved despite the load error: %+v", backend.configs)
+	}
 }

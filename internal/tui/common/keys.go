@@ -17,6 +17,7 @@ type ListKeys struct {
 	AutoYes   key.Binding
 	Tab       key.Binding
 	Focus     key.Binding
+	Config    key.Binding
 	Quit      key.Binding
 }
 
@@ -34,6 +35,7 @@ var ListKeyMap = ListKeys{
 	AutoYes:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
 	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff")),
 	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "scroll pane")),
+	Config:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
 	Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 
@@ -62,4 +64,29 @@ var PaneKeyMap = PaneKeys{
 	PrevFile: key.NewBinding(key.WithKeys("[", "p"), key.WithHelp("[", "prev file")),
 	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff")),
 	Back:     key.NewBinding(key.WithKeys("esc", "h", "left", "q"), key.WithHelp("esc", "back")),
+}
+
+// SettingsKeys act on the config screen.
+type SettingsKeys struct {
+	Up     key.Binding
+	Down   key.Binding
+	Left   key.Binding
+	Right  key.Binding
+	Tab    key.Binding
+	Enter  key.Binding
+	Remove key.Binding
+	Save   key.Binding
+	Back   key.Binding
+}
+
+var SettingsKeyMap = SettingsKeys{
+	Up:     key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
+	Down:   key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
+	Left:   key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "categories")),
+	Right:  key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "fields")),
+	Tab:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pane")),
+	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
+	Remove: key.NewBinding(key.WithKeys("x", "delete"), key.WithHelp("x", "remove")),
+	Save:   key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
+	Back:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 }

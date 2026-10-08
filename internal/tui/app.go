@@ -21,6 +21,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/tui/diffview"
 	"github.com/mikeryanboss/vineyard/internal/tui/list"
 	"github.com/mikeryanboss/vineyard/internal/tui/preview"
+	"github.com/mikeryanboss/vineyard/internal/tui/settings"
 )
 
 const (
@@ -118,6 +119,10 @@ type (
 		id  string
 		err error
 	}
+	configSavedMsg struct {
+		config config.Config
+		err    error
+	}
 	saveErrMsg     struct{ err error }
 	clearStatusMsg struct{ seq int }
 )
@@ -135,8 +140,11 @@ type Options struct {
 	AutoYes bool
 	// Program, when set, is the only agent offered for new sessions.
 	Program string
-	// Status is shown in the status bar at startup, such as a config error.
-	Status string
+	// ConfigPath is where the config screen saves, as shown to the user.
+	ConfigPath string
+	// ConfigErr is the error from loading the config file, if it failed.
+	// Config then holds defaults, and the config screen refuses to save.
+	ConfigErr error
 }
 
 // Model is the root TUI model.
@@ -165,6 +173,10 @@ type Model struct {
 	focus   focus
 	tab     tab
 
+	// configOpen shows the config screen in place of the list and panes.
+	configOpen bool
+	settings   settings.Model
+
 	status      string
 	statusIsErr bool
 	statusSeq   int
@@ -186,8 +198,8 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		preview:  preview.New(theme),
 		diff:     diffview.New(theme),
 	}
-	if opts.Status != "" {
-		m.status, m.statusIsErr = opts.Status, true
+	if opts.ConfigErr != nil {
+		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
 	}
 	m.syncList()
 	// Mark the initial selection as shown; the first ticks fetch its screen and diff.
@@ -274,12 +286,14 @@ func (m *Model) applySizes() {
 	m.list = m.list.SetSize(listWidth, bodyHeight)
 	m.preview = m.preview.SetSize(w, h)
 	m.diff = m.diff.SetSize(w, h)
+	m.settings = m.settings.SetSize(m.width, bodyHeight)
 }
 
 func (m *Model) applyTheme() {
 	m.list = m.list.SetTheme(m.theme)
 	m.preview = m.preview.SetTheme(m.theme)
 	m.diff = m.diff.SetTheme(m.theme)
+	m.settings = m.settings.SetTheme(m.theme)
 }
 
 func (m *Model) setFocus(f focus) {
@@ -632,6 +646,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case configSavedMsg:
+		if msg.err != nil {
+			return m, m.setError(fmt.Errorf("saving config: %w", msg.err))
+		}
+		m.opts.Config = msg.config
+		m.configOpen = false
+		return m, m.setStatus("Saved "+m.opts.ConfigPath+". New sessions use the new settings.", false)
+
 	case saveErrMsg:
 		return m, m.setError(msg.err)
 
@@ -651,6 +673,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case common.DialogCancelledMsg:
 		m.dialog = nil
+		return m, nil
+
+	case common.SaveConfigMsg:
+		backend, cfg := m.backend, msg.Config
+		return m, func() tea.Msg { return configSavedMsg{config: cfg, err: backend.SaveConfig(cfg)} }
+
+	case common.CloseConfigMsg:
+		m.configOpen = false
 		return m, nil
 
 	case common.LeavePaneMsg:
@@ -673,13 +703,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Anything else, such as cursor blinks, belongs to an open dialog.
-	if m.dialog != nil {
-		var cmd tea.Cmd
+	// Anything else, such as cursor blinks, belongs to an open dialog or the
+	// config screen.
+	var cmd tea.Cmd
+	switch {
+	case m.dialog != nil:
 		m.dialog, cmd = m.dialog.Update(msg)
-		return m, cmd
+	case m.configOpen:
+		m.settings, cmd = m.settings.Update(msg)
 	}
-	return m, nil
+	return m, cmd
 }
 
 // applyStatus updates running/ready states from fresh screen fingerprints,
@@ -757,10 +790,11 @@ func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
 		program = m.profiles()[0].Program
 	}
 	s := m.backend.New(session.NewOptions{
-		Title:   msg.Title,
-		Program: program,
-		Prompt:  msg.Prompt,
-		AutoYes: m.opts.Config.AutoYes || m.opts.AutoYes,
+		Title:        msg.Title,
+		Program:      program,
+		Prompt:       msg.Prompt,
+		AutoYes:      m.opts.Config.AutoYes || m.opts.AutoYes,
+		BranchPrefix: m.opts.Config.BranchPrefix,
 	})
 	m.sessions = append(m.sessions, s)
 	m.syncList()
@@ -806,6 +840,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.dialog, cmd = m.dialog.Update(msg)
 		return m, cmd
 	}
+	if m.configOpen {
+		var cmd tea.Cmd
+		m.settings, cmd = m.settings.Update(msg)
+		return m, cmd
+	}
 	if m.focus == focusPane {
 		var cmd tea.Cmd
 		if m.tab == tabDiff {
@@ -831,6 +870,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, keys.Tab):
 		m.toggleTab()
+		return m, nil
+	case key.Matches(msg, keys.Config):
+		_, _, bodyHeight := m.layout()
+		m.settings = settings.New(m.opts.Config, m.opts.ConfigPath, m.opts.ConfigErr, m.theme).SetSize(m.width, bodyHeight)
+		m.configOpen = true
 		return m, nil
 	case key.Matches(msg, keys.Focus):
 		if ok {
@@ -907,7 +951,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.dialog != nil {
+	if m.dialog != nil || m.configOpen {
 		return m, nil
 	}
 	var mouse tea.Mouse
@@ -962,10 +1006,14 @@ func (m Model) View() tea.View {
 
 func (m Model) render() string {
 	_, _, bodyHeight := m.layout()
-	screen := lipgloss.JoinVertical(lipgloss.Left,
-		m.renderHeader(),
-		lipgloss.JoinHorizontal(lipgloss.Top, m.list.View(), m.renderPane()),
-	)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, m.list.View(), m.renderPane())
+	if m.configOpen {
+		body = m.settings.View()
+	}
+	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body)
+	if m.configOpen && m.settings.PickerActive() {
+		screen = overlayCenter(screen, m.settings.PickerView(), m.width, headerHeight+bodyHeight)
+	}
 	if m.dialog != nil {
 		screen = overlayCenter(screen, m.dialog.View(), m.width, headerHeight+bodyHeight)
 	}
@@ -1056,6 +1104,8 @@ func (m Model) renderStatusBar() string {
 	switch {
 	case m.dialog != nil:
 		hints = m.dialog.Hints()
+	case m.configOpen:
+		hints = m.settings.Hints()
 	case m.focus == focusPane && m.tab == tabDiff:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"g/G", "top/bottom"}, {"tab", "preview"}, {"esc", "back"}}
 	case m.focus == focusPane:
@@ -1064,7 +1114,7 @@ func (m Model) renderStatusBar() string {
 		hints = [][2]string{
 			{"n", "new"}, {"N", "new+prompt"}, {"enter", "attach"}, {"t", "shell"}, {"s", "push"},
 			{"c", "checkout"}, {"r", "resume"}, {"D", "kill"}, {"a", "auto-yes"}, {"tab", "diff"},
-			{"l", "scroll"}, {"q", "quit"},
+			{"l", "scroll"}, {"C", "config"}, {"q", "quit"},
 		}
 	}
 	dot := t.StyleFaint.Render(" · ")

@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
@@ -103,7 +105,7 @@ func runTUI(program string, autoYes bool) error {
 		return err
 	}
 	client := tmux.New(tmuxSocket())
-	manager := session.NewManager(repo, client, projectDir, cfg.BranchPrefix)
+	manager := session.NewManager(repo, client, projectDir)
 	sessions = manager.Restore(sessions)
 	if err := store.Save(sessions); err != nil {
 		return err
@@ -115,11 +117,11 @@ func runTUI(program string, autoYes bool) error {
 		Version:  version,
 		AutoYes:  autoYes,
 		Program:  program,
+		// The config screen shows where it saves.
+		ConfigPath: displayPath(config.Path(home)),
+		ConfigErr:  cfgErr,
 	}
-	if cfgErr != nil {
-		opts.Status = "Config error (using defaults): " + cfgErr.Error()
-	}
-	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store}, sessions, opts)
+	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Home: home}, sessions, opts)
 
 	in, out, closeTTY, err := terminal()
 	if err != nil {
@@ -201,4 +203,16 @@ Sessions keep running in tmux after vineyard exits; the next launch picks them u
 Configuration lives in ~/.vineyard/config.toml (override the directory with VINEYARD_HOME).
 Agent sessions run on the tmux socket "vineyard" (override with VINEYARD_TMUX_SOCKET).
 `)
+}
+
+// displayPath shortens a path in the user's home directory to start with ~.
+func displayPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if rest, ok := strings.CutPrefix(path, home+string(filepath.Separator)); ok {
+		return "~/" + rest
+	}
+	return path
 }

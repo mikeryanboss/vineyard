@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -91,5 +92,28 @@ func TestHome_RespectsOverride(t *testing.T) {
 	got, err := Home()
 	if err != nil || got != dir {
 		t.Errorf("Home() = %q, %v; want %q", got, err, dir)
+	}
+}
+
+func TestSave_RoundTripsThroughLoad(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home") // Save creates the directory
+	want := Config{
+		DefaultProgram: "yolo",
+		BranchPrefix:   "agents/",
+		AutoYes:        true,
+		Profiles: []Profile{
+			{Name: "claude", Program: "claude"},
+			{Name: "yolo", Program: "claude --dangerously-skip-permissions"},
+		},
+	}
+	if err := Save(home, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("loaded %+v, want %+v", got, want)
 	}
 }

@@ -1,0 +1,14 @@
+  Config  ~/.vineyard/config.toml                                               
+                                                                                
+  General       │  Default agent              claude                            
+  Profiles      │  Branch prefix              mboss/                            
+                │  Auto-yes for new sessions  off                               
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                

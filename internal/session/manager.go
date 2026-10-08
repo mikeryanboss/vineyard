@@ -24,22 +24,20 @@ type Terminal interface {
 // mutating shared state. The TUI runs them in background commands and applies
 // the results in its update loop, so they must not touch anything else.
 type Manager struct {
-	Repo         git.Repo
-	Terminal     Terminal
-	ProjectDir   string
-	BranchPrefix string
+	Repo       git.Repo
+	Terminal   Terminal
+	ProjectDir string
 
 	now func() time.Time
 }
 
 // NewManager returns a manager for repo whose data lives in projectDir.
-func NewManager(repo git.Repo, terminal Terminal, projectDir, branchPrefix string) *Manager {
+func NewManager(repo git.Repo, terminal Terminal, projectDir string) *Manager {
 	return &Manager{
-		Repo:         repo,
-		Terminal:     terminal,
-		ProjectDir:   projectDir,
-		BranchPrefix: branchPrefix,
-		now:          time.Now,
+		Repo:       repo,
+		Terminal:   terminal,
+		ProjectDir: projectDir,
+		now:        time.Now,
 	}
 }
 
@@ -49,6 +47,8 @@ type NewOptions struct {
 	Program string
 	Prompt  string
 	AutoYes bool
+	// BranchPrefix is prepended to the session's branch name.
+	BranchPrefix string
 }
 
 // New describes a session without creating anything, so the TUI can show it
@@ -60,6 +60,7 @@ func (m *Manager) New(opts NewOptions) Session {
 		ID:            id,
 		Title:         opts.Title,
 		Program:       opts.Program,
+		Branch:        opts.BranchPrefix + Slug(opts.Title, id),
 		WorktreePath:  filepath.Join(m.ProjectDir, "worktrees", id),
 		TmuxName:      "vineyard-" + filepath.Base(m.ProjectDir) + "-" + id,
 		Status:        StatusLoading,
@@ -78,7 +79,7 @@ func (m *Manager) Start(s Session, width, height int) (Session, error) {
 		return s, err
 	}
 	s.BaseCommit = base
-	s.Branch = m.freeBranch(Slug(s.Title, s.ID))
+	s.Branch = m.freeBranch(s.Branch)
 	if err := git.AddWorktree(m.Repo.Root, s.WorktreePath, s.Branch, base); err != nil {
 		return s, err
 	}
@@ -93,11 +94,11 @@ func (m *Manager) Start(s Session, width, height int) (Session, error) {
 	return s, nil
 }
 
-// freeBranch returns the prefixed branch name, numbered if it is taken.
+// freeBranch returns name, numbered if a branch by that name exists.
 func (m *Manager) freeBranch(name string) string {
-	branch := m.BranchPrefix + name
+	branch := name
 	for n := 2; git.BranchExists(m.Repo.Root, branch); n++ {
-		branch = m.BranchPrefix + name + "-" + strconv.Itoa(n)
+		branch = name + "-" + strconv.Itoa(n)
 	}
 	return branch
 }

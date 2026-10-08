@@ -19,9 +19,13 @@ name. Its `Status` is one of:
 `session.Manager` performs lifecycle operations against git and a `Terminal`
 (implemented by `*tmux.Client`):
 
-- `Start` branches from the HEAD of the checkout Vineyard runs in, adds the
-  worktree, and launches the program sized to the preview pane. A failed launch
-  removes the worktree and branch again.
+- `New` names the branch from the branch prefix passed in by the TUI and the
+  title. The TUI passes the prefix from its current config, so a prefix saved
+  on the config screen applies to the next session.
+- `Start` numbers the branch if the name is taken, branches from the HEAD of
+  the checkout Vineyard runs in, adds the worktree, and launches the program
+  sized to the preview pane. A failed launch removes the worktree and branch
+  again.
 - `Pause` commits all changes as a checkpoint, stops the agent and its shell,
   and removes the worktree so the branch can be checked out elsewhere.
 - `Resume` re-adds the worktree from the branch when it is missing and restarts
@@ -116,8 +120,9 @@ key/mouse/tick
 ```
 
 The root model owns sessions, side effects, focus, and layout. Child views own
-rendering and local navigation, and import only `tui/common`. `tui.Backend`
-is the single seam to the outside world; tests replace it with a fake.
+rendering and local navigation; they import `tui/common` and plain data types
+(`config`, `session`), never the backend. `tui.Backend` is the single seam to
+the outside world, including saving the config; tests replace it with a fake.
 
 Polling loops schedule their next tick independently of their work and skip a
 round while the previous one is still in flight, so slow git or tmux calls

@@ -52,7 +52,7 @@ func newTestManager(t *testing.T) (*Manager, *fakeTerminal) {
 		t.Fatal(err)
 	}
 	term := newFakeTerminal()
-	m := NewManager(repo, term, filepath.Join(t.TempDir(), "project"), "test/")
+	m := NewManager(repo, term, filepath.Join(t.TempDir(), "project"))
 	m.now = func() time.Time { return time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC) }
 	return m, term
 }
@@ -77,7 +77,7 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 func startSession(t *testing.T, m *Manager, title string) Session {
 	t.Helper()
-	s, err := m.Start(m.New(NewOptions{Title: title, Program: "claude"}), 80, 24)
+	s, err := m.Start(m.New(NewOptions{Title: title, Program: "claude", BranchPrefix: "test/"}), 80, 24)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestStart_NumbersTakenBranchNames(t *testing.T) {
 func TestStart_FailedLaunchLeavesNothingBehind(t *testing.T) {
 	m, term := newTestManager(t)
 	term.startErr = errors.New("no such program")
-	s, err := m.Start(m.New(NewOptions{Title: "broken", Program: "nope"}), 80, 24)
+	s, err := m.Start(m.New(NewOptions{Title: "broken", Program: "nope", BranchPrefix: "test/"}), 80, 24)
 	if err == nil {
 		t.Fatal("expected start to fail")
 	}

@@ -36,6 +36,7 @@ exits, and the next launch picks them up again.
 | `r` | Resume a checked-out or stopped session |
 | `D` | Kill: stop the agent and delete the worktree (branches with commits are kept) |
 | `a` | Toggle auto-yes, which accepts the agent's permission prompts |
+| `C` | Open the config screen |
 | `q` | Quit; sessions keep running |
 
 In the diff pane, `]` and `[` jump between files, `ctrl+d`/`ctrl+u` page, and
@@ -46,7 +47,12 @@ on auto-yes for them. `vineyard debug` prints where everything is stored.
 
 ## Configuration
 
-`~/.vineyard/config.toml`:
+Press `C` to edit the configuration in Vineyard: the default agent, the branch
+prefix, auto-yes for new sessions, and the agent profiles. `ctrl+s` saves, and
+the next new session uses the new settings; `esc` leaves without saving.
+
+The screen writes `~/.vineyard/config.toml`, which can also be edited by hand.
+Saving from the screen drops comments in the file.
 
 ```toml
 default_program = "claude"   # profile name, or a command
