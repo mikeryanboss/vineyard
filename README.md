@@ -12,6 +12,7 @@ which it will integrate with more deeply over time.
 
 - git
 - tmux
+- Go 1.25 or newer, to build from source
 
 ## Install
 
@@ -72,7 +73,7 @@ With more than one profile, the new-session dialog offers a choice of agent.
 
 ## How it works
 
-Each session is a branch and worktree under `~/.vineyard/projects/<repo>/worktrees/`
+Each session is its own branch and worktree under `~/.vineyard/projects/<repo>/worktrees/`
 with the agent running in a detached tmux session on Vineyard's own tmux server
 (`tmux -L vineyard ls`). The preview mirrors the agent's screen with
 `tmux capture-pane`; attaching hands the terminal to tmux. An agent whose
