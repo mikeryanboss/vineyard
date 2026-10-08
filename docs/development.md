@@ -59,3 +59,5 @@ back until things settle, dropping ticks so polling stays under the test's contr
 When a change moves a responsibility or invalidates an invariant in
 [README.md](README.md) or [architecture.md](architecture.md), update the
 document in the same change.
+
+If a row here is stale, fix it in the same change that made it stale.

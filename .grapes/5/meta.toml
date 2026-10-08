@@ -1,0 +1,6 @@
+title = 'Diff view: file cards that can be collapsed'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'diffview']
+created = 2026-10-08T21:06:00Z
+updated = 2026-10-08T21:18:00Z

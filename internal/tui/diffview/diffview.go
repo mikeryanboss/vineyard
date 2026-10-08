@@ -1,11 +1,12 @@
 // Package diffview renders a session's changes: a summary of changed files,
-// then each file's hunks with line numbers, syntax highlighting, and the
-// changed words of edited lines marked.
+// then each file as a collapsible card of hunks with line numbers, syntax
+// highlighting, and the changed words of edited lines marked.
 package diffview
 
 import (
 	"fmt"
 	"image/color"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -31,13 +32,14 @@ type Model struct {
 	raw        string
 	files      []diff.File
 	lines      []string
-	fileStarts []int // rendered line index of each file's header
+	fileStarts []int           // rendered line index of each file's card
+	collapsed  map[string]bool // paths of folded files
 	viewport   viewport.Model
 }
 
 // New returns an empty diff view.
 func New(theme common.Theme) Model {
-	return Model{theme: theme, viewport: viewport.New()}
+	return Model{theme: theme, viewport: viewport.New(), collapsed: map[string]bool{}}
 }
 
 // SetDiff shows the diff in raw `git diff` form. Unchanged input is a no-op,
@@ -87,11 +89,23 @@ func (m Model) CurrentFile() int {
 	return current
 }
 
+// fold changes which files are collapsed and keeps file anchor (an index into
+// Files) at the top of the view, since its position moves when files above it
+// shrink or grow. A negative anchor leaves the scroll position alone.
+func (m Model) fold(anchor int, collapsed map[string]bool) Model {
+	m.collapsed = collapsed
+	m = m.rerender()
+	if anchor >= 0 {
+		m.viewport.SetYOffset(m.fileStarts[anchor])
+	}
+	return m
+}
+
 func (m Model) rerender() Model {
 	if m.width <= 0 || m.files == nil {
 		return m
 	}
-	m.lines, m.fileStarts = render(m.files, m.width, m.theme)
+	m.lines, m.fileStarts = render(m.files, m.collapsed, m.width, m.theme)
 	return m.setContent()
 }
 
@@ -137,6 +151,25 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.viewport.GotoTop()
 		case key.Matches(msg, keys.Bottom):
 			m.viewport.GotoBottom()
+		case key.Matches(msg, keys.Toggle):
+			if i := m.CurrentFile(); i >= 0 {
+				collapsed := maps.Clone(m.collapsed)
+				path := m.files[i].Path()
+				if collapsed[path] {
+					delete(collapsed, path)
+				} else {
+					collapsed[path] = true
+				}
+				return m.fold(i, collapsed), nil
+			}
+		case key.Matches(msg, keys.Collapse):
+			collapsed := make(map[string]bool, len(m.files))
+			for _, f := range m.files {
+				collapsed[f.Path()] = true
+			}
+			return m.fold(max(m.CurrentFile(), 0), collapsed), nil
+		case key.Matches(msg, keys.Expand):
+			return m.fold(m.CurrentFile(), map[string]bool{}), nil
 		case key.Matches(msg, keys.NextFile):
 			for _, start := range m.fileStarts {
 				if start > m.viewport.YOffset() {
@@ -169,9 +202,9 @@ func (m Model) View() string {
 	return m.viewport.View()
 }
 
-// render lays out the summary and every file. It returns the lines and the
-// index of each file's header line.
-func render(files []diff.File, width int, t common.Theme) ([]string, []int) {
+// render lays out the summary and every file as a card. It returns the lines
+// and the index of each card's first line.
+func render(files []diff.File, collapsed map[string]bool, width int, t common.Theme) ([]string, []int) {
 	total := 0
 	for _, f := range files {
 		for _, h := range f.Hunks {
@@ -184,8 +217,11 @@ func render(files []diff.File, width int, t common.Theme) ([]string, []int) {
 	starts := make([]int, 0, len(files))
 	for _, f := range files {
 		starts = append(starts, len(lines))
-		lines = append(lines, renderFileHeader(f, width, t))
-		lines = append(lines, renderFileBody(f, width, t, highlight)...)
+		rule := lipgloss.NewStyle().Foreground(t.ColorFaint).Render(strings.Repeat("━", width))
+		lines = append(lines, rule, renderFileHeader(f, collapsed[f.Path()], width, t), rule)
+		if !collapsed[f.Path()] {
+			lines = append(lines, renderFileBody(f, width, t, highlight)...)
+		}
 		lines = append(lines, "")
 	}
 	return lines, starts
@@ -212,10 +248,14 @@ func renderSummary(files []diff.File, width int, t common.Theme) []string {
 	return append(lines, "")
 }
 
-func renderFileHeader(f diff.File, width int, t common.Theme) string {
+func renderFileHeader(f diff.File, collapsed bool, width int, t common.Theme) string {
+	chevron := "▾"
+	if collapsed {
+		chevron = "▸"
+	}
 	bg := t.StyleFileHeader.GetBackground()
 	on := func(s lipgloss.Style) lipgloss.Style { return s.Background(bg) }
-	left := on(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render("▌") +
+	left := on(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render(chevron) +
 		on(lipgloss.NewStyle()).Render(" ") +
 		statusLetterOn(f, t, bg) +
 		on(lipgloss.NewStyle()).Render(" ") +
