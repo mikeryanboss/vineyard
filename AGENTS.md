@@ -2,6 +2,7 @@ Users can override specific rules with explicit instructions (e.g., "skip PR for
 
 # Docs
 See `docs/` for project-specific documentation: tech stack, architecture, conventions.
+Start with [`docs/README.md`](docs/README.md), which maps tasks to files; do not read the whole repository to get oriented.
 Keep it up to date.
 
 # Coding
@@ -23,7 +24,7 @@ Add tests for the behavior we care about, including tests that catch other agent
 The whole suite must pass in under 10 seconds.
 
 ## Validation
-- Run all Python with uv. Lint with `uv run ruff check` and check formatting with `uv run ruff format --check`, scoped to the affected files. Linting does not prove behavior: also run the affected behavior checks.
+- Check formatting with `gofmt -l .` and run `go vet ./...` and `go test ./...`. Vetting does not prove behavior: also run the affected behavior checks, and exercise TUI changes in a real terminal (see [`docs/development.md`](docs/development.md)).
 - Validate once a coherent change is complete, not after every edit.
 - For parallel work, one agent owns shared validation and runs it after the related edits land.
 

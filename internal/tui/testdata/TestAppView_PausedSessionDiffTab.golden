@@ -1,0 +1,26 @@
+  vineyard 0.1.0  shop                                    ◑ 1 running   ● 1 ready   ○ 1 paused   × 1 stopped  
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Sessions 5                      ╭───────────────────────────────────────────────────────────────────────────╮
+                                 │ Preview   Diff                                                            │
+ ◑ Fix login redirect            │                                                                           │
+   ⑂ mboss/fix-login-red…  +3 -0 │                                                                           │
+                                 │                                                                           │
+ ● Add unit tests for the … auto │                                                                           │
+   ⑂ mboss/add-unit-test…  +3 -0 │                                                                           │
+                                 │                                                                           │
+▌○ Docs pass                     │                                                                           │
+▌  ⑂ mboss/docs-pass             │                                                                           │
+                                 │                                                                           │
+ × Cache layer                   │             Paused. The work is committed to mboss/docs-pass.             │
+   ⑂ mboss/cache-layer     +3 -0 │             Press r to resume.                                            │
+                                 │                                                                           │
+ ◌ Starting up                   │                                                                           │
+   ⑂ loading…                    │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 ╰───────────────────────────────────────────────────────────────────────────╯
+ n new · N new+prompt · enter attach · t shell · s push · c checkout · r resume · D kill · a auto-yes         
