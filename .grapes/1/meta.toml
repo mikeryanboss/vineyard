@@ -1,6 +1,6 @@
 title = 'Define Grapes-driven async agent orchestration model'
-status = 'backlog'
+status = 'cancelled'
 priority = 'high'
 labels = ['architecture', 'agents', 'orchestration', 'grapes']
 created = 2026-04-28T21:17:00Z
-updated = 2026-04-28T22:06:00Z
+updated = 2026-10-08T21:46:00Z
