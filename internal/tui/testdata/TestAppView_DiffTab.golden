@@ -1,0 +1,26 @@
+  vineyard 0.1.0  shop                                    ◑ 1 running   ● 1 ready   ○ 1 paused   × 1 stopped  
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Sessions 5                      ╭───────────────────────────────────────────────────────────────────────────╮
+                                 │ Preview   Diff +1 -1                                              summary │
+▌◑ Fix login redirect            │ 1 file changed  +1 -1                                                     │
+▌  ⑂ mboss/fix-login-red…  +1 -1 │                                                                           │
+                                 │ M auth.go                                                           +1 -1 │
+ ● Add unit tests for the … auto │                                                                           │
+   ⑂ mboss/add-unit-test…  +3 -0 │▌ M auth.go                                                          +1 -1 │
+                                 │  @@ -1,3 +1,3 @@ package auth                                             │
+ ○ Docs pass                     │ 1 1   package auth                                                        │
+   ⑂ mboss/docs-pass             │ 2   - var timeout = 30                                                    │
+                                 │   2 + var timeout = 60                                                    │
+ × Cache layer                   │ 3 3   // end                                                              │
+   ⑂ mboss/cache-layer     +3 -0 │                                                                           │
+                                 │                                                                           │
+ ◌ Starting up                   │                                                                           │
+   ⑂ loading…                    │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 ╰───────────────────────────────────────────────────────────────────────────╯
+ j/k scroll · ctrl+d/u page · ]/[ next/prev file · g/G top/bottom · tab preview · esc back                    

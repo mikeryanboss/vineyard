@@ -1,0 +1,26 @@
+  vineyard 0.1.0  shop                                    ◑ 1 running   ● 1 ready   ○ 1 paused   × 1 stopped  
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Sessions 5                      ╭───────────────────────────────────────────────────────────────────────────╮
+                                 │ Preview   Diff                                                            │
+▌◑ Fix login redirec╭────────────────────────────────────────────────────────────────────╮                   │
+▌  ⑂ mboss/fix-login│                                                                    │                   │
+                    │  New session with prompt                                           │                   │
+ ● Add unit tests fo│                                                                    │                   │
+   ⑂ mboss/add-unit-│  Title                                                             │                   │
+                    │  What should the agent work on?                                    │                   │
+ ○ Docs pass        │                                                                    │                   │
+   ⑂ mboss/docs-pass│  Prompt                                                            │                   │
+                    │  Instructions typed into the agent once it is ready                │                   │
+ × Cache layer      │                                                                    │                   │
+   ⑂ mboss/cache-lay│                                                                    │                   │
+                    │                                                                    │                   │
+ ◌ Starting up      │                                                                    │                   │
+   ⑂ loading…       │                                                                    │                   │
+                    │  Agent: claude                                                     │                   │
+                    │                                                                    │                   │
+                    ╰────────────────────────────────────────────────────────────────────╯                   │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 ╰───────────────────────────────────────────────────────────────────────────╯
+ enter create · alt+enter newline · tab next field · esc cancel                                               

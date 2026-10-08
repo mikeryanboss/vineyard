@@ -1,3 +1,14 @@
+# Go binary
+/vineyard
 dist/
-node_modules/
-npm-debug.log*
+
+# Grapes temp files
+.grapes/*/tmp/
+.grapes/tmp/
+
+# Grapes ID-allocation lock and interrupted atomic writes
+.grapes/.lock
+.grapes/*/.lock
+.grapes/config.toml.lock
+.grapes/.*.tmp-*
+.grapes/*/.*.tmp-*

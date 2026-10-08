@@ -1,33 +1,75 @@
 # vineyard
 
-Vineyard is a Grapes-driven orchestration runtime for async coding agents. It keeps Grapes as the durable work ledger, creates strict per-issue execution spaces, delegates implementation to Pi, and lets verifier/policy code own final status transitions.
+Vineyard is a terminal app for running several coding agents side by side —
+Claude Code, Codex, Gemini, Aider, or any CLI — each in its own git worktree
+and tmux session, from one screen.
 
-The implementation follows a Pi-like shape: a small SDK factory with defaults, narrow injectable services, file-backed state, and a thin CLI.
+It follows [claude-squad](https://github.com/smtg-ai/claude-squad)'s model, rebuilt on
+Bubble Tea v2 with the conventions of [grapes](https://github.com/Mibokess/grapes),
+which it will integrate with more deeply over time.
 
-## Status
+## Requirements
 
-This repository currently contains the first runtime foundation:
+- git
+- tmux
 
-- `createOrchestrator(options = {})`
-- file-backed Grapes store for issues and orchestration sidecars
-- strict git worktree manager
-- Chokidar watcher
-- Pi RPC runner seam
-- conservative verifier default
-- review-label policy gate
-- Node test coverage for the core status flow
+## Install
 
-## Usage
-
-```bash
-npm install
-npm run build
-npm exec vineyard reconcile --once
-npm exec vineyard run
+```sh
+go install github.com/mikeryanboss/vineyard@latest
 ```
 
-Issues are dispatched only when their Grapes status is `todo` and blockers are terminal. The runtime writes `claim.toml`, `run.toml`, `worktree.toml`, and `review.md` beside the issue.
+## Use
 
-## Implementation Notes
+Run `vineyard` inside a repository. Sessions keep running in tmux when Vineyard
+exits, and the next launch picks them up again.
 
-See [docs/initial-implementation.md](docs/initial-implementation.md) for the full implementation record, service boundaries, file state, status flow, tests, and current limitations.
+| Key | Action |
+| --- | --- |
+| `n` / `N` | New session / new session with an initial prompt |
+| `enter` | Attach to the agent; `ctrl-q` returns to Vineyard |
+| `t` | Open a shell in the session's worktree |
+| `tab` | Switch between the live preview and the diff |
+| `l` | Focus the pane to scroll it (`esc` returns to the list) |
+| `s` | Commit everything and push the branch to origin |
+| `c` | Check out: commit, stop the agent, remove the worktree, keep the branch |
+| `r` | Resume a checked-out or stopped session |
+| `D` | Kill: stop the agent and delete the worktree (branches with commits are kept) |
+| `a` | Toggle auto-yes, which accepts the agent's permission prompts |
+| `q` | Quit; sessions keep running |
+
+In the diff pane, `]` and `[` jump between files, `ctrl+d`/`ctrl+u` page, and
+`g`/`G` go to the top and bottom.
+
+Flags: `-p <command>` launches a different agent in new sessions, and `-y` turns
+on auto-yes for them. `vineyard debug` prints where everything is stored.
+
+## Configuration
+
+`~/.vineyard/config.toml`:
+
+```toml
+default_program = "claude"   # profile name, or a command
+branch_prefix = "mboss/"     # defaults to your username
+auto_yes = false
+
+[[profiles]]
+name = "claude"
+program = "claude"
+
+[[profiles]]
+name = "codex"
+program = "codex"
+```
+
+With more than one profile, the new-session dialog offers a choice of agent.
+
+## How it works
+
+Each session is a branch and worktree under `~/.vineyard/projects/<repo>/worktrees/`
+with the agent running in a detached tmux session on Vineyard's own tmux server
+(`tmux -L vineyard ls`). The preview mirrors the agent's screen with
+`tmux capture-pane`; attaching hands the terminal to tmux. An agent whose
+screen keeps changing is working; one whose screen is still is waiting for you.
+
+See [docs/README.md](docs/README.md) for the code map.
