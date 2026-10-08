@@ -44,6 +44,31 @@ Root-model tests (`internal/tui/app_test.go`) drive `tui.Model` with a fake
 `Backend`. `send` applies a message and feeds the resulting commands' messages
 back until things settle, dropping ticks so polling stays under the test's control.
 
+## Screenshots for Pull Requests
+
+A reviewer cannot see golden files rendered, so show TUI changes as screenshots
+of the running app. Capture them in a throwaway repo with the development
+build above, using a tmux window of fixed size:
+
+```sh
+GOBIN=$PWD/.grapes/<id>/tmp/bin go install github.com/charmbracelet/freeze@latest
+go build -o .grapes/<id>/tmp/vineyard .
+tmux new-session -d -s shot -x 110 -y 30 -c <demo-repo> \
+  "VINEYARD_HOME=<tmp>/home VINEYARD_TMUX_SOCKET=vy-shot <tmp>/vineyard -p bash"
+tmux send-keys -t shot n          # drive the app like a user
+tmux capture-pane -e -p -t shot > .grapes/<id>/tmp/shot.ansi
+.grapes/<id>/tmp/bin/freeze .grapes/<id>/tmp/shot.ansi --language ansi \
+  --theme github --background "#ffffff" \
+  --window=false --border.radius 0 -o .grapes/<id>/tmp/shot.png
+```
+
+Vineyard is light until the terminal reports a dark background, and tmux does
+not, so the capture is light text on `freeze`'s dark default canvas unless you
+pass the white `--background`.
+
+Look at each PNG before publishing it. The [pr skill](../.agents/skills/pr/SKILL.md)
+publishes the images and embeds them in the PR.
+
 ## Common Change Paths
 
 | Change | Production files | Tests |

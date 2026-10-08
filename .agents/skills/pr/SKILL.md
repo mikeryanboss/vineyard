@@ -76,13 +76,13 @@ The title describes the change, not necessarily the issue title, and stays under
 Show the reviewer that the change works, in proportion to the change:
 
 - **Behaviour change:** the command you ran and the part of its output that proves the claim.
-- **Visual change** (the 3D viewer, plots, figures, rendered reports): screenshots or the generated image embedded in the description. Show before and after when the change alters an existing view. Crop screenshots to the part that changed.
+- **TUI change:** screenshots of the real app, captured as [development.md](../../../docs/development.md#screenshots-for-pull-requests) describes. Show before and after when the change alters an existing view. Golden files are test fixtures, not evidence: a reviewer cannot see them rendered.
 - **Instructions or docs only:** nothing beyond the diff.
 
 A local or worktree path is not evidence. `gh` cannot upload PR attachments, so images go on the orphan branch `pr-evidence` under `<id>/<name>.png`, which keeps binaries out of `main` and outlives the worktree. Publish them from the worktree root:
 
 ```bash
-.agents/skills/pr/scripts/publish-evidence.sh <id> .grapes/<id>/tmp/<name>.png ...
+bash .agents/skills/pr/scripts/publish-evidence.sh <id> .grapes/<id>/tmp/<name>.png ...
 ```
 
 The script leaves your branch, index, and working tree untouched and prints the evidence commit SHA. If the push is rejected because another agent pushed first, rerun it. Never force-push `pr-evidence`.
@@ -90,7 +90,7 @@ The script leaves your branch, index, and working tree untouched and prints the 
 Embed each image by that SHA, which keeps the link stable when the branch moves on, with a caption saying what the reviewer should see:
 
 ```markdown
-![3D view after the change](https://github.com/Modexus/worldmodels/blob/<commit>/<id>/<name>.png?raw=true)
+![Diff view with one file folded](https://github.com/mikeryanboss/vineyard/blob/<commit>/<id>/<name>.png?raw=true)
 ```
 
 ## Step 5: Report
