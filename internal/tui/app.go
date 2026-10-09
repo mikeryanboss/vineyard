@@ -162,6 +162,9 @@ type Options struct {
 	// When it is nil, GrapesErr says why.
 	Grapes    *embedded.Model
 	GrapesErr error
+	// Issue, when set, is a grapes issue to act on at startup as if the user
+	// pressed the sessions key on it. Grapes must know the issue.
+	Issue int
 }
 
 // Model is the root TUI model.
@@ -202,6 +205,9 @@ type Model struct {
 	grapesErr error
 	// issuesOpen shows grapes in place of the whole screen.
 	issuesOpen bool
+	// startIssue is Options.Issue until the first window size arrives, which
+	// the sessions dialogs need.
+	startIssue int
 
 	status      string
 	statusIsErr bool
@@ -224,6 +230,8 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		preview:  preview.New(theme),
 		diff:     diffview.New(theme),
 		issue:    issueview.New(theme),
+
+		startIssue: opts.Issue,
 	}
 	if opts.ConfigErr != nil {
 		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
@@ -531,6 +539,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.applySizes()
+		if id := m.startIssue; id != 0 {
+			m.startIssue = 0
+			next, cmd := m.updateGrapes(msg)
+			shown, sessionsCmd := next.showSessions(id)
+			return shown, tea.Batch(cmd, sessionsCmd)
+		}
 		return m.updateGrapes(msg)
 
 	case tea.BackgroundColorMsg:

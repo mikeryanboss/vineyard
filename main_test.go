@@ -22,6 +22,7 @@ func TestRun_CommandsAndUsageErrors(t *testing.T) {
 		{args: []string{"bogus"}, code: 2, inStderr: "Unknown command: bogus"},
 		{args: []string{"version", "extra"}, code: 2, inStderr: "does not accept arguments"},
 		{args: []string{"--nope"}, code: 2, inStderr: "flag provided but not defined"},
+		{args: []string{"--issue", "x"}, code: 2, inStderr: "invalid value"},
 	}
 	for _, c := range cases {
 		t.Run(strings.Join(c.args, " "), func(t *testing.T) {

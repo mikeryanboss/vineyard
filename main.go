@@ -22,7 +22,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/tui"
 )
 
-var version = "0.1.1"
+var version = "0.1.2"
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -35,6 +35,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(program, "program", "", "")
 	autoYes := flags.Bool("y", false, "")
 	flags.BoolVar(autoYes, "autoyes", false, "")
+	issue := flags.Int("i", 0, "")
+	flags.IntVar(issue, "issue", 0, "")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			writeHelp(stdout)
@@ -68,14 +70,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if err := runTUI(*program, *autoYes); err != nil {
+	if err := runTUI(*program, *autoYes, *issue); err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
 	return 0
 }
 
-func runTUI(program string, autoYes bool) error {
+func runTUI(program string, autoYes bool, issue int) error {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		return errors.New("vineyard needs tmux; install it and try again")
 	}
@@ -112,6 +114,14 @@ func runTUI(program string, autoYes bool) error {
 	}
 
 	grapes, grapesErr := loadGrapes(repo.Root)
+	if issue != 0 {
+		if grapesErr != nil {
+			return fmt.Errorf("--issue: %w", grapesErr)
+		}
+		if _, ok := grapes.Issue(issue); !ok {
+			return fmt.Errorf("no grapes issue #%d", issue)
+		}
+	}
 
 	opts := tui.Options{
 		Config:   cfg,
@@ -125,6 +135,7 @@ func runTUI(program string, autoYes bool) error {
 		ConfigErr:  cfgErr,
 		Grapes:     grapes,
 		GrapesErr:  grapesErr,
+		Issue:      issue,
 	}
 	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Dir: dir}, sessions, opts)
 
@@ -224,6 +235,7 @@ USAGE:
 FLAGS:
   -p, --program <command>   Agent to launch in new sessions, e.g. "codex" or "aider --model x"
   -y, --autoyes             Accept agent permission prompts automatically in new sessions
+  -i, --issue <id>          Open at grapes issue <id>: its session, or a new one for it
 
 COMMANDS:
   debug                     Print configuration and data paths

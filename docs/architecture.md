@@ -58,6 +58,11 @@ The root model owns one `embedded.Model` for the life of the program:
   `embedded.CloseMsg` when the user presses quit, and `embedded.SessionsMsg`
   when the user asks for an issue's sessions.
 
+`vineyard --issue <id>` sets `Options.Issue`, and the first window size runs
+`showSessions` for it, as `SessionsMsg` would; the dialogs need that width.
+Standalone grapes runs this command for its sessions key, so sessions can be
+started from grapes without vineyard open.
+
 `issuesOf` links sessions to issues: the recorded `Issue`, plus
 `embedded.Model.TouchedIssues(WorktreePath)`, the issues the session's branch
 changed. Recorded issues survive pausing, which removes the worktree.

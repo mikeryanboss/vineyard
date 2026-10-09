@@ -333,3 +333,44 @@ func TestIssueTab_FollowsGrapesReloads(t *testing.T) {
 		t.Errorf("the issue tab should show the reloaded title:\n%s", got)
 	}
 }
+
+// startedAt builds a model the way main does for vineyard --issue id.
+func startedAt(t *testing.T, id int, sessions []session.Session) Model {
+	t.Helper()
+	root := t.TempDir()
+	writeIssue(t, root, 7, "Embed grapes")
+	g, err := embedded.New(filepath.Join(root, ".grapes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewModel(&fakeBackend{}, sessions, Options{Grapes: &g, Issue: id})
+}
+
+func TestStartIssue_OpensTheNewSessionDialogOnceSized(t *testing.T) {
+	m := startedAt(t, 7, nil)
+	if m.dialog != nil {
+		t.Fatal("the dialog needs the window's width; it must wait for the first size")
+	}
+
+	m = update(m, tea.WindowSizeMsg{Width: 110, Height: 26})
+	if _, ok := m.dialog.(*dialog.NewSession); !ok || !strings.Contains(screen(m), "New session for #7") {
+		t.Fatalf("dialog = %T, want the new-session dialog for #7:\n%s", m.dialog, screen(m))
+	}
+
+	m = keys(m, "esc")
+	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 30})
+	if m.dialog != nil {
+		t.Error("a later resize must not reopen the dialog")
+	}
+}
+
+func TestStartIssue_JumpsToTheIssuesSession(t *testing.T) {
+	m := startedAt(t, 7, []session.Session{
+		{ID: "a", Title: "other", Status: session.StatusReady},
+		{ID: "b", Title: "embed", Status: session.StatusReady, Issue: 7},
+	})
+	m = update(m, tea.WindowSizeMsg{Width: 110, Height: 26})
+	if m.dialog != nil || selectedID(m) != "b" {
+		t.Errorf("dialog=%T selected=%q; want session b selected", m.dialog, selectedID(m))
+	}
+}
