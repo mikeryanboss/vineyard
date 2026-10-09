@@ -77,7 +77,8 @@ program = "codex"
 With more than one profile, the new-session dialog asks which agent to run.
 
 `diff_command` runs through `sh` in the session's worktree, with `{base}`
-replaced by the commit the session started from. The default is
+replaced by the commit where the session's own work begins: where its branch
+forks from `origin/HEAD`, even after a rebase or merge. The default is
 [Hunk](https://github.com/modem-dev/hunk). When the command is empty or its
 program is not installed, `enter` shows Vineyard's own diff full-screen instead.
 

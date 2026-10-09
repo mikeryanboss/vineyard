@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Mibokess/grapes/embedded"
+	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/tui/dialog"
 	"github.com/mikeryanboss/vineyard/internal/tui/testutil"
@@ -217,39 +218,61 @@ func TestIssues_SessionOpensItsIssue(t *testing.T) {
 	}
 }
 
-// A session counts as working on every issue its branch changed, recorded or
-// not. With several, i asks which one to open.
-func TestIssues_TouchedIssuesLinkSessions(t *testing.T) {
+// A session counts as working on every issue its diff changed, recorded or
+// not, and keeps them after its branch merges into main, when grapes no longer
+// counts the branch as touching them. With several, i asks which one to open.
+func TestIssues_ChangedIssuesLinkSessionsAfterMerge(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
 	root := t.TempDir()
-	git := func(dir string, args ...string) {
+	run := func(dir string, args ...string) string {
 		t.Helper()
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		if out, err := cmd.CombinedOutput(); err != nil {
+		out, err := cmd.CombinedOutput()
+		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
+		return strings.TrimSpace(string(out))
 	}
-	git(root, "init", "-q", "-b", "main")
-	git(root, "config", "user.email", "test@example.com")
-	git(root, "config", "user.name", "Test")
+	run(root, "init", "-q", "-b", "main")
+	run(root, "config", "user.email", "test@example.com")
+	run(root, "config", "user.name", "Test")
 	writeIssue(t, root, 7, "Embed grapes")
 	writeIssue(t, root, 8, "Pick a session")
-	git(root, "add", "-A")
-	git(root, "commit", "-q", "-m", "issues")
+	run(root, "add", "-A")
+	run(root, "commit", "-q", "-m", "issues")
+	base := run(root, "rev-parse", "HEAD")
 	worktree := filepath.Join(t.TempDir(), "agent")
-	git(root, "worktree", "add", "-q", "-b", "agent", worktree)
-	writeIssue(t, worktree, 8, "Pick a session, in progress")
+	run(root, "worktree", "add", "-q", "-b", "agent", worktree)
+	writeIssue(t, worktree, 8, "Pick a session, done")
+	run(worktree, "commit", "-q", "-am", "finish #8")
+	run(root, "merge", "-q", "--no-ff", "-m", "merge agent", "agent")
 
 	m, _ := newTestModel(t, []session.Session{
-		{ID: "a", Title: "embed", Status: session.StatusReady, Issue: 7, WorktreePath: worktree},
+		{ID: "a", Title: "embed", Status: session.StatusReady, Issue: 7, WorktreePath: worktree, BaseCommit: base},
+		{ID: "b", Title: "other", Status: session.StatusReady, WorktreePath: worktree, BaseCommit: base},
 	})
 	m = withGrapes(t, m, root)
+	if got := m.grapes.TouchedIssues(worktree); len(got) != 0 {
+		t.Fatalf("grapes counts the merged branch as touching %v; this test proves nothing", got)
+	}
 
+	raw, err := git.Diff(worktree, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat, err := git.DiffStat(worktree, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = update(m, diffMsg{selectedID: "a", hasRaw: true, raw: raw, stats: map[string]git.Stat{"b": stat}})
 	if got := m.issuesOf(m.sessions[0]); !slices.Equal(got, []int{7, 8}) {
-		t.Errorf("issuesOf = %v, want [7 8]", got)
+		t.Errorf("selected session's issuesOf = %v, want [7 8]", got)
+	}
+	if got := m.issuesOf(m.sessions[1]); !slices.Equal(got, []int{8}) {
+		t.Errorf("other session's issuesOf = %v, want [8]", got)
 	}
 	m = keys(m, "i")
 	if _, ok := m.dialog.(*dialog.Pick); !ok {
@@ -260,9 +283,9 @@ func TestIssues_TouchedIssuesLinkSessions(t *testing.T) {
 		t.Errorf("choosing #7 should open its detail:\n%s", screen(m))
 	}
 
-	m = send(m, embedded.SessionsMsg{IssueID: 8})
+	m = send(m, embedded.SessionsMsg{IssueID: 7})
 	if m.issuesOpen || selectedID(m) != "a" {
-		t.Error("a session that only touched #8 should still be found for #8")
+		t.Error("the session recorded for #7 should be found for #7")
 	}
 }
 
@@ -320,6 +343,22 @@ func TestIssueTab_ShowsTheSelectedSessionsIssue(t *testing.T) {
 	m = keys(m, "tab")
 	if m.tab != tabRecap {
 		t.Errorf("tab from the issue tab should reach the recap tab, got %v", m.tab)
+	}
+}
+
+// A diff poll can link the shown session to an issue, so the issue tab must
+// render it then rather than wait for another change.
+func TestIssueTab_FollowsTheDiff(t *testing.T) {
+	m := grapesModel(t, []session.Session{{ID: "a", Title: "loose", Status: session.StatusReady}})
+	m = keys(m, "tab", "tab")
+	if got := screen(m); !strings.Contains(got, "No issue linked") {
+		t.Fatalf("a session without an issue should say so:\n%s", got)
+	}
+
+	m = update(m, diffMsg{selectedID: "a", hasRaw: true, raw: "diff --git a/.grapes/8/meta.toml b/.grapes/8/meta.toml\n" +
+		"--- a/.grapes/8/meta.toml\n+++ b/.grapes/8/meta.toml\n@@ -1 +1 @@\n-status = 'todo'\n+status = 'done'\n"})
+	if got := screen(m); !strings.Contains(got, "Pick a session") {
+		t.Errorf("the issue tab should show #8, which the diff changed:\n%s", got)
 	}
 }
 

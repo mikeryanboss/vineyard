@@ -83,7 +83,7 @@ func (f *fakeBackend) AttachCommand(s session.Session) *exec.Cmd {
 }
 
 func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
-	cmd, err := diffTool(s, command)
+	cmd, err := diffTool(s, s.BaseCommit, command)
 	if err == nil {
 		f.mu.Lock()
 		f.tools = append(f.tools, cmd)

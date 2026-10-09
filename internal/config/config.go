@@ -43,8 +43,8 @@ type Config struct {
 	// repository root, absolute, or starting with "~/".
 	WorktreeDir string `toml:"worktree_dir"`
 	// DiffCommand shows a session's diff full-screen. It runs through sh in
-	// the session's worktree, with {base} replaced by the session's base
-	// commit. When it is empty, or its first word is not an installed program,
+	// the session's worktree, with {base} replaced by the commit where the
+	// session's work begins (git.Base). When it is empty, or its first word is not an installed program,
 	// Vineyard shows its own diff full-screen instead.
 	DiffCommand string `toml:"diff_command"`
 }

@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -769,6 +770,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case diffMsg:
 		m.diffInFlight = false
+		shown, _ := m.selected()
+		shownIssues := m.issuesOf(shown)
 		for id, stat := range msg.stats {
 			m.stats[id] = stat
 		}
@@ -779,14 +782,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.selectedID == m.shownID && msg.hasRaw && msg.rawErr == nil {
 			m.diff = m.diff.SetDiff(msg.raw)
-			added, removed := 0, 0
+			var stat git.Stat
 			for _, f := range m.diff.Files() {
-				added += f.Added
-				removed += f.Removed
+				stat.Added += f.Added
+				stat.Removed += f.Removed
+				stat.Paths = append(stat.Paths, f.OldPath, f.NewPath)
 			}
-			m.stats[msg.selectedID] = git.Stat{Added: added, Removed: removed}
+			m.stats[msg.selectedID] = stat
 		}
 		m.syncList()
+		if !slices.Equal(m.issuesOf(shown), shownIssues) {
+			m.refreshIssue()
+		}
 		return m, nil
 
 	case recapMsg:
@@ -1020,15 +1027,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateGrapes passes msg to grapes, when there is one. A grapes reload may
-// change which issues sessions have touched, and what they say, so the list
-// and the issue tab are rebuilt.
+// change what issues say, so the issue tab is rebuilt.
 func (m Model) updateGrapes(msg tea.Msg) (Model, tea.Cmd) {
 	if m.grapesErr != nil {
 		return m, nil
 	}
 	var cmd tea.Cmd
 	m.grapes, cmd = m.grapes.Update(msg)
-	m.syncList()
 	m.refreshIssue()
 	return m, cmd
 }
@@ -1114,17 +1119,24 @@ func (m *Model) refreshRecap() {
 func isClaude(s session.Session) bool { return session.ProgramName(s.Program) == "claude" }
 
 // issuesOf returns the grapes issues session s works on: the one it was
-// started for and those its branch changed, in ascending order.
+// started for and those whose files its diff changes, in ascending order.
+//
+// The diff runs from where the branch's own work begins (git.Base), so the
+// issues stay linked after the branch merges. Grapes' TouchedIssues compares
+// against the default branch's tip instead and loses them then.
 func (m Model) issuesOf(s session.Session) []int {
 	var ids []int
 	if s.Issue > 0 {
 		ids = append(ids, s.Issue)
 	}
-	if m.grapesErr == nil {
-		for _, id := range m.grapes.TouchedIssues(s.WorktreePath) {
-			if id != s.Issue {
-				ids = append(ids, id)
-			}
+	for _, path := range m.stats[s.ID].Paths {
+		rest, ok := strings.CutPrefix(path, ".grapes/")
+		if !ok {
+			continue
+		}
+		dir, _, _ := strings.Cut(rest, "/")
+		if id, err := strconv.Atoi(dir); err == nil && id > 0 && !slices.Contains(ids, id) {
+			ids = append(ids, id)
 		}
 	}
 	slices.Sort(ids)

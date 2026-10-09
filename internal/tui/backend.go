@@ -108,12 +108,16 @@ func (b LiveBackend) ShellAttachCommand(s session.Session) *exec.Cmd {
 }
 
 func (b LiveBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
-	return diffTool(s, command)
+	base, err := git.Base(s.WorktreePath, s.BaseCommit)
+	if err != nil {
+		return nil, err
+	}
+	return diffTool(s, base, command)
 }
 
 // diffTool runs command through sh in s's worktree, with {base} replaced by
-// s's base commit, once its first word is found on PATH.
-func diffTool(s session.Session, command string) (*exec.Cmd, error) {
+// base, once its first word is found on PATH.
+func diffTool(s session.Session, base, command string) (*exec.Cmd, error) {
 	words := strings.Fields(command)
 	if len(words) == 0 {
 		return nil, fmt.Errorf("no diff tool configured: %w", exec.ErrNotFound)
@@ -121,17 +125,25 @@ func diffTool(s session.Session, command string) (*exec.Cmd, error) {
 	if _, err := exec.LookPath(words[0]); err != nil {
 		return nil, err
 	}
-	cmd := exec.Command("sh", "-c", strings.ReplaceAll(command, "{base}", s.BaseCommit))
+	cmd := exec.Command("sh", "-c", strings.ReplaceAll(command, "{base}", base))
 	cmd.Dir = s.WorktreePath
 	return cmd, nil
 }
 
 func (b LiveBackend) Diff(s session.Session) (string, error) {
-	return git.Diff(s.WorktreePath, s.BaseCommit)
+	base, err := git.Base(s.WorktreePath, s.BaseCommit)
+	if err != nil {
+		return "", err
+	}
+	return git.Diff(s.WorktreePath, base)
 }
 
 func (b LiveBackend) DiffStat(s session.Session) (git.Stat, error) {
-	return git.DiffStat(s.WorktreePath, s.BaseCommit)
+	base, err := git.Base(s.WorktreePath, s.BaseCommit)
+	if err != nil {
+		return git.Stat{}, err
+	}
+	return git.DiffStat(s.WorktreePath, base)
 }
 
 func (b LiveBackend) Branch(s session.Session) (string, error) {

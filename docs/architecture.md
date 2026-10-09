@@ -78,9 +78,12 @@ The root model owns one `embedded.Model` for the life of the program:
 Standalone grapes runs this command for its sessions key, so sessions can be
 started from grapes without vineyard open.
 
-`issuesOf` links sessions to issues: the recorded `Issue`, plus
-`embedded.Model.TouchedIssues(WorktreePath)`, the issues the session's branch
-changed. Recorded issues survive pausing, which removes the worktree.
+`issuesOf` links sessions to issues: the recorded `Issue`, plus every
+`.grapes/<id>/` the session's diff changes (see Diffs), as the git poll last saw
+it in `git.Stat.Paths`. Grapes' own `embedded.Model.TouchedIssues` is not used:
+it compares against the default branch's tip, so it drops a branch's issues
+once the branch merges.
+Recorded issues survive pausing, which removes the worktree.
 
 The pane's issue tab shows those issues, rendered by
 `embedded.Model.RenderIssue` at the pane's width. Given the session's worktree,
@@ -202,11 +205,27 @@ Only the leading Vineyard (see Several Vineyards) acts on the following:
 
 ## Diffs
 
-`git.Diff` compares the session's base commit with its working tree: committed
+`git.Diff` compares the session's base with its working tree: committed
 work, uncommitted edits, and untracked files that are not ignored (up to 200
 files of up to 1 MiB each). Untracked files are diffed with `git diff --no-index`
 against the null device instead of `git add -N`, which would write to the index
-the agent is using. `git.DiffStat` gives line counts only, for sessions not on screen.
+the agent is using. `git.DiffStat` gives line counts and changed paths only, for
+sessions not on screen.
+
+The base is where the branch's own work begins, found by `git.Base` on every
+poll, so the diff leaves out what the branch took in from the mainline,
+`origin/HEAD`, by rebasing or merging:
+
+- Before the branch merges, the base is `git merge-base origin/HEAD HEAD`.
+- Once a merge commit on the mainline's first-parent history brings it in
+  (`git rev-list --first-parent --ancestry-path HEAD..origin/HEAD`, oldest
+  first), the base is the merge-base of that merge's first parent and `HEAD`:
+  the mainline as the merge found it. A rebase before merging does not change it.
+- A fast-forward leaves no merge commit, so the branch's commits cannot be told
+  from the mainline's, and the base is `HEAD`: only uncommitted work shows.
+- Without `origin/HEAD` (no remote, or one added without
+  `git remote set-head origin --auto`), the base is `BaseCommit`, the commit the
+  session started from.
 
 `diff.Parse` turns the output into files, hunks, and numbered lines. It reads
 hunk bodies by the line counts in their headers, so a removed line starting
@@ -223,7 +242,7 @@ state changes. Files fold individually (`enter`) or all at once (`c`, `e`); fold
 state is keyed by path and survives diff refreshes.
 
 `enter` on the Diff tab hands the terminal to `diff_command`, run by `sh` in the
-worktree with `{base}` replaced by the base commit, through `tea.ExecProcess`
+worktree with `{base}` replaced by the session's base (see Diffs), through `tea.ExecProcess`
 as attach does. The backend looks up its first word on `PATH` in a command, not
 in `Update`. When the command is empty or that program is missing, the pane is
 zoomed instead: it fills the body in place of the list until `esc` or a tab
