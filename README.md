@@ -16,6 +16,10 @@ which it will integrate with more deeply over time.
 
 ## Install
 
+Download a Linux or macOS archive from the
+[releases](https://github.com/mikeryanboss/vineyard/releases), or build from
+source:
+
 ```sh
 go install github.com/mikeryanboss/vineyard@latest
 ```

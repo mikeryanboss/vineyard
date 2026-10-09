@@ -1,0 +1,6 @@
+title = 'Release vineyard with tagged GoReleaser builds'
+status = 'done'
+priority = 'medium'
+labels = ['release']
+created = 2026-10-09T09:20:00Z
+updated = 2026-10-09T09:21:00Z
