@@ -6,7 +6,7 @@ require (
 	charm.land/bubbles/v2 v2.1.1
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/lipgloss/v2 v2.0.5
-	github.com/Mibokess/grapes v0.1.11-0.20261009081705-50b5efb3d664
+	github.com/Mibokess/grapes v0.1.11
 	github.com/alecthomas/chroma/v2 v2.23.1
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
