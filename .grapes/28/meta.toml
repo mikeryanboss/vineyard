@@ -1,0 +1,6 @@
+title = "Keep a session's issues linked after its branch merges"
+status = 'done'
+priority = 'high'
+labels = ['bug', 'grapes']
+created = 2026-10-09T13:01:00Z
+updated = 2026-10-09T13:20:00Z

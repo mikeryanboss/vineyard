@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -194,6 +196,66 @@ func TestDiff_IncludesCommittedUncommittedAndUntracked(t *testing.T) {
 	if stat.Added != 6 || stat.Removed != 0 {
 		t.Errorf("DiffStat = %+v, want +6 -0", stat)
 	}
+	for _, want := range []string{"committed.txt", "README.md", "untracked.txt", ".gitignore"} {
+		if !slices.Contains(stat.Paths, want) {
+			t.Errorf("DiffStat paths %v missing %q", stat.Paths, want)
+		}
+	}
+}
+
+// A branch's work stays the same as the mainline moves on, the agent rebases
+// onto it, and a merge commit takes the branch in, as on GitHub.
+func TestBase_FindsTheBranchsOwnWorkThroughRebaseAndMerge(t *testing.T) {
+	root := newRepo(t)
+	start, _ := Head(root)
+	agent := filepath.Join(t.TempDir(), "agent")
+	mustGit(t, root, "worktree", "add", "-q", "-b", "agent", agent)
+	own := func() []string {
+		t.Helper()
+		base, err := Base(agent, start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stat, err := DiffStat(agent, base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stat.Paths
+	}
+
+	writeFile(t, agent, "agent.txt", "work\n")
+	mustGit(t, agent, "add", "-A")
+	mustGit(t, agent, "commit", "-q", "-m", "agent's work")
+	writeFile(t, root, "other.txt", "someone else's work\n")
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "other work")
+	if got := own(); !slices.Equal(got, []string{"agent.txt"}) {
+		t.Errorf("without origin/HEAD the work runs from start: got %v, want [agent.txt]", got)
+	}
+
+	publish := func() { mustGit(t, root, "update-ref", "refs/remotes/origin/main", "main") }
+	publish()
+	mustGit(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	mustGit(t, agent, "rebase", "-q", "main")
+	if got := own(); !slices.Equal(got, []string{"agent.txt"}) {
+		t.Errorf("rebased onto the mainline: got %v, want [agent.txt]", got)
+	}
+
+	mustGit(t, root, "merge", "-q", "--no-ff", "-m", "merge agent", "agent")
+	writeFile(t, root, "later.txt", "after the merge\n")
+	mustGit(t, root, "add", "-A")
+	mustGit(t, root, "commit", "-q", "-m", "later work")
+	publish()
+	if got := own(); !slices.Equal(got, []string{"agent.txt"}) {
+		t.Errorf("merged into the mainline: got %v, want [agent.txt]", got)
+	}
+
+	fresh := filepath.Join(t.TempDir(), "fresh")
+	mustGit(t, root, "worktree", "add", "-q", "-b", "fresh", fresh, "origin/main")
+	head, _ := Head(fresh)
+	if base, err := Base(fresh, start); err != nil || base != head {
+		t.Errorf("Base of a branch at the mainline's tip = %v, %v; want HEAD %s", base, err, head)
+	}
 }
 
 func TestDiff_LeavesIndexUntouched(t *testing.T) {
@@ -209,9 +271,10 @@ func TestDiff_LeavesIndexUntouched(t *testing.T) {
 	}
 }
 
-func TestParseNumstat_SkipsBinaryCounts(t *testing.T) {
-	got := parseNumstat("3\t1\ta.go\n-\t-\timage.png\n10\t0\tb.go\n")
-	if got != (Stat{Added: 13, Removed: 1}) {
-		t.Errorf("parseNumstat = %+v", got)
+func TestParseNumstat_SkipsBinaryCountsAndKeepsRenamedPaths(t *testing.T) {
+	got := parseNumstat("3\t1\ta.go\x00-\t-\timage.png\x002\t0\t\x00old.go\x00new.go\x0010\t0\tb.go\x00")
+	want := Stat{Added: 15, Removed: 1, Paths: []string{"a.go", "image.png", "old.go", "new.go", "b.go"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseNumstat = %+v, want %+v", got, want)
 	}
 }

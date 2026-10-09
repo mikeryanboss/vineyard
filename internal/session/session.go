@@ -43,7 +43,8 @@ type Session struct {
 	// the lifecycle operations read the branch back. It is saved for paused
 	// sessions, whose worktree, and so git's record, is gone.
 	Branch string `json:"branch"`
-	// BaseCommit is the commit the branch started from. Diffs compare against it.
+	// BaseCommit is the commit the branch started from. Diffs compare against
+	// it when the repository has no origin/HEAD (see git.Base).
 	BaseCommit string `json:"base_commit"`
 	// WorktreePath is where the session's checkout lives. It is not saved:
 	// git records where each worktree is, and Restore asks it, so a moved
