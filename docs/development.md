@@ -80,7 +80,7 @@ publishes the images and embeds them in the PR.
 | List appearance | `tui/list/list.go` | list golden tests |
 | Config field | `config/config.go`, `tui/settings/settings.go`, README | `config_test.go`, `settings_test.go` |
 | Persisted session field | `session/session.go` | `TestStore_RoundTrip`; keep old files loadable |
-| Issues screen or session–issue links | `tui/app.go` (`issuesOf`, `showSessions`, `showIssues`) | `app_grapes_test.go` |
+| Issues screen, issue tab, or session–issue links | `tui/app.go` (`issuesOf`, `showSessions`, `showIssues`, `refreshIssue`) | `app_grapes_test.go` |
 | What grapes exposes | grapes' `embedded/` package, then `go get` the release here | grapes' `embedded_test.go`, `app_grapes_test.go` |
 
 ### Changing grapes alongside vineyard

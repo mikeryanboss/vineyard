@@ -62,6 +62,14 @@ The root model owns one `embedded.Model` for the life of the program:
 `embedded.Model.TouchedIssues(WorktreePath)`, the issues the session's branch
 changed. Recorded issues survive pausing, which removes the worktree.
 
+The pane's issue tab shows those issues, rendered by
+`embedded.Model.RenderIssue` at the pane's width. Given the session's worktree,
+grapes shows that worktree's copy of each issue, as the agent left it.
+Rendering is markdown work, so `refreshIssue` runs only while the tab is shown,
+and only when its inputs change: the selection, the tab, or a grapes update,
+which also covers resizes and theme changes, since both reach grapes through
+`updateGrapes`.
+
 ## Storage
 
 ```text
@@ -140,7 +148,7 @@ state is keyed by path and survives diff refreshes.
 ```text
 key/mouse/tick
   -> tui.Model.Update
-  -> child view Update (list, preview, diffview, dialog) for local behaviour
+  -> child view Update (list, preview, diffview, issueview, dialog) for local behaviour
   -> common message upward (NewSessionMsg, ConfirmedMsg, LeavePaneMsg, ...)
   -> root starts a command through Backend
   -> result message (startedMsg, lifecycleMsg, screenMsg, diffMsg, ...)

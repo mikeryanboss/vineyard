@@ -34,14 +34,14 @@ var ListKeyMap = ListKeys{
 	Resume:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resume")),
 	Push:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "push")),
 	AutoYes:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
-	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff")),
+	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue")),
 	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "scroll pane")),
 	Config:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
 	Issues:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
 	Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 
-// PaneKeys act on the preview or diff pane once it has focus.
+// PaneKeys act on the preview, diff, or issue pane once it has focus.
 type PaneKeys struct {
 	Up       key.Binding
 	Down     key.Binding
@@ -70,7 +70,7 @@ var PaneKeyMap = PaneKeys{
 	Toggle:   key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("enter", "fold file")),
 	Collapse: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "collapse all")),
 	Expand:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "expand all")),
-	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff")),
+	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue")),
 	Back:     key.NewBinding(key.WithKeys("esc", "h", "left", "q"), key.WithHelp("esc", "back")),
 }
 

@@ -8,7 +8,7 @@ links only as far as the task requires.
 A Go terminal application that runs coding agents in parallel. A session is one
 agent program in a detached tmux session, working in its own git worktree and
 branch. The TUI lists sessions, mirrors the selected agent's screen, shows its
-diff, and hands the terminal to tmux when the user attaches. Its issues screen is
+diff and its issue, and hands the terminal to tmux when the user attaches. Its issues screen is
 the [grapes](https://github.com/Mibokess/grapes) issue tracker, embedded, and
 links each issue to the sessions working on it.
 
@@ -45,6 +45,7 @@ main.go
 | Config screen | `internal/tui/settings/` | `SaveConfigMsg` in `internal/tui/app.go` |
 | Theme, key bindings, shared messages | `internal/tui/common/` | |
 | Issues screen, sessions linked to issues | `internal/tui/app.go` | Grapes in `architecture.md` |
+| Issue tab | `refreshIssue` in `internal/tui/app.go` | `internal/tui/issueview/` |
 
 ## Repository Map
 
@@ -60,6 +61,7 @@ internal/tui/backend.go    the root model's seam to tmux, git, and storage
 internal/tui/list/         session list view
 internal/tui/preview/      terminal mirror view
 internal/tui/diffview/     diff view
+internal/tui/issueview/    issue tab: a session's issues, rendered by grapes
 internal/tui/dialog/       new-session and confirmation dialogs
 internal/tui/settings/     config screen
 internal/tui/common/       theme, keys, messages
