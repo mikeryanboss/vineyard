@@ -48,6 +48,7 @@ main.go
 | Issue tab | `refreshIssue` in `internal/tui/app.go` | `internal/tui/textview/` |
 | Recap tab | `refreshRecap` in `internal/tui/app.go` | `internal/recap/`, Recaps in `architecture.md` |
 | Release a version | `var version` in `main.go` | Releases in `development.md` |
+| Re-record the README demo | `doc/vhs/demo.tape` | README Demo in `development.md` |
 
 ## Repository Map
 
@@ -70,6 +71,7 @@ internal/tui/settings/     config screen
 internal/tui/common/       theme, keys, messages
 internal/tui/testutil/     golden-file helpers and fixtures
 .grapes/                   this repository's own issues
+doc/                       README demo GIF and its VHS tape
 .github/workflows/         tag on version bump, release with GoReleaser
 ```
 
