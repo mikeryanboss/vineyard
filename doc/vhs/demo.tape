@@ -80,7 +80,7 @@ Sleep 300ms
 Enter
 
 # Watch it work.
-Sleep 10s
+Sleep 12s
 
 Hide
 Type "q"

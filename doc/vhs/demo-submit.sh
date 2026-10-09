@@ -21,5 +21,5 @@ while [ $SECONDS -lt $end ]; do
 			unset "waiting[$s]"
 		fi
 	done
-	sleep 2
+	sleep 1
 done

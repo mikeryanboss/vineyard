@@ -12,3 +12,6 @@
 
 ### 2026-10-09T13:12
 [DECISION] Record in light mode, at the reviewer's request: the tape uses VHS's `Catppuccin Latte` theme, so Vineyard picks its light theme. Re-recorded `doc/demo.gif` (30 s, 1.2 MB) on the first take; all steps show as before.
+
+### 2026-10-09T13:20
+[PROGRESS] Removed `user@host` from the user's Claude Code status line (`~/.claude/settings.json`, outside the repository) so the GIF no longer shows it. `demo-submit.sh` now checks every second and the ending runs 12 s, so a stuck prompt for #4 is sent while still on camera. Re-recorded `doc/demo.gif` (32 s, 1.3 MB); one take in between lost #4's prompt entirely (#24).
