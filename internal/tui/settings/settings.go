@@ -45,6 +45,7 @@ const (
 	idDefaultAgent fieldID = iota
 	idBranchPrefix
 	idAutoYes
+	idWorktreeDir
 	idProfile
 	idAddProfile
 )
@@ -137,6 +138,7 @@ func (m Model) fields() []field {
 			{id: idDefaultAgent, label: "Default agent", kind: fieldEnum, options: names},
 			{id: idBranchPrefix, label: "Branch prefix", kind: fieldText},
 			{id: idAutoYes, label: "Auto-yes for new sessions", kind: fieldEnum, options: []string{"off", "on"}},
+			{id: idWorktreeDir, label: "Worktree directory", kind: fieldText},
 		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
@@ -165,6 +167,8 @@ func (m Model) value(f field) string {
 			return "on"
 		}
 		return "off"
+	case idWorktreeDir:
+		return m.cfg.WorktreeDir
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
 	}
@@ -179,6 +183,8 @@ func (m *Model) setValue(f field, v string) {
 		m.cfg.BranchPrefix = v
 	case idAutoYes:
 		m.cfg.AutoYes = v == "on"
+	case idWorktreeDir:
+		m.cfg.WorktreeDir = v
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}
@@ -343,6 +349,10 @@ func (m Model) updateEditing(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	if f.kind == fieldProfile && value == "" {
 		m.setMessage("A profile needs a command.", true)
+		return m, nil
+	}
+	if f.id == idWorktreeDir && value == "" {
+		m.setMessage("Worktrees need a directory.", true)
 		return m, nil
 	}
 	m.setValue(f, value)

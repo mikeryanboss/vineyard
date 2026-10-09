@@ -37,7 +37,7 @@ func (f *fakeBackend) New(opts session.NewOptions) session.Session {
 		ID: session.Slug(opts.Title, "s"), Title: opts.Title, Program: opts.Program,
 		Branch:        opts.BranchPrefix + session.Slug(opts.Title, "s"),
 		PendingPrompt: opts.Prompt, AutoYes: opts.AutoYes, Status: session.StatusLoading,
-		Issue: opts.Issue,
+		Issue: opts.Issue, WorktreePath: opts.WorktreeDir + "/" + session.Slug(opts.Title, "s"),
 	}
 }
 
@@ -126,10 +126,11 @@ func newTestModel(t *testing.T, sessions []session.Session) (Model, *fakeBackend
 	tick = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
 	backend := &fakeBackend{screen: "✻ Thinking…\n\n> fix the redirect", diff: sampleDiff}
 	m := NewModel(backend, sessions, Options{
-		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/"},
+		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/", WorktreeDir: ".vineyard/worktrees"},
 		RepoName:   "shop",
+		RepoRoot:   "/src/shop",
 		Version:    "0.1.0",
-		ConfigPath: "~/.vineyard/config.toml",
+		ConfigPath: "~/src/shop/.vineyard/config.toml",
 	})
 	return update(m, tea.WindowSizeMsg{Width: 110, Height: 26}), backend
 }
@@ -255,6 +256,28 @@ func TestApp_CreateSession(t *testing.T) {
 	}
 	if len(backend.resized) == 0 {
 		t.Error("the new session's window should be sized to the preview")
+	}
+}
+
+// worktree_dir is read when a session is created, so a value saved on the
+// config screen applies to the next session. Empty would mean the repository
+// root itself, so it is refused.
+func TestApp_NewSessionUsesWorktreeDir(t *testing.T) {
+	m, _ := newTestModel(t, nil)
+	m.opts.Config.WorktreeDir = "../wt"
+	m = keys(m, "n")
+	m = typeText(m, "fix login")
+	m = keys(m, "enter")
+	if len(m.sessions) != 1 || m.sessions[0].WorktreePath != "/src/wt/fix-login" {
+		t.Fatalf("sessions = %+v, want one worktree at /src/wt/fix-login", m.sessions)
+	}
+
+	m.opts.Config.WorktreeDir = ""
+	m = keys(m, "n")
+	m = typeText(m, "second")
+	m = keys(m, "enter")
+	if len(m.sessions) != 1 || !strings.Contains(m.status, "worktree_dir is empty") {
+		t.Errorf("sessions = %d, status = %q; want no new session and the reason", len(m.sessions), m.status)
 	}
 }
 

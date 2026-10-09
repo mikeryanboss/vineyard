@@ -65,17 +65,23 @@ changed. Recorded issues survive pausing, which removes the worktree.
 ## Storage
 
 ```text
-~/.vineyard/                                     (VINEYARD_HOME)
-  config.toml
-  projects/<name>-<hash>/
-    sessions.json                                atomic rename on every write
-    lock                                         flock held while the TUI runs
-    worktrees/<session id>/
+<main checkout>/.vineyard/
+  config.toml                  committed; the repository's whole configuration
+  .gitignore                   written when missing: ignores all but config.toml
+  sessions.json                atomic rename on every write
+  lock                         flock held while the TUI runs
+  worktrees/<session id>/      the default worktree_dir
 ```
 
-The project directory is keyed by the main checkout's path, found through git's
-common directory, so starting Vineyard from any linked worktree shows the same
-sessions. The lock stops two Vineyard processes from overwriting each other's state.
+The directory is in the main checkout, found through git's common directory, so
+starting Vineyard from any linked worktree shows the same sessions. The lock
+stops two Vineyard processes from overwriting each other's state.
+
+`worktree_dir` is resolved against the main checkout when a session is created
+(`config.ResolveWorktreeDir`), and each session stores the absolute
+`WorktreePath` it got, so changing the setting never moves existing sessions.
+tmux session names use `config.ProjectName`, the checkout's directory name plus
+a hash of its path, because one tmux server serves every repository.
 
 ## tmux
 

@@ -55,17 +55,19 @@ on auto-yes for them. `vineyard debug` prints where everything is stored.
 
 ## Configuration
 
-Press `C` to edit the configuration in Vineyard: the default agent, the branch
-prefix, auto-yes for new sessions, and the agent profiles. `ctrl+s` saves, and
+Each repository keeps its configuration in `.vineyard/config.toml` in its main
+checkout, like grapes keeps `.grapes/config.toml`; commit it to share it. Press `C`
+to edit it in Vineyard: the default agent, the branch prefix, auto-yes for new
+sessions, the worktree directory, and the agent profiles. `ctrl+s` saves, and
 the next new session uses the new settings; `esc` leaves without saving.
 
-The screen writes `~/.vineyard/config.toml`, which can also be edited by hand.
-Saving from the screen drops comments in the file.
+The file can also be edited by hand; saving from the screen drops its comments.
 
 ```toml
-default_program = "claude"   # profile name, or a command
-branch_prefix = "mboss/"     # defaults to your username
+default_program = "claude"         # profile name, or a command
+branch_prefix = "mboss/"           # defaults to your username
 auto_yes = false
+worktree_dir = ".vineyard/worktrees"  # relative to the repository, absolute, or ~/...
 
 [[profiles]]
 name = "claude"
@@ -80,10 +82,14 @@ With more than one profile, the new-session dialog offers a choice of agent.
 
 ## How it works
 
-Each session is its own branch and worktree under `~/.vineyard/projects/<repo>/worktrees/`
-with the agent running in a detached tmux session on Vineyard's own tmux server
+Each session is its own branch and worktree, under `.vineyard/worktrees/` unless
+`worktree_dir` says otherwise, with the agent running in a detached tmux session on Vineyard's own tmux server
 (`tmux -L vineyard ls`). The preview mirrors the agent's screen with
 `tmux capture-pane`; attaching hands the terminal to tmux. An agent whose
 screen keeps changing is working; one whose screen is still is waiting for you.
+
+Everything else Vineyard keeps about a repository, its session list and a lock
+file, is in `.vineyard/` too. Vineyard writes `.vineyard/.gitignore` so that only
+the configuration reaches git.
 
 See [docs/README.md](docs/README.md) for the code map.

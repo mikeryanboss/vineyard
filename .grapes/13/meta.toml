@@ -1,0 +1,6 @@
+title = 'Keep vineyard data in the repository and make the worktree directory configurable'
+status = 'done'
+priority = 'high'
+labels = ['config', 'storage']
+created = 2026-10-09T08:54:00Z
+updated = 2026-10-09T08:58:00Z

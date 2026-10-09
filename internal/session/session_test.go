@@ -52,10 +52,13 @@ func newTestManager(t *testing.T) (*Manager, *fakeTerminal) {
 		t.Fatal(err)
 	}
 	term := newFakeTerminal()
-	m := NewManager(repo, term, filepath.Join(t.TempDir(), "project"))
+	m := NewManager(repo, term, "shop-1a2b3c4d")
 	m.now = func() time.Time { return time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC) }
 	return m, term
 }
+
+// worktrees is the default worktree directory, inside the main checkout.
+func worktrees(m *Manager) string { return filepath.Join(m.Repo.Root, ".vineyard", "worktrees") }
 
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
@@ -77,7 +80,7 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 func startSession(t *testing.T, m *Manager, title string) Session {
 	t.Helper()
-	s, err := m.Start(m.New(NewOptions{Title: title, Program: "claude", BranchPrefix: "test/"}), 80, 24)
+	s, err := m.Start(m.New(NewOptions{Title: title, Program: "claude", BranchPrefix: "test/", WorktreeDir: worktrees(m)}), 80, 24)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +108,20 @@ func TestStart_CreatesBranchWorktreeAndTerminal(t *testing.T) {
 	}
 }
 
+// Worktrees go where the caller says, named by session ID, and tmux names
+// carry the project name so repositories sharing the socket never collide.
+func TestNew_PlacesWorktreeAndNamesTmuxSession(t *testing.T) {
+	m, _ := newTestManager(t)
+	dir := t.TempDir()
+	s := m.New(NewOptions{Title: "Fix login", Program: "claude", WorktreeDir: dir})
+	if s.WorktreePath != filepath.Join(dir, s.ID) {
+		t.Errorf("worktree path = %q, want under %q", s.WorktreePath, dir)
+	}
+	if s.TmuxName != "vineyard-shop-1a2b3c4d-"+s.ID {
+		t.Errorf("tmux name = %q", s.TmuxName)
+	}
+}
+
 func TestStart_NumbersTakenBranchNames(t *testing.T) {
 	m, _ := newTestManager(t)
 	first := startSession(t, m, "same")
@@ -119,7 +136,7 @@ func TestStart_NumbersTakenBranchNames(t *testing.T) {
 // convention, "<id>/<slug>", whatever the configured prefix.
 func TestStart_IssueSessionBranchesByIssue(t *testing.T) {
 	m, _ := newTestManager(t)
-	s, err := m.Start(m.New(NewOptions{Title: "Embed grapes", Program: "claude", BranchPrefix: "test/", Issue: 12}), 80, 24)
+	s, err := m.Start(m.New(NewOptions{Title: "Embed grapes", Program: "claude", BranchPrefix: "test/", WorktreeDir: worktrees(m), Issue: 12}), 80, 24)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +148,7 @@ func TestStart_IssueSessionBranchesByIssue(t *testing.T) {
 func TestStart_FailedLaunchLeavesNothingBehind(t *testing.T) {
 	m, term := newTestManager(t)
 	term.startErr = errors.New("no such program")
-	s, err := m.Start(m.New(NewOptions{Title: "broken", Program: "nope", BranchPrefix: "test/"}), 80, 24)
+	s, err := m.Start(m.New(NewOptions{Title: "broken", Program: "nope", BranchPrefix: "test/", WorktreeDir: worktrees(m)}), 80, 24)
 	if err == nil {
 		t.Fatal("expected start to fail")
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 func newSettings(cfg config.Config, loadErr error) settings.Model {
-	return settings.New(cfg, "~/.vineyard/config.toml", loadErr, common.NewTheme(true)).SetSize(80, 14)
+	return settings.New(cfg, "~/src/shop/.vineyard/config.toml", loadErr, common.NewTheme(true)).SetSize(80, 14)
 }
 
 func twoProfiles() config.Config {
