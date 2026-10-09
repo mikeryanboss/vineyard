@@ -36,6 +36,32 @@ name. Its `Status` is one of:
 - `Push` commits and runs `git push -u origin <branch>`.
 - `Restore` runs at startup: sessions whose tmux session vanished become stopped.
 
+A session started from a grapes issue records it in `Issue`, and `New` names its
+branch `<issue>/<slug>` instead of using the prefix.
+
+## Grapes
+
+The issues screen is the grapes TUI itself, from grapes' public `embedded`
+package. `main.go` loads it for the main checkout's `.grapes` directory; grapes
+finds the copies in every worktree from there. Without that directory,
+`Options.GrapesErr` says why, and the issues key reports it.
+
+The root model owns one `embedded.Model` for the life of the program:
+
+- Grapes runs while hidden. Its file watcher and reloads are Bubble Tea
+  commands, so their results arrive in vineyard's `Update`; every message the
+  root does not handle is forwarded to grapes. Dropping them stops grapes from
+  reloading.
+- Keys and mouse events go to grapes only while `issuesOpen`; `ctrl+c` still
+  quits vineyard. Grapes then draws the whole screen, dialogs aside.
+- Grapes sends two messages for vineyard instead of acting itself:
+  `embedded.CloseMsg` when the user presses quit, and `embedded.SessionsMsg`
+  when the user asks for an issue's sessions.
+
+`issuesOf` links sessions to issues: the recorded `Issue`, plus
+`embedded.Model.TouchedIssues(WorktreePath)`, the issues the session's branch
+changed. Recorded issues survive pausing, which removes the worktree.
+
 ## Storage
 
 ```text
@@ -133,8 +159,8 @@ never pile up.
 ## Package Dependency Direction
 
 ```text
-main -> config, git, session, tmux, tui
-tui -> session, git, config, diff (via diffview), tui/*
+main -> config, git, session, tmux, tui, grapes/embedded
+tui -> session, git, config, diff (via diffview), tui/*, grapes/embedded
 tui/* -> tui/common, and data packages
 session -> git
 git, tmux, diff, config -> standard library and format libraries

@@ -8,7 +8,9 @@ links only as far as the task requires.
 A Go terminal application that runs coding agents in parallel. A session is one
 agent program in a detached tmux session, working in its own git worktree and
 branch. The TUI lists sessions, mirrors the selected agent's screen, shows its
-diff, and hands the terminal to tmux when the user attaches.
+diff, and hands the terminal to tmux when the user attaches. Its issues screen is
+the [grapes](https://github.com/Mibokess/grapes) issue tracker, embedded, and
+links each issue to the sessions working on it.
 
 ## Runtime Mental Model
 
@@ -16,6 +18,7 @@ diff, and hands the terminal to tmux when the user attaches.
 main.go
   -> find the repository, load ~/.vineyard/config.toml, lock the project
   -> load sessions.json and reconcile it with live tmux sessions
+  -> load grapes for the repository's .grapes directory, if any
   -> run the root TUI model (internal/tui/app.go)
        polls tmux: selected screen (150ms), all screens (1s) -> running/ready
        polls git: selected diff, others' line counts (2s)
@@ -41,6 +44,7 @@ main.go
 | Dialogs | `internal/tui/dialog/` | |
 | Config screen | `internal/tui/settings/` | `SaveConfigMsg` in `internal/tui/app.go` |
 | Theme, key bindings, shared messages | `internal/tui/common/` | |
+| Issues screen, sessions linked to issues | `internal/tui/app.go` | Grapes in `architecture.md` |
 
 ## Repository Map
 
@@ -76,6 +80,8 @@ internal/tui/testutil/     golden-file helpers and fixtures
   can be stale, so pending prompts and auto-yes depend on that, not on `Status`.
 - Diffs never touch the worktree's index; the agent is working in it.
 - Killing a session keeps its branch whenever the branch has commits.
+- Every message the root model does not handle goes to the embedded grapes
+  model, shown or not; its file watching and reloads depend on it.
 - Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_TMUX_SOCKET`), so
   its key bindings never reach the user's own tmux server.
 

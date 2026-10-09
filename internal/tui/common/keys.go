@@ -18,6 +18,7 @@ type ListKeys struct {
 	Tab       key.Binding
 	Focus     key.Binding
 	Config    key.Binding
+	Issues    key.Binding
 	Quit      key.Binding
 }
 
@@ -36,6 +37,7 @@ var ListKeyMap = ListKeys{
 	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff")),
 	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "scroll pane")),
 	Config:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
+	Issues:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
 	Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 

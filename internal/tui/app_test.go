@@ -37,6 +37,7 @@ func (f *fakeBackend) New(opts session.NewOptions) session.Session {
 		ID: session.Slug(opts.Title, "s"), Title: opts.Title, Program: opts.Program,
 		Branch:        opts.BranchPrefix + session.Slug(opts.Title, "s"),
 		PendingPrompt: opts.Prompt, AutoYes: opts.AutoYes, Status: session.StatusLoading,
+		Issue: opts.Issue,
 	}
 }
 

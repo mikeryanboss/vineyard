@@ -1,8 +1,10 @@
 // Package dialog provides the modal dialogs drawn over the main screen:
-// creating a session and confirming destructive actions.
+// creating a session, confirming destructive actions, and picking one of
+// several choices.
 package dialog
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -10,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 )
@@ -50,6 +53,7 @@ type NewSession struct {
 	title      textinput.Model
 	prompt     textarea.Model
 	withPrompt bool
+	issue      int // the grapes issue the session is for, or 0
 	profiles   []config.Profile
 	profile    int
 	focus      field
@@ -84,6 +88,16 @@ func NewSessionDialog(theme common.Theme, profiles []config.Profile, withPrompt 
 		profiles:   profiles,
 	}
 	return d, d.title.Focus()
+}
+
+// ForIssue fills the dialog in for a session working on a grapes issue. The
+// title and prompt stay editable.
+func (d *NewSession) ForIssue(id int, title, prompt string) *NewSession {
+	d.issue = id
+	d.withPrompt = true
+	d.title.SetValue(title)
+	d.prompt.SetValue(prompt)
+	return d
 }
 
 // fields lists the focus stops in order.
@@ -126,7 +140,7 @@ func (d *NewSession) submit() tea.Cmd {
 		d.prompt.Blur()
 		return d.title.Focus()
 	}
-	msg := common.NewSessionMsg{Title: title}
+	msg := common.NewSessionMsg{Title: title, Issue: d.issue}
 	if d.withPrompt {
 		msg.Prompt = strings.TrimSpace(d.prompt.Value())
 	}
@@ -181,7 +195,10 @@ func (d *NewSession) View() string {
 		return t.StyleSubtitle.Render(text)
 	}
 	heading := "New session"
-	if d.withPrompt {
+	switch {
+	case d.issue > 0:
+		heading = fmt.Sprintf("New session for #%d", d.issue)
+	case d.withPrompt:
 		heading = "New session with prompt"
 	}
 	parts := []string{
@@ -264,4 +281,66 @@ func (d *Confirm) View() string {
 // Hints returns the status bar key hints.
 func (d *Confirm) Hints() [][2]string {
 	return [][2]string{{"y", "confirm"}, {"n", "cancel"}}
+}
+
+// Choice is one option of a Pick dialog: its label and the message sent when
+// it is chosen.
+type Choice struct {
+	Label string
+	Msg   tea.Msg
+}
+
+// Pick asks the user to choose one of several options.
+type Pick struct {
+	theme   common.Theme
+	title   string
+	choices []Choice
+	cursor  int
+	width   int
+}
+
+// NewPick returns a picker for choices, which must not be empty.
+func NewPick(theme common.Theme, title string, choices []Choice, width int) *Pick {
+	return &Pick{theme: theme, title: title, choices: choices, width: width}
+}
+
+// Update handles input.
+func (d *Pick) Update(msg tea.Msg) (Dialog, tea.Cmd) {
+	k, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return d, nil
+	}
+	switch k.String() {
+	case "j", "down":
+		d.cursor = min(d.cursor+1, len(d.choices)-1)
+	case "k", "up":
+		d.cursor = max(d.cursor-1, 0)
+	case "enter":
+		chosen := d.choices[d.cursor].Msg
+		return d, func() tea.Msg { return chosen }
+	case "esc", "q":
+		return d, cancel
+	}
+	return d, nil
+}
+
+// View renders the dialog box.
+func (d *Pick) View() string {
+	t := d.theme
+	inner := max(10, d.width-6) // border and padding
+	parts := []string{t.StyleTitle.Render(d.title), ""}
+	for i, c := range d.choices {
+		label := ansi.Truncate(c.Label, inner-2, "…")
+		if i == d.cursor {
+			parts = append(parts, t.StyleTitle.Foreground(t.ColorAccent).Render("› "+label))
+		} else {
+			parts = append(parts, t.StyleSubtitle.Render("  "+label))
+		}
+	}
+	return t.StyleDialog.Width(d.width).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+}
+
+// Hints returns the status bar key hints.
+func (d *Pick) Hints() [][2]string {
+	return [][2]string{{"j/k", "move"}, {"enter", "choose"}, {"esc", "cancel"}}
 }

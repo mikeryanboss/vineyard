@@ -37,11 +37,18 @@ exits, and the next launch picks them up again.
 | `r` | Resume a checked-out or stopped session |
 | `D` | Kill: stop the agent and delete the worktree (branches with commits are kept) |
 | `a` | Toggle auto-yes, which accepts the agent's permission prompts |
+| `i` | Open the repository's [grapes](https://github.com/Mibokess/grapes) issues, at the selected session's issue |
 | `C` | Open the config screen |
 | `q` | Quit; sessions keep running |
 
 In the diff pane, `]` and `[` jump between files, `ctrl+d`/`ctrl+u` page, and
 `g`/`G` go to the top and bottom.
+
+The issues screen is grapes itself, for repositories with a `.grapes` directory.
+On an issue, `a` goes to the session working on it, offers a choice when several
+do, and starts one when none does; that session's branch is `<id>/<title>`.
+`q` returns to the sessions. A session works on an issue when it was started
+from it or its branch changed the issue's files; the list tags it `#<id>`.
 
 Flags: `-p <command>` launches a different agent in new sessions, and `-y` turns
 on auto-yes for them. `vineyard debug` prints where everything is stored.

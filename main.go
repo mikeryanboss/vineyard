@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/Mibokess/grapes/embedded"
 	"github.com/charmbracelet/x/term"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
@@ -111,6 +112,8 @@ func runTUI(program string, autoYes bool) error {
 		return err
 	}
 
+	grapes, grapesErr := loadGrapes(repo.Root)
+
 	opts := tui.Options{
 		Config:   cfg,
 		RepoName: repo.Name(),
@@ -120,6 +123,8 @@ func runTUI(program string, autoYes bool) error {
 		// The config screen shows where it saves.
 		ConfigPath: displayPath(config.Path(home)),
 		ConfigErr:  cfgErr,
+		Grapes:     grapes,
+		GrapesErr:  grapesErr,
 	}
 	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Home: home}, sessions, opts)
 
@@ -130,6 +135,23 @@ func runTUI(program string, autoYes bool) error {
 	defer closeTTY()
 	_, err = tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out)).Run()
 	return err
+}
+
+// loadGrapes loads the grapes issue tracker of the repository at root, from
+// the main checkout's .grapes directory, where grapes keeps the canonical
+// copies. Grapes finds every worktree's copies from there.
+func loadGrapes(root string) (*embedded.Model, error) {
+	dir := filepath.Join(root, ".grapes")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("%s has no .grapes directory", displayPath(root))
+	} else if err != nil {
+		return nil, err
+	}
+	m, err := embedded.New(dir)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
 }
 
 // terminal returns the files the TUI reads and draws on. Standard input and

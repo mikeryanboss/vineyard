@@ -19,6 +19,8 @@ type NewSessionMsg struct {
 	Title   string
 	Prompt  string
 	Profile config.Profile
+	// Issue is the grapes issue the session is for, or 0.
+	Issue int
 }
 
 // ConfirmedMsg reports that the user confirmed an action.
