@@ -102,15 +102,68 @@ func Head(dir string) (string, error) {
 }
 
 // AddWorktree creates a worktree at path on a new branch that starts at base.
+// Its links to the repository are relative, so they survive moving the
+// repository together with the worktree.
 func AddWorktree(repoRoot, path, branch, base string) error {
-	_, err := run(repoRoot, "worktree", "add", "-b", branch, path, base)
+	_, err := run(repoRoot, "worktree", "add", "--relative-paths", "-b", branch, path, base)
 	return err
 }
 
-// AddWorktreeForBranch creates a worktree at path for an existing branch.
+// AddWorktreeForBranch creates a worktree at path for an existing branch,
+// with relative links like AddWorktree.
 func AddWorktreeForBranch(repoRoot, path, branch string) error {
-	_, err := run(repoRoot, "worktree", "add", path, branch)
+	_, err := run(repoRoot, "worktree", "add", "--relative-paths", path, branch)
 	return err
+}
+
+// RepairWorktree reconnects the worktree at path with the repository after
+// either was moved, and rewrites their links as relative paths.
+func RepairWorktree(repoRoot, path string) error {
+	_, err := run(repoRoot, "worktree", "repair", "--relative-paths", path)
+	return err
+}
+
+// Worktree is one checkout of the repository, as git records it.
+type Worktree struct {
+	Path string
+	// Branch is the checked-out branch, or "" for a detached HEAD.
+	Branch string
+	// Prunable means git's record points at a directory that is gone, for
+	// example because the repository or the worktree was moved.
+	Prunable bool
+}
+
+// Worktrees lists the repository's checkouts, the main checkout first.
+func Worktrees(repoRoot string) ([]Worktree, error) {
+	out, err := run(repoRoot, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	var worktrees []Worktree
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			worktrees = append(worktrees, Worktree{Path: strings.TrimPrefix(line, "worktree ")})
+		case strings.HasPrefix(line, "branch refs/heads/"):
+			worktrees[len(worktrees)-1].Branch = strings.TrimPrefix(line, "branch refs/heads/")
+		case line == "prunable" || strings.HasPrefix(line, "prunable "):
+			worktrees[len(worktrees)-1].Prunable = true
+		}
+	}
+	return worktrees, nil
+}
+
+// CurrentBranch returns the branch checked out in dir. A detached HEAD is an
+// error: there is no branch to commit to, push, or check out again.
+func CurrentBranch(dir string) (string, error) {
+	out, err := run(dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if exitCode(err) == 1 {
+		return "", fmt.Errorf("%s has a detached HEAD; check out a branch first", dir)
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // RemoveWorktree deletes the worktree at path, discarding uncommitted changes,
@@ -150,17 +203,13 @@ func DeleteBranch(repoRoot, branch string) error {
 // BranchCheckout returns the path of the worktree that has branch checked
 // out, or "" when no worktree does.
 func BranchCheckout(repoRoot, branch string) (string, error) {
-	out, err := run(repoRoot, "worktree", "list", "--porcelain")
+	worktrees, err := Worktrees(repoRoot)
 	if err != nil {
 		return "", err
 	}
-	var path string
-	for _, line := range strings.Split(out, "\n") {
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			path = strings.TrimPrefix(line, "worktree ")
-		case line == "branch refs/heads/"+branch:
-			return path, nil
+	for _, w := range worktrees {
+		if w.Branch == branch {
+			return w.Path, nil
 		}
 	}
 	return "", nil

@@ -88,6 +88,9 @@ type (
 		raw        string
 		rawErr     error
 		stats      map[string]git.Stat
+		// branches holds each polled session's checked-out branch, which
+		// the agent may have switched.
+		branches map[string]string
 	}
 	startedMsg struct {
 		session session.Session
@@ -489,13 +492,19 @@ func (m Model) diffCmd() tea.Cmd {
 	}
 	showDiff := hasSelected && m.diffable(selected)
 	return func() tea.Msg {
-		msg := diffMsg{selectedID: selected.ID, hasRaw: showDiff, stats: map[string]git.Stat{}}
+		msg := diffMsg{selectedID: selected.ID, hasRaw: showDiff, stats: map[string]git.Stat{}, branches: map[string]string{}}
 		if showDiff {
 			msg.raw, msg.rawErr = backend.Diff(selected)
+			if branch, err := backend.Branch(selected); err == nil {
+				msg.branches[selected.ID] = branch
+			}
 		}
 		for _, s := range others {
 			if stat, err := backend.DiffStat(s); err == nil {
 				msg.stats[s.ID] = stat
+			}
+			if branch, err := backend.Branch(s); err == nil {
+				msg.branches[s.ID] = branch
 			}
 		}
 		return msg
@@ -602,6 +611,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for id, stat := range msg.stats {
 			m.stats[id] = stat
 		}
+		for id, branch := range msg.branches {
+			if i := m.find(id); i >= 0 {
+				m.sessions[i].Branch = branch
+			}
+		}
 		if msg.selectedID == m.shownID && msg.hasRaw && msg.rawErr == nil {
 			m.diff = m.diff.SetDiff(msg.raw)
 			added, removed := 0, 0
@@ -656,13 +670,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.remove(msg.session.ID)
 		m.syncList()
 		text := "Killed " + msg.session.Title + "."
-		if msg.result.KeptBranch {
-			text = "Killed " + msg.session.Title + ". Its commits are kept on " + msg.session.Branch + "."
+		if msg.result.KeptBranch != "" {
+			text = "Killed " + msg.session.Title + ". Its commits are kept on " + msg.result.KeptBranch + "."
 		}
 		return m, tea.Batch(m.saveCmd(), m.setStatus(text, false), m.refreshShown())
 
 	case pushedMsg:
 		delete(m.busy, msg.session.ID)
+		m.replace(msg.session) // carries the branch Push read from git
 		m.syncList()
 		if msg.err != nil {
 			return m, tea.Batch(m.setError(msg.err), m.refreshShown())
@@ -1044,7 +1059,8 @@ func (m Model) runConfirmed(msg common.ConfirmedMsg) (tea.Model, tea.Cmd) {
 		}
 	case common.ActionPush:
 		cmd = func() tea.Msg {
-			return pushedMsg{session: s, err: backend.Push(s)}
+			pushed, err := backend.Push(s)
+			return pushedMsg{session: pushed, err: err}
 		}
 	}
 	return m, tea.Batch(cmd, m.refreshShown())

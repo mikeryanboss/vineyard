@@ -17,7 +17,7 @@ links each issue to the sessions working on it.
 ```text
 main.go
   -> find the repository, load .vineyard/config.toml, lock .vineyard/
-  -> load sessions.json and reconcile it with live tmux sessions
+  -> load sessions.json and reconcile it with git worktrees and live tmux sessions
   -> load grapes for the repository's .grapes directory, if any
   -> run the root TUI model (internal/tui/app.go)
        polls tmux: selected screen (150ms), all screens (1s) -> running/ready
@@ -84,6 +84,9 @@ internal/tui/testutil/     golden-file helpers and fixtures
   can be stale, so pending prompts and auto-yes depend on that, not on `Status`.
 - Diffs never touch the worktree's index; the agent is working in it.
 - Killing a session keeps its branch whenever the branch has commits.
+- Git owns worktree paths and live branches. Never save a path in
+  `sessions.json`, and read a session's branch from its worktree before acting
+  on it.
 - Every message the root model does not handle goes to the embedded grapes
   model, shown or not; its file watching and reloads depend on it.
 - Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_TMUX_SOCKET`), so

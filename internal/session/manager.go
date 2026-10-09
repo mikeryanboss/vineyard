@@ -3,6 +3,7 @@ package session
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -116,9 +117,15 @@ func (m *Manager) freeBranch(name string) string {
 }
 
 // Pause commits the session's work to its branch, stops the agent, and
-// removes the worktree. The branch can then be checked out elsewhere.
+// removes the worktree. The branch can then be checked out elsewhere. The
+// branch recorded is the one checked out, which Resume checks out again.
 func (m *Manager) Pause(s Session) (Session, error) {
 	if git.IsWorktree(s.WorktreePath) {
+		branch, err := git.CurrentBranch(s.WorktreePath)
+		if err != nil {
+			return s, err
+		}
+		s.Branch = branch
 		if _, err := git.CommitAll(s.WorktreePath, fmt.Sprintf("vineyard: checkpoint %q", s.Title)); err != nil {
 			return s, fmt.Errorf("committing before pause: %w", err)
 		}
@@ -160,14 +167,22 @@ func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 
 // KillResult reports what Kill left behind.
 type KillResult struct {
-	// KeptBranch is set when the branch has commits and was kept, so that
-	// killing a session never throws away committed work.
-	KeptBranch bool
+	// KeptBranch names the branch when it has commits and was kept, so that
+	// killing a session never throws away committed work. It is "" otherwise.
+	KeptBranch string
 }
 
 // Kill stops the agent and removes the worktree, discarding uncommitted
-// changes. The branch is deleted only if it has no commits of its own.
+// changes. The checked-out branch is deleted only if it has no commits of its
+// own.
 func (m *Manager) Kill(s Session) (KillResult, error) {
+	if git.IsWorktree(s.WorktreePath) {
+		branch, err := git.CurrentBranch(s.WorktreePath)
+		if err != nil {
+			return KillResult{}, err
+		}
+		s.Branch = branch
+	}
 	if err := m.stopTerminals(s); err != nil {
 		return KillResult{}, err
 	}
@@ -179,7 +194,7 @@ func (m *Manager) Kill(s Session) (KillResult, error) {
 	}
 	ahead, err := git.CommitsAhead(m.Repo.Root, s.BaseCommit, s.Branch)
 	if err != nil || ahead > 0 {
-		return KillResult{KeptBranch: true}, err
+		return KillResult{KeptBranch: s.Branch}, err
 	}
 	return KillResult{}, git.DeleteBranch(m.Repo.Root, s.Branch)
 }
@@ -200,19 +215,61 @@ func (m *Manager) EnsureShell(s Session, width, height int) error {
 	return m.Terminal.Start(s.ShellName(), s.WorktreePath, "", width, height)
 }
 
-// Push commits the session's work and pushes its branch to origin.
-func (m *Manager) Push(s Session) error {
-	if _, err := git.CommitAll(s.WorktreePath, fmt.Sprintf("vineyard: update from %q", s.Title)); err != nil {
-		return err
+// Push commits the session's work and pushes the checked-out branch to origin.
+// It returns the session with that branch.
+func (m *Manager) Push(s Session) (Session, error) {
+	branch, err := git.CurrentBranch(s.WorktreePath)
+	if err != nil {
+		return s, err
 	}
-	return git.Push(s.WorktreePath, s.Branch)
+	s.Branch = branch
+	if _, err := git.CommitAll(s.WorktreePath, fmt.Sprintf("vineyard: update from %q", s.Title)); err != nil {
+		return s, err
+	}
+	return s, git.Push(s.WorktreePath, s.Branch)
 }
 
-// Restore reconciles saved sessions with reality after a restart. A session
-// whose tmux session is gone becomes stopped; its worktree is left alone.
-func (m *Manager) Restore(sessions []Session) []Session {
+// Restore reconciles saved sessions with reality after a restart.
+//
+// Git, not the saved state, knows where each worktree is and what it has
+// checked out. Restore finds a session's worktree by its directory name, the
+// session ID, and takes the branch from it. A worktree git lost track of,
+// because the repository or the worktree moved, is reconnected when it is at
+// <worktreeDir>/<id>; that is also where a session without a worktree gets
+// one when it resumes.
+//
+// A session whose tmux session is gone becomes stopped; its worktree is left
+// alone.
+func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, error) {
+	found, err := m.worktreesByID()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range sessions {
+		path := filepath.Join(worktreeDir, s.ID)
+		if _, ok := found[s.ID]; ok {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+			continue
+		}
+		if err := git.RepairWorktree(m.Repo.Root, path); err != nil {
+			return nil, fmt.Errorf("reconnecting the worktree of %q: %w", s.Title, err)
+		}
+	}
+	if found, err = m.worktreesByID(); err != nil {
+		return nil, err
+	}
+
 	out := make([]Session, len(sessions))
 	for i, s := range sessions {
+		s.WorktreePath = filepath.Join(worktreeDir, s.ID)
+		if w, ok := found[s.ID]; ok {
+			s.WorktreePath = w.Path
+			if w.Branch != "" {
+				s.Branch = w.Branch
+			}
+		}
 		switch {
 		case s.Status == StatusPaused:
 		case m.Terminal.Exists(s.TmuxName):
@@ -222,5 +279,21 @@ func (m *Manager) Restore(sessions []Session) []Session {
 		}
 		out[i] = s
 	}
-	return out
+	return out, nil
+}
+
+// worktreesByID indexes the repository's linked worktrees that git can still
+// reach by directory name, which for a session's worktree is its ID.
+func (m *Manager) worktreesByID() (map[string]git.Worktree, error) {
+	worktrees, err := git.Worktrees(m.Repo.Root)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]git.Worktree{}
+	for _, w := range worktrees[1:] { // the first is the main checkout
+		if !w.Prunable {
+			byID[filepath.Base(w.Path)] = w
+		}
+	}
+	return byID, nil
 }
