@@ -8,6 +8,7 @@ type ListKeys struct {
 	Down      key.Binding
 	New       key.Binding
 	NewPrompt key.Binding
+	Open      key.Binding
 	Attach    key.Binding
 	Shell     key.Binding
 	Kill      key.Binding
@@ -28,7 +29,8 @@ var ListKeyMap = ListKeys{
 	Down:      key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
 	New:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
 	NewPrompt: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new with prompt")),
-	Attach:    key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("enter", "attach")),
+	Open:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open the shown tab")),
+	Attach:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "attach")),
 	Shell:     key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "shell")),
 	Kill:      key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "kill")),
 	Pause:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "checkout")),

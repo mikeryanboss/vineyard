@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -125,6 +126,15 @@ type (
 		id  string
 		err error
 	}
+	// diffToolMsg carries the diff tool built for a session, or why there is none.
+	diffToolMsg struct {
+		id  string
+		cmd *exec.Cmd
+		err error
+	}
+	diffToolDoneMsg struct {
+		err error
+	}
 	scrollbackMsg struct {
 		id      string
 		history string
@@ -204,6 +214,8 @@ type Model struct {
 	dialog  dialog.Dialog
 	focus   focus
 	tab     tab
+	// zoomed shows the pane in place of the list and pane.
+	zoomed bool
 	// recapShown is the latest recap fetched for the shown session, kept to
 	// re-render the recap tab when the pane changes size or theme.
 	recapShown recapMsg
@@ -330,26 +342,37 @@ func (m *Model) syncList() {
 	m.list = m.list.SetItems(items)
 }
 
-// layout returns the list width, pane width, and body height.
+// layout returns the list width, pane width, and body height. A zoomed pane
+// has the whole width.
 func (m Model) layout() (listWidth, paneWidth, bodyHeight int) {
 	bodyHeight = m.height - headerHeight - statusBarHeight
+	if m.zoomed {
+		return 0, m.width, bodyHeight
+	}
 	listWidth = max(26, min(44, m.width*3/10))
 	paneWidth = m.width - listWidth
 	return listWidth, paneWidth, bodyHeight
 }
 
-// paneContentSize is the size of the preview and diff content areas: the pane
-// minus its border and tab bar. Agents' tmux windows are kept at this size.
+// paneContentSize is the size of the pane's content area: the pane minus its
+// border and tab bar.
 func (m Model) paneContentSize() (int, int) {
 	_, paneWidth, bodyHeight := m.layout()
 	return max(1, paneWidth-2), max(1, bodyHeight-3)
+}
+
+// agentSize is the size agents' tmux windows are kept at: the content area of
+// the pane beside the list. Zooming leaves it alone, so agents never reflow.
+func (m Model) agentSize() (int, int) {
+	m.zoomed = false // m is a copy
+	return m.paneContentSize()
 }
 
 func (m *Model) applySizes() {
 	listWidth, _, bodyHeight := m.layout()
 	w, h := m.paneContentSize()
 	m.list = m.list.SetSize(listWidth, bodyHeight)
-	m.preview = m.preview.SetSize(w, h)
+	m.preview = m.preview.SetSize(m.agentSize())
 	m.diff = m.diff.SetSize(w, h)
 	m.issue = m.issue.SetSize(w, h)
 	m.recap = m.recap.SetSize(w, h)
@@ -371,6 +394,14 @@ func (m *Model) setFocus(f focus) {
 	if f == focusList {
 		m.preview = m.preview.ExitScroll()
 	}
+}
+
+// setZoom zooms the pane in or out, re-rendering what depends on its width.
+func (m *Model) setZoom(zoomed bool) {
+	m.zoomed = zoomed
+	m.applySizes()
+	m.refreshIssue()
+	m.refreshRecap()
 }
 
 // setStatus shows a message and schedules its removal.
@@ -447,7 +478,7 @@ func (m Model) saveCmd() tea.Cmd {
 
 func (m Model) captureCmd(s session.Session) tea.Cmd {
 	backend := m.backend
-	w, h := m.paneContentSize()
+	w, h := m.agentSize()
 	applied := m.sizes[s.ID]
 	return func() tea.Msg {
 		size := applied
@@ -542,7 +573,7 @@ func (m Model) recapCmd() tea.Cmd {
 
 func (m Model) startCmd(s session.Session) tea.Cmd {
 	backend := m.backend
-	w, h := m.paneContentSize()
+	w, h := m.agentSize()
 	return func() tea.Msg {
 		started, err := backend.Start(s, w, h)
 		return startedMsg{session: started, err: err}
@@ -744,6 +775,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case diffToolMsg:
+		if s, ok := m.selected(); !ok || s.ID != msg.id || m.tab != tabDiff {
+			return m, nil
+		}
+		if errors.Is(msg.err, exec.ErrNotFound) {
+			m.setFocus(focusPane)
+			m.setZoom(true)
+			return m, nil
+		}
+		if msg.err != nil {
+			return m, m.setError(fmt.Errorf("diff tool: %w", msg.err))
+		}
+		return m, tea.ExecProcess(msg.cmd, func(err error) tea.Msg { return diffToolDoneMsg{err: err} })
+
+	case diffToolDoneMsg:
+		if msg.err != nil {
+			return m, m.setError(fmt.Errorf("diff tool: %w", msg.err))
+		}
+		return m, nil
+
 	case scrollbackMsg:
 		if msg.err != nil {
 			return m, m.setError(msg.err)
@@ -816,9 +867,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case common.LeavePaneMsg:
 		m.setFocus(focusList)
+		m.setZoom(false)
 		return m, nil
 
 	case common.SwitchTabMsg:
+		m.setZoom(false)
 		return m, m.switchTab(msg.Back)
 
 	case common.ScrollbackRequestMsg:
@@ -1081,6 +1134,9 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 // tabNames are the pane tabs' names, as the status bar offers them.
 var tabNames = map[tab]string{tabPreview: "preview", tabDiff: "diff", tabIssue: "issue", tabRecap: "recap"}
 
+// openNames say what enter does on each tab.
+var openNames = map[tab]string{tabPreview: "attach", tabDiff: "full diff", tabIssue: "issues", tabRecap: "full recap"}
+
 // nextTab is the tab that the tab key switches to.
 func (m Model) nextTab() tab { return (m.tab + 1) % tab(len(tabNames)) }
 
@@ -1222,8 +1278,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.setFocus(focusPane)
 		}
 		return m, nil
-	case key.Matches(msg, keys.Issues):
+	case key.Matches(msg, keys.Issues), key.Matches(msg, keys.Open) && m.tab == tabIssue:
 		return m.showIssues(s, ok)
+	case key.Matches(msg, keys.Open) && m.tab == tabRecap:
+		if ok {
+			m.setFocus(focusPane)
+			m.setZoom(true)
+		}
+		return m, nil
 	}
 
 	if !ok {
@@ -1233,7 +1295,16 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.setStatus(s.Title+" is busy.", false)
 	}
 	switch {
-	case key.Matches(msg, keys.Attach):
+	case key.Matches(msg, keys.Open) && m.tab == tabDiff:
+		if !m.diffable(s) {
+			return m, m.setStatus(s.Title+" has no worktree to diff. Press r to resume it.", false)
+		}
+		backend, command := m.backend, m.opts.Config.DiffCommand
+		return m, func() tea.Msg {
+			cmd, err := backend.DiffTool(s, command)
+			return diffToolMsg{id: s.ID, cmd: cmd, err: err}
+		}
+	case key.Matches(msg, keys.Attach, keys.Open):
 		if !s.Status.Active() {
 			return m, m.setStatus(s.Title+" is not running. Press r to resume it.", false)
 		}
@@ -1246,7 +1317,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.setStatus(s.Title+" is paused. Press r to resume it.", false)
 		}
 		backend := m.backend
-		w, h := m.paneContentSize()
+		w, h := m.agentSize()
 		return m, func() tea.Msg {
 			return shellReadyMsg{session: s, err: backend.EnsureShell(s, w, h)}
 		}
@@ -1268,7 +1339,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.busy[s.ID] = true
 		m.syncList()
 		backend := m.backend
-		w, h := m.paneContentSize()
+		w, h := m.agentSize()
 		return m, tea.Batch(func() tea.Msg {
 			resumed, err := backend.Resume(s, w, h)
 			return lifecycleMsg{session: resumed, verb: "resume", err: err}
@@ -1367,9 +1438,14 @@ func (m Model) render() string {
 		return screen
 	}
 	_, _, bodyHeight := m.layout()
-	body := lipgloss.JoinHorizontal(lipgloss.Top, m.list.View(), m.renderPane())
-	if m.configOpen {
+	var body string
+	switch {
+	case m.configOpen:
 		body = m.settings.View()
+	case m.zoomed:
+		body = m.renderPane()
+	default:
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.list.View(), m.renderPane())
 	}
 	screen := lipgloss.JoinVertical(lipgloss.Left, m.renderHeader(), body)
 	if m.configOpen && m.settings.PickerActive() {
@@ -1489,11 +1565,15 @@ func (m Model) renderStatusBar() string {
 	case m.focus == focusPane:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
 	default:
-		hints = [][2]string{
-			{"n", "new"}, {"N", "new+prompt"}, {"enter", "attach"}, {"t", "shell"}, {"s", "push"},
-			{"c", "checkout"}, {"r", "resume"}, {"D", "kill"}, {"a", "auto-yes"}, {"tab", tabNames[m.nextTab()]},
-			{"l", "scroll"}, {"i", "issues"}, {"C", "config"}, {"q", "quit"},
+		hints = [][2]string{{"n", "new"}, {"N", "new+prompt"}, {"enter", openNames[m.tab]}}
+		if m.tab != tabPreview {
+			hints = append(hints, [2]string{"o", "attach"})
 		}
+		hints = append(hints, [][2]string{
+			{"t", "shell"}, {"s", "push"}, {"c", "checkout"}, {"r", "resume"}, {"D", "kill"},
+			{"a", "auto-yes"}, {"tab", tabNames[m.nextTab()]}, {"l", "scroll"}, {"i", "issues"},
+			{"C", "config"}, {"q", "quit"},
+		}...)
 	}
 	dot := t.StyleFaint.Render(" · ")
 	var b strings.Builder

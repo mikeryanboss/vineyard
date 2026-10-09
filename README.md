@@ -35,7 +35,8 @@ Run `vineyard` inside a git repository.
 | Key | Action |
 | --- | --- |
 | `n` / `N` | New session / new session with a prompt |
-| `enter` | Attach to the agent; `ctrl-q` returns |
+| `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the issue from Issue, the full recap from Recap |
+| `o` | Attach to the agent from any tab; `ctrl-q` returns |
 | `tab` / `shift+tab` | Switch the pane: preview, diff, issue, recap |
 | `l` | Scroll the pane; `esc` returns to the list |
 | `t` | Open a shell in the session's worktree |
@@ -62,6 +63,7 @@ default_program = "claude"            # profile name or command
 branch_prefix = "mboss/"              # defaults to your username
 auto_yes = false
 worktree_dir = ".vineyard/worktrees"  # relative to the repository, absolute, or ~/...
+diff_command = "hunk diff {base} --watch"  # run by enter on the Diff tab
 
 [[profiles]]
 name = "claude"
@@ -73,6 +75,11 @@ program = "codex"
 ```
 
 With more than one profile, the new-session dialog asks which agent to run.
+
+`diff_command` runs through `sh` in the session's worktree, with `{base}`
+replaced by the commit the session started from. The default is
+[Hunk](https://github.com/modem-dev/hunk). When the command is empty or its
+program is not installed, `enter` shows Vineyard's own diff full-screen instead.
 
 ## How it works
 

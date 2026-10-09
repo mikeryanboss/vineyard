@@ -46,6 +46,7 @@ const (
 	idBranchPrefix
 	idAutoYes
 	idWorktreeDir
+	idDiffCommand
 	idProfile
 	idAddProfile
 )
@@ -139,6 +140,7 @@ func (m Model) fields() []field {
 			{id: idBranchPrefix, label: "Branch prefix", kind: fieldText},
 			{id: idAutoYes, label: "Auto-yes for new sessions", kind: fieldEnum, options: []string{"off", "on"}},
 			{id: idWorktreeDir, label: "Worktree directory", kind: fieldText},
+			{id: idDiffCommand, label: "Diff tool", kind: fieldText},
 		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
@@ -169,6 +171,8 @@ func (m Model) value(f field) string {
 		return "off"
 	case idWorktreeDir:
 		return m.cfg.WorktreeDir
+	case idDiffCommand:
+		return m.cfg.DiffCommand
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
 	}
@@ -185,6 +189,8 @@ func (m *Model) setValue(f field, v string) {
 		m.cfg.AutoYes = v == "on"
 	case idWorktreeDir:
 		m.cfg.WorktreeDir = v
+	case idDiffCommand:
+		m.cfg.DiffCommand = v
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}

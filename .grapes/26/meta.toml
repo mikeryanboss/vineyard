@@ -1,0 +1,6 @@
+title = 'Make enter open the shown tab, with a configurable diff tool'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'diff']
+created = 2026-10-09T11:48:00Z
+updated = 2026-10-09T11:56:00Z
