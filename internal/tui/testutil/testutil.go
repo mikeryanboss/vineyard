@@ -73,11 +73,12 @@ func RequireGolden(t *testing.T, got string) {
 }
 
 // Key returns a key press for a printable key such as "n", or a named key
-// such as "enter", "tab", "esc", "up", or "ctrl+c".
+// such as "enter", "tab", "shift+tab", "esc", "up", or "ctrl+c".
 func Key(k string) tea.KeyPressMsg {
 	named := map[string]tea.Key{
 		"enter":     {Code: tea.KeyEnter},
 		"tab":       {Code: tea.KeyTab},
+		"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},
 		"esc":       {Code: tea.KeyEscape},
 		"up":        {Code: tea.KeyUp},
 		"down":      {Code: tea.KeyDown},

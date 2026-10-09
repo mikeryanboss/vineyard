@@ -101,8 +101,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case key.Matches(keyMsg, keys.Back):
 		m.scrolling = false
 		return m, func() tea.Msg { return common.LeavePaneMsg{} }
-	case key.Matches(keyMsg, keys.Tab):
-		return m, func() tea.Msg { return common.SwitchTabMsg{} }
+	case key.Matches(keyMsg, keys.Tab, keys.PrevTab):
+		back := key.Matches(keyMsg, keys.PrevTab)
+		return m, func() tea.Msg { return common.SwitchTabMsg{Back: back} }
 	}
 	if !m.scrolling {
 		if key.Matches(keyMsg, keys.Up, keys.HalfUp, keys.Top) {

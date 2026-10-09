@@ -479,6 +479,23 @@ func TestApp_SwitchTabFromPane(t *testing.T) {
 	}
 }
 
+// Shift+tab walks the tabs backward from the list and from every pane, which
+// each forward the key on their own.
+func TestApp_ShiftTabSwitchesToThePreviousTab(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	m = keys(m, "shift+tab")
+	if m.tab != tabRecap || m.focus != focusList {
+		t.Fatalf("shift+tab in the list should switch from preview to recap; tab=%d focus=%d", m.tab, m.focus)
+	}
+	m = keys(m, "l")
+	for _, want := range []tab{tabIssue, tabDiff, tabPreview, tabRecap} {
+		m = keys(m, "shift+tab")
+		if m.tab != want || m.focus != focusPane {
+			t.Fatalf("shift+tab in the pane should switch to %s and keep focus; tab=%s focus=%d", tabNames[want], tabNames[m.tab], m.focus)
+		}
+	}
+}
+
 // The recap tab shows Claude Code's recaps of the selected session, newest
 // first, falls back to the last prompt, and says why other agents have none.
 func TestRecapTab_ShowsTheSelectedSessionsRecaps(t *testing.T) {
