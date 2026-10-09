@@ -22,6 +22,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/dialog"
 	"github.com/mikeryanboss/vineyard/internal/tui/diffview"
+	"github.com/mikeryanboss/vineyard/internal/tui/issueview"
 	"github.com/mikeryanboss/vineyard/internal/tui/list"
 	"github.com/mikeryanboss/vineyard/internal/tui/preview"
 	"github.com/mikeryanboss/vineyard/internal/tui/settings"
@@ -59,6 +60,7 @@ type tab int
 const (
 	tabPreview tab = iota
 	tabDiff
+	tabIssue
 )
 
 // Messages produced by the model's own commands.
@@ -184,6 +186,7 @@ type Model struct {
 	list    list.Model
 	preview preview.Model
 	diff    diffview.Model
+	issue   issueview.Model
 	dialog  dialog.Dialog
 	focus   focus
 	tab     tab
@@ -220,6 +223,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		list:     list.New(theme),
 		preview:  preview.New(theme),
 		diff:     diffview.New(theme),
+		issue:    issueview.New(theme),
 	}
 	if opts.ConfigErr != nil {
 		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
@@ -324,6 +328,7 @@ func (m *Model) applySizes() {
 	m.list = m.list.SetSize(listWidth, bodyHeight)
 	m.preview = m.preview.SetSize(w, h)
 	m.diff = m.diff.SetSize(w, h)
+	m.issue = m.issue.SetSize(w, h)
 	m.settings = m.settings.SetSize(m.width, bodyHeight)
 }
 
@@ -331,6 +336,7 @@ func (m *Model) applyTheme() {
 	m.list = m.list.SetTheme(m.theme)
 	m.preview = m.preview.SetTheme(m.theme)
 	m.diff = m.diff.SetTheme(m.theme)
+	m.issue = m.issue.SetTheme(m.theme)
 	m.settings = m.settings.SetTheme(m.theme)
 }
 
@@ -387,6 +393,8 @@ func (m *Model) refreshShown() tea.Cmd {
 	m.shownID = s.ID
 	m.preview = m.preview.ExitScroll()
 	m.diff = m.diff.SetDiff("")
+	m.issue = m.issue.GotoTop()
+	m.refreshIssue()
 	if !ok {
 		return nil
 	}
@@ -744,7 +752,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case common.SwitchTabMsg:
-		m.toggleTab()
+		m.switchTab()
 		return m, nil
 
 	case common.ScrollbackRequestMsg:
@@ -774,7 +782,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // updateGrapes passes msg to grapes, when there is one. A grapes reload may
-// change which issues sessions have touched, so the list is rebuilt.
+// change which issues sessions have touched, and what they say, so the list
+// and the issue tab are rebuilt.
 func (m Model) updateGrapes(msg tea.Msg) (Model, tea.Cmd) {
 	if m.grapesErr != nil {
 		return m, nil
@@ -782,7 +791,39 @@ func (m Model) updateGrapes(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.grapes, cmd = m.grapes.Update(msg)
 	m.syncList()
+	m.refreshIssue()
 	return m, cmd
+}
+
+// refreshIssue renders the selected session's issues into the issue tab, while
+// the tab is shown. Rendering markdown is too slow to repeat for every frame,
+// so it happens only when the issues, their session, or the pane change.
+func (m *Model) refreshIssue() {
+	if m.tab != tabIssue {
+		return
+	}
+	s, ok := m.selected()
+	switch {
+	case !ok:
+		m.issue = m.issue.SetPlaceholder("Press n to start a session.")
+		return
+	case m.grapesErr != nil:
+		m.issue = m.issue.SetPlaceholder("No issues to show: " + m.grapesErr.Error())
+		return
+	}
+	width, _ := m.paneContentSize()
+	var rendered []string
+	for _, id := range m.issuesOf(s) {
+		if text, ok := m.grapes.RenderIssue(id, s.WorktreePath, width); ok {
+			rendered = append(rendered, text)
+		}
+	}
+	if len(rendered) == 0 {
+		m.issue = m.issue.SetPlaceholder("No issue linked. Press i to browse issues.")
+		return
+	}
+	rule := m.theme.StyleSeparator.Render(strings.Repeat("─", width))
+	m.issue = m.issue.SetContent(strings.Join(rendered, "\n"+rule+"\n"))
 }
 
 // issuesOf returns the grapes issues session s works on: the one it was
@@ -922,13 +963,16 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *Model) toggleTab() {
-	if m.tab == tabPreview {
-		m.tab = tabDiff
-	} else {
-		m.tab = tabPreview
-	}
+// tabNames are the pane tabs' names, as the status bar offers them.
+var tabNames = map[tab]string{tabPreview: "preview", tabDiff: "diff", tabIssue: "issue"}
+
+// nextTab is the tab that the tab key switches to.
+func (m Model) nextTab() tab { return (m.tab + 1) % 3 }
+
+func (m *Model) switchTab() {
+	m.tab = m.nextTab()
 	m.preview = m.preview.ExitScroll()
+	m.refreshIssue()
 }
 
 func (m Model) profiles() []config.Profile {
@@ -1013,9 +1057,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.focus == focusPane {
 		var cmd tea.Cmd
-		if m.tab == tabDiff {
+		switch m.tab {
+		case tabDiff:
 			m.diff, cmd = m.diff.Update(msg)
-		} else {
+		case tabIssue:
+			m.issue, cmd = m.issue.Update(msg)
+		default:
 			m.preview, cmd = m.preview.Update(msg)
 		}
 		return m, cmd
@@ -1035,7 +1082,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.dialog = d
 		return m, cmd
 	case key.Matches(msg, keys.Tab):
-		m.toggleTab()
+		m.switchTab()
 		return m, nil
 	case key.Matches(msg, keys.Config):
 		_, _, bodyHeight := m.layout()
@@ -1150,9 +1197,12 @@ func (m Model) handleMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	var cmd tea.Cmd
-	if m.tab == tabDiff {
+	switch m.tab {
+	case tabDiff:
 		m.diff, cmd = m.diff.Update(msg)
-	} else {
+	case tabIssue:
+		m.issue, cmd = m.issue.Update(msg)
+	default:
 		m.preview, cmd = m.preview.Update(msg)
 	}
 	return m, cmd
@@ -1239,7 +1289,17 @@ func (m Model) renderPane() string {
 			diffLabel += fmt.Sprintf(" +%d -%d", stat.Added, stat.Removed)
 		}
 	}
-	tabs := tabLabel("Preview", tabPreview) + " " + tabLabel(diffLabel, tabDiff)
+	issueLabel := "Issue"
+	if s, ok := m.selected(); ok {
+		ids := m.issuesOf(s)
+		if len(ids) > 1 {
+			issueLabel = "Issues"
+		}
+		for _, id := range ids {
+			issueLabel += fmt.Sprintf(" #%d", id)
+		}
+	}
+	tabs := tabLabel("Preview", tabPreview) + " " + tabLabel(diffLabel, tabDiff) + " " + tabLabel(issueLabel, tabIssue)
 
 	info := ""
 	switch {
@@ -1257,12 +1317,15 @@ func (m Model) renderPane() string {
 	tabBar := ansi.Truncate(tabs+strings.Repeat(" ", gap)+info+" ", innerWidth, "")
 
 	content := m.preview.View()
-	if m.tab == tabDiff {
+	switch m.tab {
+	case tabDiff:
 		content = m.diff.View()
 		if s, ok := m.selected(); !ok || !m.diffable(s) {
 			// Without a worktree there is nothing current to diff.
 			content = m.preview.View()
 		}
+	case tabIssue:
+		content = m.issue.View()
 	}
 	style := t.StylePane
 	if m.focus == focusPane {
@@ -1288,13 +1351,15 @@ func (m Model) renderStatusBar() string {
 	case m.configOpen:
 		hints = m.settings.Hints()
 	case m.focus == focusPane && m.tab == tabDiff:
-		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"enter", "fold"}, {"c/e", "fold all/none"}, {"g/G", "top/bottom"}, {"tab", "preview"}, {"esc", "back"}}
+		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"enter", "fold"}, {"c/e", "fold all/none"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
+	case m.focus == focusPane && m.tab == tabIssue:
+		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
 	case m.focus == focusPane:
-		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", "diff"}, {"esc", "back"}}
+		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
 	default:
 		hints = [][2]string{
 			{"n", "new"}, {"N", "new+prompt"}, {"enter", "attach"}, {"t", "shell"}, {"s", "push"},
-			{"c", "checkout"}, {"r", "resume"}, {"D", "kill"}, {"a", "auto-yes"}, {"tab", "diff"},
+			{"c", "checkout"}, {"r", "resume"}, {"D", "kill"}, {"a", "auto-yes"}, {"tab", tabNames[m.nextTab()]},
 			{"l", "scroll"}, {"i", "issues"}, {"C", "config"}, {"q", "quit"},
 		}
 	}

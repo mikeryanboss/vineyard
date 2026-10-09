@@ -1,0 +1,6 @@
+title = "Show the session's grapes issue as a pane tab next to preview and diff"
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'grapes']
+created = 2026-10-09T08:57:00Z
+updated = 2026-10-09T09:03:00Z

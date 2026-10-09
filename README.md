@@ -30,7 +30,7 @@ exits, and the next launch picks them up again.
 | `n` / `N` | New session / new session with an initial prompt |
 | `enter` | Attach to the agent; `ctrl-q` returns to Vineyard |
 | `t` | Open a shell in the session's worktree |
-| `tab` | Switch between the live preview and the diff |
+| `tab` | Cycle the pane between the live preview, the diff, and the session's issue |
 | `l` | Focus the pane to scroll it (`esc` returns to the list) |
 | `s` | Commit everything and push the branch to origin |
 | `c` | Check out: commit, stop the agent, remove the worktree, keep the branch |

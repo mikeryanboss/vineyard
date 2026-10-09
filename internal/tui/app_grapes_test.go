@@ -281,3 +281,55 @@ func TestIssues_GrapesStartsLightLikeVineyard(t *testing.T) {
 		t.Error("the theme does not show in grapes' view; this test proves nothing")
 	}
 }
+
+// The issue tab shows the selected session's issue as grapes renders it, and
+// follows the selection.
+func TestIssueTab_ShowsTheSelectedSessionsIssue(t *testing.T) {
+	m := grapesModel(t, []session.Session{
+		{ID: "a", Title: "embed", Status: session.StatusReady, Issue: 7},
+		{ID: "b", Title: "pick", Status: session.StatusReady, Issue: 8},
+		{ID: "c", Title: "loose", Status: session.StatusReady},
+	})
+
+	m = keys(m, "tab", "tab")
+	if m.tab != tabIssue {
+		t.Fatalf("two tabs from preview should reach the issue tab, got %v", m.tab)
+	}
+	if got := screen(m); !strings.Contains(got, "Issue #7") || !strings.Contains(got, "Embed grapes") {
+		t.Fatalf("the issue tab should show #7:\n%s", got)
+	}
+
+	m = keys(m, "j")
+	if got := screen(m); !strings.Contains(got, "Pick a session") || strings.Contains(got, "Embed grapes") {
+		t.Errorf("selecting b should show #8 instead of #7:\n%s", got)
+	}
+	m = keys(m, "j")
+	if got := screen(m); !strings.Contains(got, "No issue linked") {
+		t.Errorf("a session without an issue should say so:\n%s", got)
+	}
+
+	m = keys(m, "tab")
+	if m.tab != tabPreview {
+		t.Errorf("tab from the issue tab should return to the preview, got %v", m.tab)
+	}
+}
+
+// The issue tab renders only when something changes, so a grapes reload must
+// re-render it, or it keeps showing the issue as it was.
+func TestIssueTab_FollowsGrapesReloads(t *testing.T) {
+	m, _ := newTestModel(t, []session.Session{{ID: "a", Title: "embed", Status: session.StatusReady, Issue: 7}})
+	root := t.TempDir()
+	writeIssue(t, root, 7, "Embed grapes")
+	m = withGrapes(t, m, root)
+	m = keys(m, "tab", "tab")
+
+	writeIssue(t, root, 7, "Embed grapes as a tab")
+	// The watcher has buffered the write since embedded.New; starting grapes
+	// delivers it, and the reload follows.
+	for _, msg := range collect(m.grapes.Init()) {
+		m = send(m, msg)
+	}
+	if got := screen(m); !strings.Contains(got, "Embed grapes as a tab") {
+		t.Errorf("the issue tab should show the reloaded title:\n%s", got)
+	}
+}

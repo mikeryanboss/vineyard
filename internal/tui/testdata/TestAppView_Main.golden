@@ -1,7 +1,7 @@
   vineyard 0.1.0  shop                                    ◑ 1 running   ● 1 ready   ○ 1 paused   × 1 stopped  
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  Sessions 5                      ╭───────────────────────────────────────────────────────────────────────────╮
-                                 │ Preview   Diff +1 -1                                                      │
+                                 │ Preview   Diff +1 -1   Issue                                              │
 ▌◑ Fix login redirect            │✻ Thinking…                                                                │
 ▌  ⑂ mboss/fix-login-red…  +1 -1 │                                                                           │
                                  │> fix the redirect                                                         │
