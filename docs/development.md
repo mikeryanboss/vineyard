@@ -82,6 +82,32 @@ sed -e 's/\x1b\[0m/\x1b[0m\x1b[38;5;235m\x1b[48;5;231m/g' -e 's/\x1b\[39m/\x1b[3
 Look at each PNG before publishing it. The [pr skill](../.agents/skills/pr/SKILL.md)
 publishes the images and embeds them in the PR.
 
+## README Demo
+
+`doc/demo.gif` is recorded with [VHS](https://github.com/charmbracelet/vhs) from
+`doc/vhs/demo.tape`, which runs real Claude Code agents. Off camera, the tape
+builds a throwaway repository at `/tmp/vineyard-demo` with
+`doc/vhs/demo-repo.sh`, uses the `vineyard-demo` tmux socket, and starts agents
+on two of its issues; it starts recording once both have changes. Re-record from
+the repository root, with the `vineyard` under test first in `PATH`:
+
+```sh
+vhs doc/vhs/demo.tape
+```
+
+- Claude Code must trust `/tmp/vineyard-demo` beforehand: run `claude` there
+  once and accept. Worktrees under it inherit the trust.
+- Do not run the tape from inside a Claude Code session: agents started with its
+  `CLAUDE*` environment variables exit at once. Unset them first.
+- Vineyard sometimes leaves a prompt in Claude Code's input box unsent, or loses
+  it. `doc/vhs/demo-submit.sh` presses Enter on unsent prompts; a lost one makes
+  the tape time out, so run it again.
+- The recording font must cover `⑂`, `⏵`, and `⎿`; VHS's default does not. If
+  they render as boxes, install a fallback font that has them, such as
+  JuliaMono.
+- Watch the GIF before committing it; Claude Code's status line and summaries
+  differ between takes.
+
 ## Releases
 
 `var version` in `main.go` is the release version. A push to `main` that changes
