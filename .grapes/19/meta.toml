@@ -1,0 +1,6 @@
+title = 'Let git own session worktree paths and branches'
+status = 'in_progress'
+priority = 'high'
+labels = ['bug', 'sessions', 'git']
+created = 2026-10-09T09:49:00Z
+updated = 2026-10-09T09:50:00Z
