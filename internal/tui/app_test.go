@@ -33,6 +33,8 @@ type fakeBackend struct {
 	resized  [][2]int
 	configs  []config.Config
 	recaps   map[string]recap.Recap // by session ID
+	attaches int
+	tools    []*exec.Cmd // diff tools built
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
@@ -73,10 +75,24 @@ func (f *fakeBackend) Push(s session.Session) (session.Session, error)         {
 func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error           { return nil }
 func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, nil }
 func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
-func (f *fakeBackend) AttachCommand(s session.Session) *exec.Cmd               { return exec.Command("true") }
-func (f *fakeBackend) ShellAttachCommand(s session.Session) *exec.Cmd          { return exec.Command("true") }
-func (f *fakeBackend) Diff(s session.Session) (string, error)                  { return f.diff, nil }
-func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error)            { return git.Stat{Added: 3}, nil }
+func (f *fakeBackend) AttachCommand(s session.Session) *exec.Cmd {
+	f.attaches++
+	return exec.Command("true")
+}
+
+func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
+	cmd, err := diffTool(s, command)
+	if err == nil {
+		f.mu.Lock()
+		f.tools = append(f.tools, cmd)
+		f.mu.Unlock()
+	}
+	return cmd, err
+}
+
+func (f *fakeBackend) ShellAttachCommand(s session.Session) *exec.Cmd { return exec.Command("true") }
+func (f *fakeBackend) Diff(s session.Session) (string, error)         { return f.diff, nil }
+func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error)   { return git.Stat{Added: 3}, nil }
 
 func (f *fakeBackend) Branch(s session.Session) (string, error) {
 	f.mu.Lock()
@@ -455,6 +471,90 @@ func TestApp_PaneFocusRoutesKeys(t *testing.T) {
 	m = keys(m, "esc")
 	if m.focus != focusList {
 		t.Error("esc should return focus to the list")
+	}
+}
+
+// diffSession is a running session with a worktree and a base commit, for
+// tests of the diff tool.
+func diffSession() session.Session {
+	return session.Session{ID: "login-1", Title: "Fix login redirect", Program: "claude", Status: session.StatusRunning,
+		WorktreePath: "/src/shop/.vineyard/worktrees/login-1", BaseCommit: "abc123"}
+}
+
+// Enter opens the shown tab: the agent, the diff tool, grapes, or a zoomed
+// pane. o always attaches.
+func TestApp_EnterRunsTheDiffTool(t *testing.T) {
+	m, backend := newTestModel(t, []session.Session{diffSession()})
+	m.opts.Config.DiffCommand = "true {base} --watch"
+	m = keys(m, "tab", "enter")
+
+	if len(backend.tools) != 1 {
+		t.Fatalf("enter on the diff tab built %d diff tools, want 1", len(backend.tools))
+	}
+	tool := backend.tools[0]
+	if want := []string{"sh", "-c", "true abc123 --watch"}; !slices.Equal(tool.Args, want) {
+		t.Errorf("diff tool args = %q, want %q", tool.Args, want)
+	}
+	if tool.Dir != diffSession().WorktreePath {
+		t.Errorf("diff tool runs in %q, want the worktree", tool.Dir)
+	}
+	if backend.attaches != 0 || m.zoomed {
+		t.Errorf("enter on the diff tab should only run the diff tool; attaches=%d zoomed=%v", backend.attaches, m.zoomed)
+	}
+
+	m = keys(m, "o")
+	if backend.attaches != 1 {
+		t.Error("o should attach from the diff tab")
+	}
+}
+
+func TestApp_EnterZoomsTheDiffWithoutADiffTool(t *testing.T) {
+	for _, command := range []string{"", "vineyard-missing-diff-tool {base}"} {
+		m, backend := newTestModel(t, []session.Session{diffSession()})
+		m.opts.Config.DiffCommand = command
+		m = send(m, diffTickMsg{})
+		m = send(m, previewTickMsg{}) // sizes the agent's window
+		split := backend.resized[len(backend.resized)-1]
+		m = keys(m, "tab", "enter")
+
+		if !m.zoomed || m.focus != focusPane {
+			t.Fatalf("diff command %q: enter should zoom our diff; zoomed=%v focus=%d", command, m.zoomed, m.focus)
+		}
+		if view := screen(m); contains(view, "Fix login redirect") || !contains(view, "timeout = 60") {
+			t.Errorf("the zoomed diff should replace the list:\n%s", view)
+		}
+
+		// Agents keep the split-pane size, so zooming never reflows them.
+		m.sizes = map[string][2]int{} // as after an attach
+		m = send(m, previewTickMsg{})
+		if got := backend.resized[len(backend.resized)-1]; got != split {
+			t.Errorf("zooming resized the agent from %v to %v", split, got)
+		}
+
+		m = keys(m, "esc")
+		if m.zoomed || m.focus != focusList {
+			t.Errorf("esc should leave the zoom for the list; zoomed=%v focus=%d", m.zoomed, m.focus)
+		}
+		if backend.attaches != 0 {
+			t.Error("enter on the diff tab must not attach")
+		}
+	}
+}
+
+func TestApp_EnterOnPreviewAttachesAndOnRecapZooms(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = keys(m, "enter")
+	if backend.attaches != 1 {
+		t.Error("enter on the preview tab should attach")
+	}
+
+	m = keys(m, "shift+tab", "enter")
+	if m.tab != tabRecap || !m.zoomed {
+		t.Fatalf("enter on the recap tab should zoom it; tab=%s zoomed=%v", tabNames[m.tab], m.zoomed)
+	}
+	m = keys(m, "tab")
+	if m.zoomed {
+		t.Error("switching tabs should leave the zoom")
 	}
 }
 

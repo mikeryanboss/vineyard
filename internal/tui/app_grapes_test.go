@@ -85,6 +85,15 @@ func TestIssues_OpenAndCloseKeepsSelection(t *testing.T) {
 	}
 }
 
+func TestIssues_EnterOnTheIssueTabOpensGrapes(t *testing.T) {
+	m := grapesModel(t, []session.Session{{ID: "a", Title: "fix login", Status: session.StatusReady}})
+	m = keys(m, "tab", "tab", "enter")
+
+	if !m.issuesOpen {
+		t.Errorf("enter on the issue tab should open grapes, as i does:\n%s", screen(m))
+	}
+}
+
 func TestIssues_UnavailableWithoutGrapes(t *testing.T) {
 	m, _ := newTestModel(t, nil)
 	m.grapesErr = fmt.Errorf("~/shop has no .grapes directory")

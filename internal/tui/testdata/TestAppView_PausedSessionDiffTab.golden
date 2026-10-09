@@ -23,4 +23,4 @@
                                  │                                                                           │
                                  │                                                                           │
                                  ╰───────────────────────────────────────────────────────────────────────────╯
- n new · N new+prompt · enter attach · t shell · s push · c checkout · r resume · D kill · a auto-yes         
+ n new · N new+prompt · enter full diff · o attach · t shell · s push · c checkout · r resume · D kill        

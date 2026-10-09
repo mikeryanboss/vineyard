@@ -42,6 +42,11 @@ type Config struct {
 	// WorktreeDir is where new sessions' worktrees go: relative to the
 	// repository root, absolute, or starting with "~/".
 	WorktreeDir string `toml:"worktree_dir"`
+	// DiffCommand shows a session's diff full-screen. It runs through sh in
+	// the session's worktree, with {base} replaced by the session's base
+	// commit. When it is empty, or its first word is not an installed program,
+	// Vineyard shows its own diff full-screen instead.
+	DiffCommand string `toml:"diff_command"`
 }
 
 // Defaults returns the configuration used when no file exists.
@@ -50,6 +55,7 @@ func Defaults() Config {
 		DefaultProgram: "claude",
 		BranchPrefix:   defaultBranchPrefix(),
 		WorktreeDir:    filepath.Join(DirName, "worktrees"),
+		DiffCommand:    "hunk diff {base} --watch",
 	}
 }
 

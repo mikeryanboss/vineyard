@@ -190,6 +190,14 @@ lines are cached and rebuilt only when the diff text, width, theme, or fold
 state changes. Files fold individually (`enter`) or all at once (`c`, `e`); fold
 state is keyed by path and survives diff refreshes.
 
+`enter` on the Diff tab hands the terminal to `diff_command`, run by `sh` in the
+worktree with `{base}` replaced by the base commit, through `tea.ExecProcess`
+as attach does. The backend looks up its first word on `PATH` in a command, not
+in `Update`. When the command is empty or that program is missing, the pane is
+zoomed instead: it fills the body in place of the list until `esc` or a tab
+switch. Zooming leaves agents' tmux windows at the split-pane size
+(`agentSize`), so agents never reflow. The Recap tab zooms the same way.
+
 ## TUI Message Flow
 
 ```text

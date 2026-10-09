@@ -6,7 +6,7 @@
   Profiles      │  Branch prefix              test/                                                           
                 │  Auto-yes for new sessions  off                                                             
                 │  Worktree directory         .vineyard/worktrees                                             
-                                                                                                              
+                │  Diff tool                                                                                  
                                                                                                               
                                                                                                               
                                                                                                               
