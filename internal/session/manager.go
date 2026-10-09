@@ -84,12 +84,17 @@ func (m *Manager) New(opts NewOptions) Session {
 }
 
 // Start creates the session's branch and worktree from the current HEAD and
-// launches its program. If launching fails, the worktree and branch are
-// removed again so a failed start leaves nothing behind.
+// launches its program. A session for an issue needs the issue committed at
+// that HEAD. If launching fails, the worktree and branch are removed again so
+// a failed start leaves nothing behind.
 func (m *Manager) Start(s Session, width, height int) (Session, error) {
 	base, err := git.Head(m.Repo.Checkout)
 	if err != nil {
 		return s, err
+	}
+	// The agent is told to read its issue from its worktree.
+	if s.Issue > 0 && !git.HasPath(m.Repo.Checkout, base, filepath.Join(".grapes", strconv.Itoa(s.Issue))) {
+		return s, fmt.Errorf("issue #%d is not committed at HEAD; commit it first, so the session's worktree has it", s.Issue)
 	}
 	s.BaseCommit = base
 	s.Branch = m.freeBranch(s.Branch)

@@ -14,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
+	"github.com/mikeryanboss/vineyard/internal/prompt"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 )
 
@@ -32,6 +33,8 @@ type field int
 
 const (
 	fieldTitle field = iota
+	fieldTemplate
+	fieldSubIssues
 	fieldPrompt
 	fieldProfile
 )
@@ -44,9 +47,11 @@ var (
 	keyLeft    = key.NewBinding(key.WithKeys("left", "h"))
 	keyRight   = key.NewBinding(key.WithKeys("right", "l"))
 	keyNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
+	keyToggle  = key.NewBinding(key.WithKeys("space"))
 )
 
 // NewSession asks for a title, optionally an initial prompt, and an agent.
+// For a grapes issue, it also offers prompt templates.
 type NewSession struct {
 	theme      common.Theme
 	width      int
@@ -58,6 +63,12 @@ type NewSession struct {
 	profile    int
 	focus      field
 	err        string
+
+	// For an issue: the templates offered, the one the prompt was rendered
+	// from (-1 for none), and what it was rendered with.
+	templates []config.Template
+	template  int
+	data      prompt.Data
 }
 
 // NewSessionDialog returns the dialog. withPrompt adds the prompt field.
@@ -90,19 +101,62 @@ func NewSessionDialog(theme common.Theme, profiles []config.Profile, withPrompt 
 	return d, d.title.Focus()
 }
 
-// ForIssue fills the dialog in for a session working on a grapes issue. The
-// title and prompt stay editable.
-func (d *NewSession) ForIssue(id int, title, prompt string) *NewSession {
-	d.issue = id
+// ForIssue fills the dialog in for a session working on the grapes issue
+// data describes: its title, and a prompt rendered from the template among
+// templates that prompt.Choose picks. Choosing another template, or toggling
+// whether to build the issue's sub-issues, renders the prompt again. The
+// title and prompt stay editable. The prompt field grows to show up to
+// maxPromptHeight lines while the dialog fits in screenHeight.
+func (d *NewSession) ForIssue(title string, templates []config.Template, data prompt.Data, screenHeight int) *NewSession {
+	d.issue = data.ID
 	d.withPrompt = true
+	d.templates = templates
+	d.template = prompt.Choose(templates, data.Labels)
+	d.data = data
 	d.title.SetValue(title)
-	d.prompt.SetValue(prompt)
+	d.render()
+	others := lipgloss.Height(d.View()) - d.prompt.Height()
+	d.prompt.SetHeight(max(d.prompt.Height(), min(maxPromptHeight, screenHeight-others)))
 	return d
+}
+
+// maxPromptHeight is the most lines the prompt of an issue's dialog shows.
+const maxPromptHeight = 20
+
+// render replaces the prompt with the chosen template rendered, or with
+// nothing when no template is chosen or rendering fails.
+func (d *NewSession) render() {
+	d.err = ""
+	if d.template < 0 {
+		d.prompt.SetValue("")
+		return
+	}
+	t := d.templates[d.template]
+	text, err := prompt.Render(t.Text, d.data)
+	if err != nil {
+		d.err = fmt.Sprintf("Template %s: %v", t.Name, err)
+	}
+	d.prompt.SetValue(text)
+	d.prompt.MoveToBegin() // show the prompt's start, not its end
+}
+
+// cycleTemplate chooses the next template, or the previous one for a
+// negative step. None comes after the last template.
+func (d *NewSession) cycleTemplate(step int) {
+	n := len(d.templates) + 1 // the templates, then none at -1
+	d.template = (d.template+1+step+n)%n - 1
+	d.render()
 }
 
 // fields lists the focus stops in order.
 func (d *NewSession) fields() []field {
 	fields := []field{fieldTitle}
+	if len(d.templates) > 0 {
+		fields = append(fields, fieldTemplate)
+	}
+	if len(d.data.SubIssues) > 0 {
+		fields = append(fields, fieldSubIssues)
+	}
 	if d.withPrompt {
 		fields = append(fields, fieldPrompt)
 	}
@@ -161,11 +215,21 @@ func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 		case key.Matches(k, keyPrev):
 			return d, d.move(-1)
 		case key.Matches(k, keySubmit):
-			// Enter on the title moves on to the prompt; anywhere else it creates.
+			// Enter on the title moves on to the next field; anywhere else it creates.
 			if d.focus == fieldTitle && d.withPrompt && strings.TrimSpace(d.title.Value()) != "" {
 				return d, d.move(1)
 			}
 			return d, d.submit()
+		case d.focus == fieldTemplate && key.Matches(k, keyLeft):
+			d.cycleTemplate(-1)
+			return d, nil
+		case d.focus == fieldTemplate && key.Matches(k, keyRight):
+			d.cycleTemplate(1)
+			return d, nil
+		case d.focus == fieldSubIssues && key.Matches(k, keyToggle):
+			d.data.BuildSubIssues = !d.data.BuildSubIssues
+			d.render()
+			return d, nil
 		case d.focus == fieldProfile && key.Matches(k, keyLeft):
 			d.profile = (d.profile - 1 + len(d.profiles)) % len(d.profiles)
 			return d, nil
@@ -207,6 +271,25 @@ func (d *NewSession) View() string {
 		label("Title", fieldTitle),
 		d.title.View(),
 	}
+	if d.issue > 0 {
+		if len(d.templates) > 0 {
+			name := "none"
+			if d.template >= 0 {
+				name = d.templates[d.template].Name
+			}
+			picker := t.StyleFaint.Render("‹ ") + t.StyleTitle.Render(name) + t.StyleFaint.Render(" ›")
+			parts = append(parts, "", label("Template", fieldTemplate), picker)
+		} else {
+			parts = append(parts, "", t.StyleFaint.Render("Template: none in .vineyard/templates or config.toml"))
+		}
+	}
+	if len(d.data.SubIssues) > 0 {
+		box := "[ ]"
+		if d.data.BuildSubIssues {
+			box = "[x]"
+		}
+		parts = append(parts, "", label(box+" Build sub-issues", fieldSubIssues))
+	}
 	if d.withPrompt {
 		parts = append(parts, "", label("Prompt", fieldPrompt), d.prompt.View())
 	}
@@ -232,7 +315,12 @@ func (d *NewSession) Hints() [][2]string {
 	if len(d.fields()) > 1 {
 		hints = append(hints, [2]string{"tab", "next field"})
 	}
-	if len(d.profiles) > 1 {
+	switch {
+	case d.focus == fieldTemplate:
+		hints = append(hints, [2]string{"←/→", "template"})
+	case d.focus == fieldSubIssues:
+		hints = append(hints, [2]string{"space", "toggle"})
+	case len(d.profiles) > 1:
 		hints = append(hints, [2]string{"←/→", "agent"})
 	}
 	return append(hints, [2]string{"esc", "cancel"})
