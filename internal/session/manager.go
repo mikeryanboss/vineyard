@@ -49,6 +49,9 @@ type NewOptions struct {
 	AutoYes bool
 	// BranchPrefix is prepended to the session's branch name.
 	BranchPrefix string
+	// Issue is the grapes issue the session works on, or 0. Its branch is
+	// then named "<issue>/<slug>" instead of using BranchPrefix.
+	Issue int
 }
 
 // New describes a session without creating anything, so the TUI can show it
@@ -56,11 +59,16 @@ type NewOptions struct {
 func (m *Manager) New(opts NewOptions) Session {
 	now := m.now()
 	id := newID(opts.Title, now)
+	branch := opts.BranchPrefix + Slug(opts.Title, id)
+	if opts.Issue > 0 {
+		branch = strconv.Itoa(opts.Issue) + "/" + Slug(opts.Title, id)
+	}
 	return Session{
 		ID:            id,
 		Title:         opts.Title,
 		Program:       opts.Program,
-		Branch:        opts.BranchPrefix + Slug(opts.Title, id),
+		Branch:        branch,
+		Issue:         opts.Issue,
 		WorktreePath:  filepath.Join(m.ProjectDir, "worktrees", id),
 		TmuxName:      "vineyard-" + filepath.Base(m.ProjectDir) + "-" + id,
 		Status:        StatusLoading,

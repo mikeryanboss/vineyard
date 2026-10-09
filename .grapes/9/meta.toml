@@ -1,0 +1,6 @@
+title = 'Show grapes inside vineyard as an issues screen'
+status = 'done'
+priority = 'high'
+labels = ['tui', 'grapes']
+created = 2026-10-08T22:06:00Z
+updated = 2026-10-09T08:22:00Z

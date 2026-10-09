@@ -4,7 +4,9 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"image/color"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Mibokess/grapes/embedded"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
@@ -125,6 +128,11 @@ type (
 	}
 	saveErrMsg     struct{ err error }
 	clearStatusMsg struct{ seq int }
+
+	// jumpToSessionMsg closes the issues screen and selects a session.
+	jumpToSessionMsg struct{ id string }
+	// openIssueMsg shows an issue's detail on the issues screen.
+	openIssueMsg struct{ id int }
 )
 
 // tick schedules timer messages. Tests replace it to drive the polling loops
@@ -145,6 +153,10 @@ type Options struct {
 	// ConfigErr is the error from loading the config file, if it failed.
 	// Config then holds defaults, and the config screen refuses to save.
 	ConfigErr error
+	// Grapes is the repository's issue tracker, shown by the issues screen.
+	// When it is nil, GrapesErr says why.
+	Grapes    *embedded.Model
+	GrapesErr error
 }
 
 // Model is the root TUI model.
@@ -177,6 +189,14 @@ type Model struct {
 	configOpen bool
 	settings   settings.Model
 
+	// grapes is the issue tracker. It runs, and is sent every message vineyard
+	// does not handle, even while hidden, so it keeps itself up to date.
+	// grapesErr is set instead when the repository has none.
+	grapes    embedded.Model
+	grapesErr error
+	// issuesOpen shows grapes in place of the whole screen.
+	issuesOpen bool
+
 	status      string
 	statusIsErr bool
 	statusSeq   int
@@ -201,6 +221,17 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 	if opts.ConfigErr != nil {
 		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
 	}
+	switch {
+	case opts.Grapes != nil:
+		// Grapes starts dark until the terminal reports its background;
+		// vineyard starts light. Tell grapes what vineyard assumes, so the two
+		// match until the report arrives, which both then follow.
+		m.grapes, _ = opts.Grapes.Update(tea.BackgroundColorMsg{Color: color.White})
+	case opts.GrapesErr != nil:
+		m.grapesErr = opts.GrapesErr
+	default:
+		m.grapesErr = errors.New("no issue tracker")
+	}
 	m.syncList()
 	// Mark the initial selection as shown; the first ticks fetch its screen and diff.
 	_ = m.refreshShown()
@@ -210,12 +241,16 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 
 // Init starts the polling loops.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		tea.RequestBackgroundColor,
 		func() tea.Msg { return previewTickMsg{} },
 		func() tea.Msg { return statusTickMsg{} },
 		func() tea.Msg { return diffTickMsg{} },
-	)
+	}
+	if m.grapesErr == nil {
+		cmds = append(cmds, m.grapes.Init())
+	}
+	return tea.Batch(cmds...)
 }
 
 // --- Helpers ---
@@ -260,7 +295,7 @@ func (m *Model) syncList() {
 		if m.busy[s.ID] {
 			s.Status = session.StatusLoading
 		}
-		items[i] = list.Item{Session: s, Stat: m.stats[s.ID]}
+		items[i] = list.Item{Session: s, Stat: m.stats[s.ID], Issues: m.issuesOf(s)}
 	}
 	m.list = m.list.SetItems(items)
 }
@@ -485,12 +520,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.applySizes()
-		return m, nil
+		return m.updateGrapes(msg)
 
 	case tea.BackgroundColorMsg:
 		m.theme = common.NewTheme(msg.IsDark())
 		m.applyTheme()
-		return m, nil
+		return m.updateGrapes(msg)
 
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -667,6 +702,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dialog = nil
 		return m.createSession(msg)
 
+	case embedded.CloseMsg:
+		m.issuesOpen = false
+		return m, nil
+
+	case embedded.SessionsMsg:
+		return m.showSessions(msg.IssueID)
+
+	case jumpToSessionMsg:
+		m.dialog = nil
+		m.issuesOpen = false
+		m.list = m.list.Select(msg.id)
+		m.setFocus(focusList)
+		return m, m.refreshShown()
+
+	case openIssueMsg:
+		m.dialog = nil
+		return m.openIssue(msg.id)
+
 	case common.ConfirmedMsg:
 		m.dialog = nil
 		return m.runConfirmed(msg)
@@ -704,7 +757,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Anything else, such as cursor blinks, belongs to an open dialog or the
-	// config screen.
+	// config screen, and to grapes, whose file watching and reloads report
+	// back through vineyard's update loop.
 	var cmd tea.Cmd
 	switch {
 	case m.dialog != nil:
@@ -712,6 +766,103 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case m.configOpen:
 		m.settings, cmd = m.settings.Update(msg)
 	}
+	next, grapesCmd := m.updateGrapes(msg)
+	return next, tea.Batch(cmd, grapesCmd)
+}
+
+// updateGrapes passes msg to grapes, when there is one. A grapes reload may
+// change which issues sessions have touched, so the list is rebuilt.
+func (m Model) updateGrapes(msg tea.Msg) (Model, tea.Cmd) {
+	if m.grapesErr != nil {
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.grapes, cmd = m.grapes.Update(msg)
+	m.syncList()
+	return m, cmd
+}
+
+// issuesOf returns the grapes issues session s works on: the one it was
+// started for and those its branch changed, in ascending order.
+func (m Model) issuesOf(s session.Session) []int {
+	var ids []int
+	if s.Issue > 0 {
+		ids = append(ids, s.Issue)
+	}
+	if m.grapesErr == nil {
+		for _, id := range m.grapes.TouchedIssues(s.WorktreePath) {
+			if id != s.Issue {
+				ids = append(ids, id)
+			}
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// showSessions answers grapes' request for the sessions working on an issue.
+// A single session is selected directly; several are offered in a picker;
+// none means the user wants to start one.
+func (m Model) showSessions(issueID int) (tea.Model, tea.Cmd) {
+	var found []session.Session
+	for _, s := range m.sessions {
+		if slices.Contains(m.issuesOf(s), issueID) {
+			found = append(found, s)
+		}
+	}
+	width := min(70, m.width-4)
+	switch len(found) {
+	case 0:
+		issue, _ := m.grapes.Issue(issueID)
+		prompt := fmt.Sprintf("Work on grapes issue #%d: %s. Its specification is in .grapes/%d/.", issueID, issue.Title, issueID)
+		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), true, width)
+		m.dialog = d.ForIssue(issueID, issue.Title, prompt)
+		return m, cmd
+	case 1:
+		return m.Update(jumpToSessionMsg{id: found[0].ID})
+	}
+	choices := make([]dialog.Choice, len(found))
+	for i, s := range found {
+		choices[i] = dialog.Choice{
+			Label: common.StatusIcon(s.Status) + " " + s.Title + "  " + s.Branch,
+			Msg:   jumpToSessionMsg{id: s.ID},
+		}
+	}
+	m.dialog = dialog.NewPick(m.theme, fmt.Sprintf("Sessions working on #%d", issueID), choices, width)
+	return m, nil
+}
+
+// showIssues opens the issues screen at the issue session s works on. With
+// several, a picker chooses; with none, or no session, grapes opens as it was.
+func (m Model) showIssues(s session.Session, ok bool) (tea.Model, tea.Cmd) {
+	if m.grapesErr != nil {
+		return m, m.setStatus("No issues to show: "+m.grapesErr.Error(), true)
+	}
+	var ids []int
+	if ok {
+		ids = m.issuesOf(s)
+	}
+	switch len(ids) {
+	case 0:
+		m.issuesOpen = true
+		return m, nil
+	case 1:
+		return m.openIssue(ids[0])
+	}
+	choices := make([]dialog.Choice, len(ids))
+	for i, id := range ids {
+		issue, _ := m.grapes.Issue(id)
+		choices[i] = dialog.Choice{Label: fmt.Sprintf("#%d %s", id, issue.Title), Msg: openIssueMsg{id: id}}
+	}
+	m.dialog = dialog.NewPick(m.theme, "Issues of "+s.Title, choices, min(70, m.width-4))
+	return m, nil
+}
+
+// openIssue shows grapes at issue id.
+func (m Model) openIssue(id int) (tea.Model, tea.Cmd) {
+	m.issuesOpen = true
+	var cmd tea.Cmd
+	m.grapes, cmd = m.grapes.OpenIssue(id)
 	return m, cmd
 }
 
@@ -795,7 +946,9 @@ func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
 		Prompt:       msg.Prompt,
 		AutoYes:      m.opts.Config.AutoYes || m.opts.AutoYes,
 		BranchPrefix: m.opts.Config.BranchPrefix,
+		Issue:        msg.Issue,
 	})
+	m.issuesOpen = false // show the new session, even when started from an issue
 	m.sessions = append(m.sessions, s)
 	m.syncList()
 	m.list = m.list.Select(s.ID)
@@ -845,6 +998,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.settings, cmd = m.settings.Update(msg)
 		return m, cmd
 	}
+	if m.issuesOpen {
+		var cmd tea.Cmd
+		m.grapes, cmd = m.grapes.Update(msg)
+		return m, cmd
+	}
 	if m.focus == focusPane {
 		var cmd tea.Cmd
 		if m.tab == tabDiff {
@@ -881,6 +1039,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.setFocus(focusPane)
 		}
 		return m, nil
+	case key.Matches(msg, keys.Issues):
+		return m.showIssues(s, ok)
 	}
 
 	if !ok {
@@ -954,6 +1114,11 @@ func (m Model) handleMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.dialog != nil || m.configOpen {
 		return m, nil
 	}
+	if m.issuesOpen {
+		var cmd tea.Cmd
+		m.grapes, cmd = m.grapes.Update(msg)
+		return m, cmd
+	}
 	var mouse tea.Mouse
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
@@ -1005,6 +1170,14 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) render() string {
+	if m.issuesOpen {
+		// Grapes draws the whole screen, its own header and status bar included.
+		screen := m.grapes.View()
+		if m.dialog != nil {
+			screen = overlayCenter(screen, m.dialog.View(), m.width, m.height)
+		}
+		return screen
+	}
 	_, _, bodyHeight := m.layout()
 	body := lipgloss.JoinHorizontal(lipgloss.Top, m.list.View(), m.renderPane())
 	if m.configOpen {
@@ -1114,7 +1287,7 @@ func (m Model) renderStatusBar() string {
 		hints = [][2]string{
 			{"n", "new"}, {"N", "new+prompt"}, {"enter", "attach"}, {"t", "shell"}, {"s", "push"},
 			{"c", "checkout"}, {"r", "resume"}, {"D", "kill"}, {"a", "auto-yes"}, {"tab", "diff"},
-			{"l", "scroll"}, {"C", "config"}, {"q", "quit"},
+			{"l", "scroll"}, {"i", "issues"}, {"C", "config"}, {"q", "quit"},
 		}
 	}
 	dot := t.StyleFaint.Render(" · ")

@@ -52,6 +52,8 @@ type Session struct {
 	AutoYes bool `json:"auto_yes"`
 	// PendingPrompt is typed into the agent once it is first ready for input.
 	PendingPrompt string `json:"pending_prompt,omitempty"`
+	// Issue is the grapes issue the session was started for, or 0.
+	Issue int `json:"issue,omitempty"`
 	// CreatedAt is when the session was created.
 	CreatedAt time.Time `json:"created_at"`
 }

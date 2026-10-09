@@ -115,6 +115,19 @@ func TestStart_NumbersTakenBranchNames(t *testing.T) {
 	}
 }
 
+// A session started for a grapes issue follows the repository's branch
+// convention, "<id>/<slug>", whatever the configured prefix.
+func TestStart_IssueSessionBranchesByIssue(t *testing.T) {
+	m, _ := newTestManager(t)
+	s, err := m.Start(m.New(NewOptions{Title: "Embed grapes", Program: "claude", BranchPrefix: "test/", Issue: 12}), 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Branch != "12/embed-grapes" || s.Issue != 12 {
+		t.Errorf("branch, issue = %q, %d; want 12/embed-grapes, 12", s.Branch, s.Issue)
+	}
+}
+
 func TestStart_FailedLaunchLeavesNothingBehind(t *testing.T) {
 	m, term := newTestManager(t)
 	term.startErr = errors.New("no such program")
@@ -263,7 +276,7 @@ func TestStore_RoundTrip(t *testing.T) {
 	if sessions, err := store.Load(); err != nil || len(sessions) != 0 {
 		t.Fatalf("empty store = %v, %v", sessions, err)
 	}
-	saved := []Session{{ID: "a", Title: "A", Status: StatusPaused, PendingPrompt: "go"}}
+	saved := []Session{{ID: "a", Title: "A", Status: StatusPaused, PendingPrompt: "go", Issue: 12}}
 	if err := store.Save(saved); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +284,20 @@ func TestStore_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded) != 1 || loaded[0].Title != "A" || loaded[0].PendingPrompt != "go" {
+	if len(loaded) != 1 || loaded[0].Title != "A" || loaded[0].PendingPrompt != "go" || loaded[0].Issue != 12 {
+		t.Errorf("loaded = %+v", loaded)
+	}
+}
+
+// Sessions saved before sessions recorded issues have no "issue" key.
+func TestStore_LoadsSessionsWithoutIssue(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "sessions.json", `{"version": 1, "sessions": [{"id": "a", "title": "A", "status": "paused"}]}`)
+	loaded, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].Issue != 0 {
 		t.Errorf("loaded = %+v", loaded)
 	}
 }

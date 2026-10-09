@@ -12,3 +12,7 @@ dist/
 .grapes/config.toml.lock
 .grapes/.*.tmp-*
 .grapes/*/.*.tmp-*
+
+# Local builds against a grapes checkout (see docs/development.md)
+go.work
+go.work.sum
