@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -174,12 +175,47 @@ func TestStart_NumbersTakenBranchNames(t *testing.T) {
 // convention, "<id>/<slug>", whatever the configured prefix.
 func TestStart_IssueSessionBranchesByIssue(t *testing.T) {
 	m, _ := newTestManager(t)
+	commitIssue(t, m.Repo.Root, 12)
 	s, err := m.Start(m.New(NewOptions{Title: "Embed grapes", Program: "claude", BranchPrefix: "test/", WorktreeDir: worktrees(m), Issue: 12}), 80, 24)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.Branch != "12/embed-grapes" || s.Issue != 12 {
 		t.Errorf("branch, issue = %q, %d; want 12/embed-grapes, 12", s.Branch, s.Issue)
+	}
+}
+
+// commitIssue commits a minimal grapes issue id to the repository at root.
+func commitIssue(t *testing.T, root string, id int) {
+	t.Helper()
+	dir := filepath.Join(root, ".grapes", strconv.Itoa(id))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "meta.toml", "title = 'issue'\n")
+	runGit(t, root, "add", "-A")
+	runGit(t, root, "commit", "-q", "-m", "issue")
+}
+
+// The agent is told to read its issue in its worktree, which starts at HEAD:
+// an issue not committed there is refused before anything is created.
+func TestStart_RefusesAnIssueNotCommittedAtHead(t *testing.T) {
+	m, term := newTestManager(t)
+	commitIssue(t, m.Repo.Root, 12)
+	if err := os.MkdirAll(filepath.Join(m.Repo.Root, ".grapes", "13"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(m.Repo.Root, ".grapes", "13"), "meta.toml", "title = 'uncommitted'\n")
+
+	s, err := m.Start(m.New(NewOptions{Title: "New issue", Program: "claude", WorktreeDir: worktrees(m), Issue: 13}), 80, 24)
+	if err == nil || !strings.Contains(err.Error(), "issue #13 is not committed") {
+		t.Fatalf("Start = %v, want an error naming #13", err)
+	}
+	if _, statErr := os.Stat(s.WorktreePath); !os.IsNotExist(statErr) {
+		t.Error("a refused start should create no worktree")
+	}
+	if git.BranchExists(m.Repo.Root, s.Branch) || len(term.live) > 0 {
+		t.Error("a refused start should create no branch or agent")
 	}
 }
 

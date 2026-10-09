@@ -4,6 +4,7 @@
 // Everything lives in the repository's main checkout, like grapes' .grapes:
 //
 //	.vineyard/config.toml      configuration, committed
+//	.vineyard/templates/       prompt templates for issue sessions, committed
 //	.vineyard/.gitignore       keeps everything else out of git
 //	.vineyard/sessions.json    the repository's sessions
 //	.vineyard/worktrees/<id>/  one worktree per session, unless worktree_dir says otherwise
@@ -47,6 +48,9 @@ type Config struct {
 	// commit. When it is empty, or its first word is not an installed program,
 	// Vineyard shows its own diff full-screen instead.
 	DiffCommand string `toml:"diff_command"`
+	// Templates are prompt templates for sessions started from an issue,
+	// beside those in the templates directory.
+	Templates []Template `toml:"templates,omitempty"`
 }
 
 // Defaults returns the configuration used when no file exists.
@@ -87,25 +91,31 @@ func (c Config) ResolvedProfiles() []Profile {
 // DirName is the name of the data directory in a repository's main checkout.
 const DirName = ".vineyard"
 
-// gitignore keeps everything in the data directory but the configuration out
-// of git.
-const gitignore = "# Written by vineyard: only the configuration is shared.\n*\n!.gitignore\n!config.toml\n"
+// gitignore keeps everything in the data directory but the configuration and
+// templates out of git.
+const gitignore = "# Written by vineyard: only the configuration and templates are shared.\n" +
+	"*\n!.gitignore\n!config.toml\n!templates/\n!templates/*\n"
 
 // Dir returns the data directory of the repository whose main checkout is
 // repoRoot.
 func Dir(repoRoot string) string { return filepath.Join(repoRoot, DirName) }
 
-// Prepare creates the data directory dir, and its .gitignore when missing.
-// An existing .gitignore is left as the user edited it.
+// Prepare creates the data directory dir, its .gitignore, and its templates
+// directory with the example templates, each when missing. An existing
+// .gitignore or templates directory is left as the user edited it.
 func Prepare(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	path := filepath.Join(dir, ".gitignore")
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.WriteFile(path, []byte(gitignore), 0o644); err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(gitignore), 0o644)
+	return writeExamples(TemplatesDir(dir))
 }
 
 // Path returns the location of the configuration file in dir.

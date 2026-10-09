@@ -81,6 +81,50 @@ replaced by the commit the session started from. The default is
 [Hunk](https://github.com/modem-dev/hunk). When the command is empty or its
 program is not installed, `enter` shows Vineyard's own diff full-screen instead.
 
+### Prompt templates
+
+`a` on an issue without a session opens the new-session dialog with a prompt
+rendered from a template. Each `.md` file in `.vineyard/templates/` is a
+template named after the file; `config.toml` can add more:
+
+```toml
+[[templates]]
+name = "plan"
+text = """
+Plan grapes issue #{{.ID}}: {{.Title}}. Do not change code yet.
+"""
+```
+
+When `.vineyard/templates/` is missing, Vineyard creates it with three
+examples, `default`, `bug`, and `research`; edit, delete, or add to them, and
+commit them to share them. The dialog preselects the template named after the
+issue's first label that has one, else `default`; `←/→` on the Template field
+picks another. For an issue with sub-issues, the Build sub-issues checkbox
+(`space`) tells the agent to build the sub-issues no other session works on.
+Changing the template or the checkbox renders the prompt again, replacing your
+edits.
+
+Templates are Go [`text/template`](https://pkg.go.dev/text/template)s over:
+
+| Field | Value |
+| --- | --- |
+| `.ID`, `.Title`, `.Status` | the issue |
+| `.Labels` | its labels |
+| `.Parent` | its parent's `.ID`, `.Title`, and `.Status`, or nil |
+| `.SubIssues` | each sub-issue's `.ID`, `.Title`, `.Status`, and `.Branch`, the branch of a session working on it or empty |
+| `.Blockers` | the issues it is blocked by that are neither done nor cancelled |
+| `.BuildSubIssues` | whether Build sub-issues is ticked |
+
+Vineyard removes trailing spaces and repeated blank lines from the result, so
+conditional paragraphs need no whitespace control.
+
+A session for an issue starts only when the issue is committed at HEAD, so its
+worktree has it.
+
+A `.vineyard/.gitignore` written before templates existed ignores them: add
+`!templates/` and `!templates/*` to it, or delete it and Vineyard writes the
+current one.
+
 ## How it works
 
 A session is a branch, a worktree under `worktree_dir`, and the agent running

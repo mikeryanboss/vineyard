@@ -48,6 +48,7 @@ main.go
 | Theme, key bindings, shared messages | `internal/tui/common/` | |
 | Issues screen, sessions linked to issues | `internal/tui/app.go` | Grapes in `architecture.md` |
 | Issue tab | `refreshIssue` in `internal/tui/app.go` | `internal/tui/textview/` |
+| Prompt of a session started from an issue | `internal/prompt/`, `promptData` in `internal/tui/app.go` | templates in `internal/config/templates.go`, `ForIssue` in `internal/tui/dialog/` |
 | Recap tab | `refreshRecap` in `internal/tui/app.go` | `internal/recap/`, Recaps in `architecture.md` |
 | Release a version | `var version` in `main.go` | Releases in `development.md` |
 | Re-record the README demo | `doc/vhs/demo.tape` | README Demo in `development.md` |
@@ -62,6 +63,7 @@ internal/tmux/             tmux client on Vineyard's private socket
 internal/session/          session model, lifecycle manager, store, screen detection
 internal/diff/             unified diff parser
 internal/recap/            Claude Code transcripts: a session's recaps, title, last prompt
+internal/prompt/           rendering an issue session's prompt from a template
 internal/tui/app.go        root Bubble Tea model
 internal/tui/backend.go    the root model's seam to tmux, git, and storage
 internal/tui/list/         session list view

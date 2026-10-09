@@ -1,0 +1,11 @@
+### 2026-10-09T21:10
+[DECISION] From the review of today's prompt: the user wants templates in an easy format, creatable in `config.toml` or as files; `bug` and `research` as examples next to the default; Build sub-issues as a checkbox in the dialog; and an issue not committed at HEAD refused with an error. Templates are files in `.vineyard/templates/` plus `[[templates]]` in `config.toml`, chosen by label. Unticked, the examples say not to build the sub-issues, so the checkbox changes the agent's behavior either way.
+
+### 2026-10-09T21:55
+[DONE] Grapes #56 exposes labels, parent, children, and blockers in `embedded.Issue`; `go.mod` pins its branch commit until grapes v0.1.14 is released. New `internal/prompt` renders templates (`Render`, `Choose`, `Data`). `config` gains `Template`, `Config.Templates`, `LoadTemplates`, the example templates in `internal/config/templates/`, written by `Prepare` when `.vineyard/templates/` is missing, and a `.gitignore` that shares them. The new-session dialog for an issue has a Template picker, a Build sub-issues checkbox for issues with sub-issues, and a prompt field that grows to 20 lines within the screen. `showSessions` reads templates in a command (`Backend.Templates`). `Manager.Start` refuses an issue not committed at HEAD. README and docs describe the templates and their data.
+
+### 2026-10-09T21:55
+[VERIFY] From the worktree root: `gofmt -l .` printed nothing; `go vet ./...` passed; `go test ./...` passed (about 6 s). Manual, in a scratch repository with vineyard 0.1.2 on its own tmux socket and `-p cat`: `-i 2` (bug, sub-issue of #1, blocked by #3) preselected `bug` and listed the parent and blocker; creating it delivered the whole prompt to the session; `-i 1` listed #2 with its session's branch, and space toggled the build paragraph; `-i 5` (uncommitted) showed "issue #5 is not committed at HEAD; commit it first, so the session's worktree has it" and created no branch. PASS. Screenshots: before-dialog, bug-dialog, parent-unticked, parent-ticked, uncommitted in `.grapes/29/tmp/`, published on `pr-evidence`.
+
+### 2026-10-09T22:05
+[DECISION] Renumbered from #28: open PR #20 (`28/merged-session-issues`) already uses #28, from a worktree `grapes issue` could no longer see.
