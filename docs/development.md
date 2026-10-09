@@ -70,6 +70,15 @@ Vineyard is light until the terminal reports a dark background, and tmux does
 not, so the capture is light text on `freeze`'s dark default canvas unless you
 pass the white `--background`.
 
+`freeze` ignores resets to the default colours (`\e[0m`, `\e[39m`, `\e[49m`):
+default-colour text comes out faint and a selected row's background runs across
+the pane. Replace the resets with explicit colours before rendering:
+
+```sh
+sed -e 's/\x1b\[0m/\x1b[0m\x1b[38;5;235m\x1b[48;5;231m/g' -e 's/\x1b\[39m/\x1b[38;5;235m/g' \
+  -e 's/\x1b\[49m/\x1b[48;5;231m/g' -e 's/^/\x1b[38;5;235m\x1b[48;5;231m/' shot.ansi > shot.fixed.ansi
+```
+
 Look at each PNG before publishing it. The [pr skill](../.agents/skills/pr/SKILL.md)
 publishes the images and embeds them in the PR.
 
@@ -100,6 +109,7 @@ goreleaser release --snapshot --clean --skip=publish   # writes dist/; delete it
 | List appearance | `tui/list/list.go` | list golden tests |
 | Config field | `config/config.go`, `tui/settings/settings.go`, README | `config_test.go`, `settings_test.go` |
 | Persisted session field | `session/session.go` | `TestStore_RoundTrip`; keep old files loadable |
+| Recap tab or transcript format | `recap/recap.go`, `tui/app.go` (`recapCmd`, `refreshRecap`) | `recap_test.go`, `app_test.go` |
 | Issues screen, issue tab, or session–issue links | `tui/app.go` (`issuesOf`, `showSessions`, `showIssues`, `refreshIssue`) | `app_grapes_test.go` |
 | What grapes exposes | grapes' `embedded/` package, then `go get` the release here | grapes' `embedded_test.go`, `app_grapes_test.go` |
 

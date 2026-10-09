@@ -5,6 +5,7 @@ import (
 
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
+	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/tmux"
 )
@@ -34,6 +35,9 @@ type Backend interface {
 	Diff(s session.Session) (string, error)
 	DiffStat(s session.Session) (git.Stat, error)
 	Branch(s session.Session) (string, error)
+
+	// Recap reads what Claude Code has recorded about s.
+	Recap(s session.Session) (recap.Recap, error)
 
 	Save(sessions []session.Session) error
 	SaveConfig(cfg config.Config) error
@@ -84,6 +88,14 @@ func (b LiveBackend) DiffStat(s session.Session) (git.Stat, error) {
 
 func (b LiveBackend) Branch(s session.Session) (string, error) {
 	return git.CurrentBranch(s.WorktreePath)
+}
+
+func (b LiveBackend) Recap(s session.Session) (recap.Recap, error) {
+	dir, err := recap.ProjectsDir()
+	if err != nil {
+		return recap.Recap{}, err
+	}
+	return recap.Load(dir, s.WorktreePath)
 }
 
 func (b LiveBackend) Save(sessions []session.Session) error { return b.Store.Save(sessions) }

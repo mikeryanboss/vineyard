@@ -1,0 +1,6 @@
+title = "Show Claude Code's recaps of a session in a pane tab"
+status = 'done'
+priority = 'medium'
+labels = ['tui']
+created = 2026-10-09T09:54:00Z
+updated = 2026-10-09T10:00:00Z

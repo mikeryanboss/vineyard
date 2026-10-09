@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
+	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/testutil"
@@ -31,6 +32,7 @@ type fakeBackend struct {
 	branches map[string]string // session ID -> checked-out branch
 	resized  [][2]int
 	configs  []config.Config
+	recaps   map[string]recap.Recap // by session ID
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
@@ -83,6 +85,12 @@ func (f *fakeBackend) Branch(s session.Session) (string, error) {
 		return branch, nil
 	}
 	return s.Branch, nil
+}
+
+func (f *fakeBackend) Recap(s session.Session) (recap.Recap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.recaps[s.ID], nil
 }
 
 func (f *fakeBackend) Resize(s session.Session, w, h int) error {
@@ -468,6 +476,53 @@ func TestApp_SwitchTabFromPane(t *testing.T) {
 	m = send(m, common.LeavePaneMsg{})
 	if m.focus != focusList {
 		t.Error("LeavePaneMsg should focus the list")
+	}
+}
+
+// The recap tab shows Claude Code's recaps of the selected session, newest
+// first, falls back to the last prompt, and says why other agents have none.
+func TestRecapTab_ShowsTheSelectedSessionsRecaps(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	at := time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC)
+	backend.recaps = map[string]recap.Recap{
+		"login-1": {Found: true, Title: "Login redirect fix", Entries: []recap.Entry{
+			{Time: at.Add(time.Hour), Text: "The redirect is fixed. Next, run the tests."},
+			{Time: at, Text: "I found the redirect bug."},
+		}},
+		"tests-2": {Found: true, Title: "Parser tests", LastPrompt: "add tests for the parser"},
+	}
+
+	m = keys(m, "tab", "tab", "tab")
+	if m.tab != tabRecap {
+		t.Fatalf("three tabs from preview should reach the recap tab, got %v", m.tab)
+	}
+	got := screen(m)
+	newer, older := strings.Index(got, "The redirect is fixed"), strings.Index(got, "I found the redirect bug")
+	if !strings.Contains(got, "Login redirect fix") || newer < 0 || older < 0 || newer > older {
+		t.Fatalf("the recap tab should show the title and both recaps, newest first:\n%s", got)
+	}
+
+	m = keys(m, "j")
+	if got := screen(m); !strings.Contains(got, "No recap yet") || !strings.Contains(got, "add tests for the parser") {
+		t.Errorf("a session without recaps should show its last prompt:\n%s", got)
+	}
+	m = keys(m, "j")
+	if got := screen(m); !strings.Contains(got, "this session runs codex") {
+		t.Errorf("a session of another agent should say recaps come from Claude Code:\n%s", got)
+	}
+
+	m = keys(m, "tab")
+	if m.tab != tabPreview {
+		t.Errorf("tab from the recap tab should return to the preview, got %v", m.tab)
+	}
+}
+
+func TestRecapTab_DropsAnotherSessionsRecap(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	m = keys(m, "tab", "tab", "tab") // login-1 is shown
+	m = send(m, recapMsg{id: "tests-2", recap: recap.Recap{Found: true, Title: "Parser tests"}})
+	if got := screen(m); strings.Contains(got, "Parser tests") {
+		t.Errorf("a recap of a session that is not shown must not be displayed:\n%s", got)
 	}
 }
 

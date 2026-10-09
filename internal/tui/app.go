@@ -18,14 +18,15 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
+	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/dialog"
 	"github.com/mikeryanboss/vineyard/internal/tui/diffview"
-	"github.com/mikeryanboss/vineyard/internal/tui/issueview"
 	"github.com/mikeryanboss/vineyard/internal/tui/list"
 	"github.com/mikeryanboss/vineyard/internal/tui/preview"
 	"github.com/mikeryanboss/vineyard/internal/tui/settings"
+	"github.com/mikeryanboss/vineyard/internal/tui/textview"
 )
 
 const (
@@ -61,6 +62,7 @@ const (
 	tabPreview tab = iota
 	tabDiff
 	tabIssue
+	tabRecap
 )
 
 // Messages produced by the model's own commands.
@@ -82,7 +84,12 @@ type (
 		gone       bool
 	}
 	statusMsg struct{ results []screenStatus }
-	diffMsg   struct {
+	recapMsg  struct {
+		id    string
+		recap recap.Recap
+		err   error
+	}
+	diffMsg struct {
 		selectedID string
 		hasRaw     bool // whether raw was fetched; paused sessions have no worktree to diff
 		raw        string
@@ -192,10 +199,14 @@ type Model struct {
 	list    list.Model
 	preview preview.Model
 	diff    diffview.Model
-	issue   issueview.Model
+	issue   textview.Model
+	recap   textview.Model
 	dialog  dialog.Dialog
 	focus   focus
 	tab     tab
+	// recapShown is the latest recap fetched for the shown session, kept to
+	// re-render the recap tab when the pane changes size or theme.
+	recapShown recapMsg
 
 	// configOpen shows the config screen in place of the list and panes.
 	configOpen bool
@@ -232,7 +243,8 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		list:     list.New(theme),
 		preview:  preview.New(theme),
 		diff:     diffview.New(theme),
-		issue:    issueview.New(theme),
+		issue:    textview.New(theme),
+		recap:    textview.New(theme),
 
 		startIssue: opts.Issue,
 	}
@@ -340,6 +352,7 @@ func (m *Model) applySizes() {
 	m.preview = m.preview.SetSize(w, h)
 	m.diff = m.diff.SetSize(w, h)
 	m.issue = m.issue.SetSize(w, h)
+	m.recap = m.recap.SetSize(w, h)
 	m.settings = m.settings.SetSize(m.width, bodyHeight)
 }
 
@@ -348,6 +361,7 @@ func (m *Model) applyTheme() {
 	m.preview = m.preview.SetTheme(m.theme)
 	m.diff = m.diff.SetTheme(m.theme)
 	m.issue = m.issue.SetTheme(m.theme)
+	m.recap = m.recap.SetTheme(m.theme)
 	m.settings = m.settings.SetTheme(m.theme)
 }
 
@@ -406,14 +420,16 @@ func (m *Model) refreshShown() tea.Cmd {
 	m.diff = m.diff.SetDiff("")
 	m.issue = m.issue.GotoTop()
 	m.refreshIssue()
+	m.recap = m.recap.GotoTop()
+	m.refreshRecap()
 	if !ok {
 		return nil
 	}
 	m.diffInFlight = true
 	if !s.Status.Active() || m.busy[s.ID] {
-		return m.diffCmd() // no live screen to capture
+		return tea.Batch(m.diffCmd(), m.recapCmd()) // no live screen to capture
 	}
-	return tea.Batch(m.captureCmd(s), m.diffCmd())
+	return tea.Batch(m.captureCmd(s), m.diffCmd(), m.recapCmd())
 }
 
 func (m Model) saveCmd() tea.Cmd {
@@ -511,6 +527,19 @@ func (m Model) diffCmd() tea.Cmd {
 	}
 }
 
+// recapCmd reads the selected session's recaps, while the recap tab is shown.
+func (m Model) recapCmd() tea.Cmd {
+	s, ok := m.selected()
+	if m.tab != tabRecap || !ok || !isClaude(s) {
+		return nil
+	}
+	backend := m.backend
+	return func() tea.Msg {
+		r, err := backend.Recap(s)
+		return recapMsg{id: s.ID, recap: r, err: err}
+	}
+}
+
 func (m Model) startCmd(s session.Session) tea.Cmd {
 	backend := m.backend
 	w, h := m.paneContentSize()
@@ -548,6 +577,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.applySizes()
+		m.refreshRecap()
 		if id := m.startIssue; id != 0 {
 			m.startIssue = 0
 			next, cmd := m.updateGrapes(msg)
@@ -559,6 +589,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		m.theme = common.NewTheme(msg.IsDark())
 		m.applyTheme()
+		m.refreshRecap()
 		return m.updateGrapes(msg)
 
 	case tea.KeyPressMsg:
@@ -604,7 +635,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, next
 		}
 		m.diffInFlight = true
-		return m, tea.Batch(next, m.diffCmd())
+		return m, tea.Batch(next, m.diffCmd(), m.recapCmd())
 
 	case diffMsg:
 		m.diffInFlight = false
@@ -626,6 +657,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stats[msg.selectedID] = git.Stat{Added: added, Removed: removed}
 		}
 		m.syncList()
+		return m, nil
+
+	case recapMsg:
+		if msg.id == m.shownID {
+			m.recapShown = msg
+			m.refreshRecap()
+		}
 		return m, nil
 
 	case startedMsg:
@@ -781,8 +819,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case common.SwitchTabMsg:
-		m.switchTab()
-		return m, nil
+		return m, m.switchTab()
 
 	case common.ScrollbackRequestMsg:
 		s, ok := m.selected()
@@ -854,6 +891,55 @@ func (m *Model) refreshIssue() {
 	rule := m.theme.StyleSeparator.Render(strings.Repeat("─", width))
 	m.issue = m.issue.SetContent(strings.Join(rendered, "\n"+rule+"\n"))
 }
+
+// refreshRecap renders the shown session's latest recaps into the recap tab,
+// while the tab is shown.
+func (m *Model) refreshRecap() {
+	if m.tab != tabRecap {
+		return
+	}
+	s, ok := m.selected()
+	r := m.recapShown
+	switch {
+	case !ok:
+		m.recap = m.recap.SetPlaceholder("Press n to start a session.")
+		return
+	case !isClaude(s):
+		m.recap = m.recap.SetPlaceholder("Recaps come from Claude Code; this session runs " + session.ProgramName(s.Program) + ".")
+		return
+	case r.id != s.ID:
+		m.recap = m.recap.SetPlaceholder("Reading recaps…")
+		return
+	case r.err != nil:
+		m.recap = m.recap.SetPlaceholder("Cannot read recaps: " + r.err.Error())
+		return
+	case !r.recap.Found:
+		m.recap = m.recap.SetPlaceholder("Claude Code has no transcript for this session yet.")
+		return
+	}
+	width, _ := m.paneContentSize()
+	t := m.theme
+	var b strings.Builder
+	if r.recap.Title != "" {
+		b.WriteString(t.StyleTitle.Render(ansi.Wrap(r.recap.Title, width, "")) + "\n\n")
+	}
+	for _, e := range r.recap.Entries {
+		b.WriteString(t.StyleFaint.Render(e.Time.Local().Format("Jan 2 15:04")) + "\n")
+		b.WriteString(ansi.Wrap(e.Text, width, "") + "\n\n")
+	}
+	if len(r.recap.Entries) == 0 {
+		b.WriteString(t.StyleSubtitle.Render(ansi.Wrap("No recap yet. Claude Code writes one when you return after being away.", width, "")) + "\n\n")
+		if r.recap.LastPrompt != "" {
+			b.WriteString(t.StyleFaint.Render("Last prompt") + "\n")
+			b.WriteString(ansi.Wrap(r.recap.LastPrompt, width, "") + "\n")
+		}
+	}
+	m.recap = m.recap.SetContent(strings.TrimRight(b.String(), "\n"))
+}
+
+// isClaude reports whether s runs Claude Code, the only agent whose recaps
+// vineyard reads.
+func isClaude(s session.Session) bool { return session.ProgramName(s.Program) == "claude" }
 
 // issuesOf returns the grapes issues session s works on: the one it was
 // started for and those its branch changed, in ascending order.
@@ -993,15 +1079,18 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 }
 
 // tabNames are the pane tabs' names, as the status bar offers them.
-var tabNames = map[tab]string{tabPreview: "preview", tabDiff: "diff", tabIssue: "issue"}
+var tabNames = map[tab]string{tabPreview: "preview", tabDiff: "diff", tabIssue: "issue", tabRecap: "recap"}
 
 // nextTab is the tab that the tab key switches to.
-func (m Model) nextTab() tab { return (m.tab + 1) % 3 }
+func (m Model) nextTab() tab { return (m.tab + 1) % tab(len(tabNames)) }
 
-func (m *Model) switchTab() {
+// switchTab shows the next tab, and fetches the recap if it is the recap tab.
+func (m *Model) switchTab() tea.Cmd {
 	m.tab = m.nextTab()
 	m.preview = m.preview.ExitScroll()
 	m.refreshIssue()
+	m.refreshRecap()
+	return m.recapCmd()
 }
 
 func (m Model) profiles() []config.Profile {
@@ -1092,6 +1181,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.diff, cmd = m.diff.Update(msg)
 		case tabIssue:
 			m.issue, cmd = m.issue.Update(msg)
+		case tabRecap:
+			m.recap, cmd = m.recap.Update(msg)
 		default:
 			m.preview, cmd = m.preview.Update(msg)
 		}
@@ -1112,8 +1203,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.dialog = d
 		return m, cmd
 	case key.Matches(msg, keys.Tab):
-		m.switchTab()
-		return m, nil
+		return m, m.switchTab()
 	case key.Matches(msg, keys.Config):
 		_, _, bodyHeight := m.layout()
 		m.settings = settings.New(m.opts.Config, m.opts.ConfigPath, m.opts.ConfigErr, m.theme).SetSize(m.width, bodyHeight)
@@ -1232,6 +1322,8 @@ func (m Model) handleMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.diff, cmd = m.diff.Update(msg)
 	case tabIssue:
 		m.issue, cmd = m.issue.Update(msg)
+	case tabRecap:
+		m.recap, cmd = m.recap.Update(msg)
 	default:
 		m.preview, cmd = m.preview.Update(msg)
 	}
@@ -1329,7 +1421,7 @@ func (m Model) renderPane() string {
 			issueLabel += fmt.Sprintf(" #%d", id)
 		}
 	}
-	tabs := tabLabel("Preview", tabPreview) + " " + tabLabel(diffLabel, tabDiff) + " " + tabLabel(issueLabel, tabIssue)
+	tabs := tabLabel("Preview", tabPreview) + " " + tabLabel(diffLabel, tabDiff) + " " + tabLabel(issueLabel, tabIssue) + " " + tabLabel("Recap", tabRecap)
 
 	info := ""
 	switch {
@@ -1356,6 +1448,8 @@ func (m Model) renderPane() string {
 		}
 	case tabIssue:
 		content = m.issue.View()
+	case tabRecap:
+		content = m.recap.View()
 	}
 	style := t.StylePane
 	if m.focus == focusPane {
@@ -1382,7 +1476,7 @@ func (m Model) renderStatusBar() string {
 		hints = m.settings.Hints()
 	case m.focus == focusPane && m.tab == tabDiff:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"enter", "fold"}, {"c/e", "fold all/none"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
-	case m.focus == focusPane && m.tab == tabIssue:
+	case m.focus == focusPane && (m.tab == tabIssue || m.tab == tabRecap):
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
 	case m.focus == focusPane:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
