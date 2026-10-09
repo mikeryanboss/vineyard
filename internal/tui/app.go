@@ -84,8 +84,20 @@ type (
 		trust      bool
 		gone       bool
 	}
-	statusMsg struct{ results []screenStatus }
-	recapMsg  struct {
+	statusMsg struct {
+		results []screenStatus
+		// lead reports whether this process leads, and so types into agents.
+		lead bool
+		err  error
+	}
+	// reloadedMsg carries the sessions as saved when a reload began, which
+	// had seen the given number of this process's writes.
+	reloadedMsg struct {
+		sessions []session.Session
+		writes   int
+		err      error
+	}
+	recapMsg struct {
 		id    string
 		recap recap.Recap
 		err   error
@@ -148,7 +160,7 @@ type (
 		config config.Config
 		err    error
 	}
-	saveErrMsg     struct{ err error }
+	savedMsg       struct{ err error }
 	clearStatusMsg struct{ seq int }
 
 	// jumpToSessionMsg closes the issues screen and selects a session.
@@ -204,7 +216,13 @@ type Model struct {
 
 	previewInFlight bool
 	statusInFlight  bool
+	reloadInFlight  bool
 	diffInFlight    bool
+	// writes counts changes to the saved sessions this process has issued,
+	// and pendingWrites those not yet finished. A reload is only started with
+	// none pending, and dropped if another was issued while it ran.
+	writes        int
+	pendingWrites int
 
 	list    list.Model
 	preview preview.Model
@@ -463,14 +481,87 @@ func (m *Model) refreshShown() tea.Cmd {
 	return tea.Batch(m.captureCmd(s), m.diffCmd(), m.recapCmd())
 }
 
-func (m Model) saveCmd() tea.Cmd {
-	snapshot := slices.Clone(m.sessions)
+// writeCmd changes the saved sessions, which other Vineyards on the
+// repository share.
+func (m *Model) writeCmd(write func(Backend) error) tea.Cmd {
+	m.writes++
+	m.pendingWrites++
 	backend := m.backend
 	return func() tea.Msg {
-		if err := backend.Save(snapshot); err != nil {
-			return saveErrMsg{err: fmt.Errorf("saving sessions: %w", err)}
+		if err := write(backend); err != nil {
+			return savedMsg{err: fmt.Errorf("saving sessions: %w", err)}
+		}
+		return savedMsg{}
+	}
+}
+
+func (m *Model) replaceCmd(sessions ...session.Session) tea.Cmd {
+	return m.writeCmd(func(b Backend) error {
+		for _, s := range sessions {
+			if err := b.Replace(s); err != nil {
+				return err
+			}
 		}
 		return nil
+	})
+}
+
+func (m Model) reloadCmd() tea.Cmd {
+	backend := m.backend
+	writes := m.writes
+	worktreeDir, err := config.ResolveWorktreeDir(m.opts.RepoRoot, m.opts.Config.WorktreeDir)
+	return func() tea.Msg {
+		if err != nil {
+			return reloadedMsg{writes: writes, err: fmt.Errorf("worktree directory: %w", err)}
+		}
+		sessions, err := backend.Load(worktreeDir)
+		return reloadedMsg{sessions: sessions, writes: writes, err: err}
+	}
+}
+
+// adopt takes the sessions as saved, which other Vineyards on the repository
+// change too. A session this process is starting or operating on keeps its
+// local state; the operation saves its result. While a session is active both
+// here and as saved, the local running or ready state wins: this process's
+// own screen polls decide it.
+func (m *Model) adopt(saved []session.Session) {
+	var next []session.Session
+	for _, s := range saved {
+		if i := m.find(s.ID); i >= 0 {
+			local := m.sessions[i]
+			if m.busy[s.ID] {
+				next = append(next, local)
+				continue
+			}
+			if local.Status.Active() && s.Status.Active() {
+				s.Status = local.Status
+			}
+			if s.Status != local.Status {
+				// Paused, resumed, or stopped elsewhere: start over as after
+				// this process's own lifecycle operations.
+				delete(m.hashes, s.ID)
+				delete(m.sizes, s.ID)
+				if s.ID == m.shownID {
+					m.shownID = ""
+				}
+			}
+		}
+		next = append(next, s)
+	}
+	var gone []string
+	for _, s := range m.sessions {
+		if slices.ContainsFunc(saved, func(o session.Session) bool { return o.ID == s.ID }) {
+			continue
+		}
+		if m.busy[s.ID] || s.Status == session.StatusLoading {
+			next = append(next, s) // not saved until it has started
+		} else {
+			gone = append(gone, s.ID)
+		}
+	}
+	m.sessions = next
+	for _, id := range gone {
+		m.remove(id) // forgets its fingerprints, sizes, and stats
 	}
 }
 
@@ -501,6 +592,10 @@ func (m Model) statusCmd() tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
+		lead, err := backend.Lead()
+		if err != nil {
+			err = fmt.Errorf("claiming the lead: %w", err)
+		}
 		results := make([]screenStatus, len(active))
 		done := make(chan struct{}, len(active))
 		for i, s := range active {
@@ -522,7 +617,7 @@ func (m Model) statusCmd() tea.Cmd {
 		for range active {
 			<-done
 		}
-		return statusMsg{results: results}
+		return statusMsg{results: results, lead: lead, err: err}
 	}
 }
 
@@ -649,12 +744,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case statusTickMsg:
-		next := tick(statusInterval, func(time.Time) tea.Msg { return statusTickMsg{} })
-		if m.statusInFlight {
-			return m, next
+		cmds := []tea.Cmd{tick(statusInterval, func(time.Time) tea.Msg { return statusTickMsg{} })}
+		if !m.statusInFlight {
+			m.statusInFlight = true
+			cmds = append(cmds, m.statusCmd())
 		}
-		m.statusInFlight = true
-		return m, tea.Batch(next, m.statusCmd())
+		if !m.reloadInFlight && m.pendingWrites == 0 {
+			m.reloadInFlight = true
+			cmds = append(cmds, m.reloadCmd())
+		}
+		return m, tea.Batch(cmds...)
 
 	case statusMsg:
 		m.statusInFlight = false
@@ -707,7 +806,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replace(msg.session)
 		m.syncList()
 		m.shownID = "" // force a fresh capture now that the session runs
-		return m, tea.Batch(m.saveCmd(), m.refreshShown())
+		started := msg.session
+		write := m.writeCmd(func(b Backend) error { return b.Add(started) })
+		return m, tea.Batch(write, m.refreshShown())
 
 	case lifecycleMsg:
 		delete(m.busy, msg.session.ID)
@@ -717,7 +818,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.replace(msg.session)
 			delete(m.hashes, msg.session.ID)
-			cmds = append(cmds, m.saveCmd())
+			cmds = append(cmds, m.replaceCmd(msg.session))
 			switch msg.verb {
 			case "pause":
 				cmds = append(cmds, m.setStatus("Checked out: "+msg.session.Branch+" is free to use elsewhere.", false))
@@ -742,7 +843,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.result.KeptBranch != "" {
 			text = "Killed " + msg.session.Title + ". Its commits are kept on " + msg.result.KeptBranch + "."
 		}
-		return m, tea.Batch(m.saveCmd(), m.setStatus(text, false), m.refreshShown())
+		id := msg.session.ID
+		write := m.writeCmd(func(b Backend) error { return b.Remove(id) })
+		return m, tea.Batch(write, m.setStatus(text, false), m.refreshShown())
 
 	case pushedMsg:
 		delete(m.busy, msg.session.ID)
@@ -818,8 +921,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.configOpen = false
 		return m, m.setStatus("Saved "+m.opts.ConfigPath+". New sessions use the new settings.", false)
 
-	case saveErrMsg:
-		return m, m.setError(msg.err)
+	case savedMsg:
+		m.pendingWrites--
+		if msg.err != nil {
+			return m, m.setError(msg.err)
+		}
+		return m, nil
+
+	case reloadedMsg:
+		m.reloadInFlight = false
+		if msg.err != nil {
+			return m, m.setError(fmt.Errorf("reloading sessions: %w", msg.err))
+		}
+		if msg.writes != m.writes {
+			return m, nil // may predate this process's own change; the next tick reloads
+		}
+		m.adopt(msg.sessions)
+		m.syncList()
+		return m, m.refreshShown()
 
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
@@ -1078,11 +1197,15 @@ func (m Model) openIssue(id int) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// applyStatus updates running/ready states from fresh screen fingerprints,
-// answers prompts for auto-yes sessions, and delivers pending prompts.
+// applyStatus updates running/ready states from fresh screen fingerprints.
+// If this process leads, it also answers prompts for auto-yes sessions and
+// delivers pending prompts.
 func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-	changed := false
+	if msg.err != nil {
+		cmds = append(cmds, m.setError(msg.err))
+	}
+	var changed []session.Session
 	for _, r := range msg.results {
 		i := m.find(r.id)
 		if i < 0 || m.busy[r.id] || !m.sessions[i].Status.Active() {
@@ -1093,7 +1216,7 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			s.Status = session.StatusStopped
 			m.sessions[i] = s
 			delete(m.hashes, s.ID)
-			changed = true
+			changed = append(changed, s)
 			continue
 		}
 		previous, seen := m.hashes[s.ID]
@@ -1108,6 +1231,7 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
+		case !msg.lead:
 		case r.permission && s.AutoYes:
 			cmds = append(cmds, m.enterCmd(s))
 		case still && s.PendingPrompt != "" && r.trust:
@@ -1119,13 +1243,13 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 		case still && s.PendingPrompt != "":
 			cmds = append(cmds, m.promptCmd(s, s.PendingPrompt))
 			s.PendingPrompt = ""
-			changed = true
+			changed = append(changed, s)
 		}
 		m.sessions[i] = s
 	}
 	m.syncList()
-	if changed {
-		cmds = append(cmds, m.saveCmd())
+	if len(changed) > 0 {
+		cmds = append(cmds, m.replaceCmd(changed...))
 	}
 	cmds = append(cmds, m.refreshShown())
 	return m, tea.Batch(cmds...)
@@ -1359,7 +1483,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if s.AutoYes {
 			state = "on"
 		}
-		return m, tea.Batch(m.saveCmd(), m.setStatus("Auto-yes "+state+" for "+s.Title+".", false))
+		write := m.replaceCmd(s)
+		return m, tea.Batch(write, m.setStatus("Auto-yes "+state+" for "+s.Title+".", false))
 	}
 	return m, nil
 }

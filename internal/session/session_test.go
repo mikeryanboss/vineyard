@@ -2,10 +2,12 @@ package session
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -92,7 +94,7 @@ func startSession(t *testing.T, m *Manager, title string) Session {
 func restore(t *testing.T, m *Manager, sessions ...Session) []Session {
 	t.Helper()
 	store := NewStore(t.TempDir())
-	if err := store.Save(sessions); err != nil {
+	if _, err := store.Update(func([]Session) ([]Session, error) { return sessions, nil }); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := store.Load()
@@ -433,7 +435,7 @@ func TestLifecycle_RefusesDetachedHead(t *testing.T) {
 // breaks sessions when the repository moves.
 func TestStore_DoesNotSaveWorktreePath(t *testing.T) {
 	store := NewStore(t.TempDir())
-	if err := store.Save([]Session{{ID: "a", WorktreePath: "/home/someone/shop/.vineyard/worktrees/a"}}); err != nil {
+	if err := store.Add(Session{ID: "a", WorktreePath: "/home/someone/shop/.vineyard/worktrees/a"}); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(store.Path())
@@ -450,8 +452,7 @@ func TestStore_RoundTrip(t *testing.T) {
 	if sessions, err := store.Load(); err != nil || len(sessions) != 0 {
 		t.Fatalf("empty store = %v, %v", sessions, err)
 	}
-	saved := []Session{{ID: "a", Title: "A", Status: StatusPaused, PendingPrompt: "go", Issue: 12}}
-	if err := store.Save(saved); err != nil {
+	if err := store.Add(Session{ID: "a", Title: "A", Status: StatusPaused, PendingPrompt: "go", Issue: 12}); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := store.Load()
@@ -460,6 +461,80 @@ func TestStore_RoundTrip(t *testing.T) {
 	}
 	if len(loaded) != 1 || loaded[0].Title != "A" || loaded[0].PendingPrompt != "go" || loaded[0].Issue != 12 {
 		t.Errorf("loaded = %+v", loaded)
+	}
+}
+
+// Several Vineyards write one store. Each change must keep the sessions the
+// others saved, however their writes interleave.
+func TestStore_ConcurrentWritesKeepEachOthersSessions(t *testing.T) {
+	dir := t.TempDir()
+	const writers, each = 4, 10
+	var wg sync.WaitGroup
+	for w := range writers {
+		wg.Go(func() {
+			store := NewStore(dir) // a Store per process, as each Vineyard has
+			for i := range each {
+				id := fmt.Sprintf("w%d-%d", w, i)
+				if err := store.Add(Session{ID: id}); err != nil {
+					t.Error(err)
+				}
+				if err := store.Replace(Session{ID: id, Title: "changed"}); err != nil {
+					t.Error(err)
+				}
+				if i%2 == 1 {
+					if err := store.Remove(id); err != nil {
+						t.Error(err)
+					}
+				}
+			}
+		})
+	}
+	wg.Wait()
+	loaded, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != writers*each/2 {
+		t.Fatalf("saved %d sessions, want %d: %+v", len(loaded), writers*each/2, loaded)
+	}
+	for _, s := range loaded {
+		if s.Title != "changed" {
+			t.Errorf("session %s lost its change: %+v", s.ID, s)
+		}
+	}
+}
+
+// A Vineyard that still shows a session another one killed must not bring it
+// back, for example when its status poll marks it stopped.
+func TestStore_ReplaceDoesNotReviveRemovedSession(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := store.Add(Session{ID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Remove("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Replace(Session{ID: "a", Status: StatusStopped}); err != nil {
+		t.Fatal(err)
+	}
+	if loaded, err := store.Load(); err != nil || len(loaded) != 0 {
+		t.Errorf("loaded = %+v, %v; want no sessions", loaded, err)
+	}
+}
+
+// One Vineyard leads at a time; the role passes on when the leader lets go.
+func TestLeader_OneAtATime(t *testing.T) {
+	dir := t.TempDir()
+	first, second := NewLeader(dir), NewLeader(dir)
+	if lead, err := first.Lead(); err != nil || !lead {
+		t.Fatalf("first.Lead() = %v, %v; want true", lead, err)
+	}
+	if lead, err := second.Lead(); err != nil || lead {
+		t.Fatalf("second.Lead() = %v, %v while first leads; want false", lead, err)
+	}
+	first.release() // as the first process exits
+	if lead, err := second.Lead(); err != nil || !lead {
+		t.Fatalf("second.Lead() = %v, %v after first exited; want true", lead, err)
 	}
 }
 
@@ -474,23 +549,6 @@ func TestStore_LoadsSessionsWithoutIssue(t *testing.T) {
 	if len(loaded) != 1 || loaded[0].Issue != 0 {
 		t.Errorf("loaded = %+v", loaded)
 	}
-}
-
-func TestLock_IsExclusive(t *testing.T) {
-	dir := t.TempDir()
-	release, err := Lock(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Lock(dir); !errors.Is(err, ErrLocked) {
-		t.Errorf("second lock err = %v, want ErrLocked", err)
-	}
-	release()
-	again, err := Lock(dir)
-	if err != nil {
-		t.Fatalf("lock after release: %v", err)
-	}
-	again()
 }
 
 func TestScreenDetection(t *testing.T) {

@@ -44,17 +44,41 @@ type Backend interface {
 	// Recap reads what Claude Code has recorded about s.
 	Recap(s session.Session) (recap.Recap, error)
 
-	Save(sessions []session.Session) error
+	// Add, Replace, and Remove change one saved session, leaving the
+	// sessions of other Vineyards on the repository alone.
+	Add(s session.Session) error
+	Replace(s session.Session) error
+	Remove(id string) error
+	// Load reads the saved sessions and finds their worktrees, falling back
+	// to <worktreeDir>/<id>.
+	Load(worktreeDir string) ([]session.Session, error)
+	// Lead reports whether this process leads the repository's Vineyards,
+	// claiming the role if it is free. Only the leader types into agents.
+	Lead() (bool, error)
 	SaveConfig(cfg config.Config) error
 }
 
 // LiveBackend is the Backend backed by tmux, git, and the session store.
 type LiveBackend struct {
 	*session.Manager
-	Tmux  *tmux.Client
-	Store session.Store
+	Tmux   *tmux.Client
+	Store  session.Store
+	Leader *session.Leader
 	// Dir is the repository's .vineyard directory, which holds config.toml.
 	Dir string
+}
+
+func (b LiveBackend) Add(s session.Session) error     { return b.Store.Add(s) }
+func (b LiveBackend) Replace(s session.Session) error { return b.Store.Replace(s) }
+func (b LiveBackend) Remove(id string) error          { return b.Store.Remove(id) }
+func (b LiveBackend) Lead() (bool, error)             { return b.Leader.Lead() }
+
+func (b LiveBackend) Load(worktreeDir string) ([]session.Session, error) {
+	saved, err := b.Store.Load()
+	if err != nil {
+		return nil, err
+	}
+	return b.Manager.Locate(saved, worktreeDir)
 }
 
 func (b LiveBackend) Capture(s session.Session) (string, error) {
@@ -121,7 +145,5 @@ func (b LiveBackend) Recap(s session.Session) (recap.Recap, error) {
 	}
 	return recap.Load(dir, s.WorktreePath)
 }
-
-func (b LiveBackend) Save(sessions []session.Session) error { return b.Store.Save(sessions) }
 
 func (b LiveBackend) SaveConfig(cfg config.Config) error { return config.Save(b.Dir, cfg) }

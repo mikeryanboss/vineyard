@@ -114,13 +114,43 @@ session, and on each diff tick. The latest result is kept in `recapShown`, so
   config.toml                  committed; the repository's whole configuration
   .gitignore                   written when missing: ignores all but config.toml
   sessions.json                atomic rename on every write
-  lock                         flock held while the TUI runs
+  sessions.lock                flock held for each read-change-write of sessions.json
+  lock                         flock held by the Vineyard that leads
   worktrees/<session id>/      the default worktree_dir
 ```
 
 The directory is in the main checkout, found through git's common directory, so
-starting Vineyard from any linked worktree shows the same sessions. The lock
-stops two Vineyard processes from overwriting each other's state.
+starting Vineyard from any linked worktree shows the same sessions.
+
+## Several Vineyards
+
+Any number of Vineyard processes may run on one repository, for example one per
+terminal window. Three rules keep them consistent:
+
+- **Writes change one session.** `Store.Add`, `Replace`, and `Remove` each take
+  `sessions.lock`, read `sessions.json`, change one session, and write it back,
+  so no process overwrites another's sessions. `Replace` of a session that is
+  no longer saved does nothing: a process still showing a session another one
+  killed must not bring it back. Startup's `Restore` runs under the same lock
+  (`Store.Update`).
+- **Each process reloads.** Every status tick reads `sessions.json` and adopts
+  it (`adopt` in `internal/tui/app.go`): sessions saved elsewhere appear,
+  sessions removed elsewhere go, saved fields such as auto-yes take effect. A
+  session this process is starting or operating on keeps its local state. While
+  a session is active both locally and as saved, the local running or ready
+  state wins, because this process's own screen polls decide it. A reload
+  starts only with no write of this process pending and is dropped if one was
+  issued while it ran, so it never undoes this process's own change, such as a
+  cleared pending prompt.
+- **One process leads.** Every process polls every screen, so only the holder
+  of `lock` (`session.Leader`) types into agents: it delivers pending prompts
+  and answers auto-yes prompts. The others try to take the lock on every
+  status poll, so one of them leads within a second of the leader exiting.
+
+Known limits: two processes showing the same session at different pane sizes
+each resize its tmux window when their own size changes, so the other's
+preview may be laid out for the wrong width until then. Saving the config
+screen writes the whole `config.toml`; the last process to save wins.
 
 `worktree_dir` is resolved against the main checkout
 (`config.ResolveWorktreeDir`) when a session is created and at startup.
@@ -160,6 +190,8 @@ There is no structured channel from the agent, so status is inferred from the
 screen, as claude-squad does. Every second each live session's screen is
 captured and fingerprinted. A changed fingerprint means running; two equal
 fingerprints in a row mean ready. On top of that:
+
+Only the leading Vineyard (see Several Vineyards) acts on the following:
 
 - A ready session with a pending prompt receives it, and the prompt is cleared
   and saved so it is never sent twice.

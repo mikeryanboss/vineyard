@@ -16,11 +16,12 @@ links each issue to the sessions working on it.
 
 ```text
 main.go
-  -> find the repository, load .vineyard/config.toml, lock .vineyard/
-  -> load sessions.json and reconcile it with git worktrees and live tmux sessions
+  -> find the repository, load .vineyard/config.toml
+  -> reconcile sessions.json with git worktrees and live tmux sessions, under its lock
   -> load grapes for the repository's .grapes directory, if any
   -> run the root TUI model (internal/tui/app.go)
        polls tmux: selected screen (150ms), all screens (1s) -> running/ready
+       reloads sessions.json (1s): other Vineyards on the repository change it
        polls git: selected diff, others' line counts (2s)
        runs lifecycle operations in commands -> result messages -> state
   -> sessions keep running in tmux after exit
@@ -32,7 +33,8 @@ main.go
 | --- | --- | --- |
 | CLI, flags, startup | `main.go` | `internal/config/config.go` |
 | Session lifecycle (create, pause, resume, kill, push) | `internal/session/manager.go` | `internal/git/git.go` |
-| Session fields, persistence, locking | `internal/session/session.go`, `store.go` | `lock_unix.go` |
+| Session fields, persistence, locking | `internal/session/session.go`, `store.go` | `leader.go`, `lock_unix.go` |
+| Several Vineyards on one repository | Several Vineyards in `architecture.md` | `adopt` in `internal/tui/app.go` |
 | Running/ready detection, prompts | `internal/session/screen.go` | `applyStatus` in `internal/tui/app.go` |
 | tmux commands | `internal/tmux/tmux.go` | |
 | Diff collection | `internal/git/diff.go` | |
@@ -93,6 +95,9 @@ doc/                       README demo GIF and its VHS tape
   on it.
 - Every message the root model does not handle goes to the embedded grapes
   model, shown or not; its file watching and reloads depend on it.
+- Several Vineyards may share a repository. Change saved sessions one at a
+  time through `Backend.Add`, `Replace`, or `Remove`, never by writing the
+  whole list, and type into agents only when this process leads.
 - Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_TMUX_SOCKET`), so
   its key bindings never reach the user's own tmux server.
 
