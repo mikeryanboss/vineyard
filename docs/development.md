@@ -13,10 +13,14 @@ skip themselves when tmux is not installed.
 
 ## Running a Development Build
 
-Keep development runs away from your real sessions:
+Vineyard keeps its data in the repository it runs in, so run development
+builds in a throwaway repository, never in this checkout, and on their own tmux
+socket:
 
 ```sh
-VINEYARD_HOME=/tmp/vy-home VINEYARD_TMUX_SOCKET=vy-dev go run . -p bash
+go build -o /tmp/vy/vineyard .
+git init -q /tmp/vy/demo && git -C /tmp/vy/demo commit -q --allow-empty -m init
+cd /tmp/vy/demo && VINEYARD_TMUX_SOCKET=vy-dev /tmp/vy/vineyard -p bash
 ```
 
 `-p bash` makes every session a plain shell, which is enough to exercise
@@ -54,7 +58,7 @@ build above, using a tmux window of fixed size:
 GOBIN=$PWD/.grapes/<id>/tmp/bin go install github.com/charmbracelet/freeze@latest
 go build -o .grapes/<id>/tmp/vineyard .
 tmux new-session -d -s shot -x 110 -y 30 -c <demo-repo> \
-  "VINEYARD_HOME=<tmp>/home VINEYARD_TMUX_SOCKET=vy-shot <tmp>/vineyard -p bash"
+  "VINEYARD_TMUX_SOCKET=vy-shot <tmp>/vineyard -p bash"
 tmux send-keys -t shot n          # drive the app like a user
 tmux capture-pane -e -p -t shot > .grapes/<id>/tmp/shot.ansi
 .grapes/<id>/tmp/bin/freeze .grapes/<id>/tmp/shot.ansi --language ansi \

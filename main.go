@@ -87,26 +87,25 @@ func runTUI(program string, autoYes bool) error {
 	if err != nil {
 		return err
 	}
-	home, err := config.Home()
-	if err != nil {
+	dir := config.Dir(repo.Root)
+	if err := config.Prepare(dir); err != nil {
 		return err
 	}
-	cfg, cfgErr := config.Load(home)
-	projectDir := config.ProjectDir(home, repo.Root)
+	cfg, cfgErr := config.Load(dir)
 
-	release, err := session.Lock(projectDir)
+	release, err := session.Lock(dir)
 	if err != nil {
 		return err
 	}
 	defer release()
 
-	store := session.NewStore(projectDir)
+	store := session.NewStore(dir)
 	sessions, err := store.Load()
 	if err != nil {
 		return err
 	}
 	client := tmux.New(tmuxSocket())
-	manager := session.NewManager(repo, client, projectDir)
+	manager := session.NewManager(repo, client, config.ProjectName(repo.Root))
 	sessions = manager.Restore(sessions)
 	if err := store.Save(sessions); err != nil {
 		return err
@@ -117,16 +116,17 @@ func runTUI(program string, autoYes bool) error {
 	opts := tui.Options{
 		Config:   cfg,
 		RepoName: repo.Name(),
+		RepoRoot: repo.Root,
 		Version:  version,
 		AutoYes:  autoYes,
 		Program:  program,
 		// The config screen shows where it saves.
-		ConfigPath: displayPath(config.Path(home)),
+		ConfigPath: displayPath(config.Path(dir)),
 		ConfigErr:  cfgErr,
 		Grapes:     grapes,
 		GrapesErr:  grapesErr,
 	}
-	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Home: home}, sessions, opts)
+	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Dir: dir}, sessions, opts)
 
 	in, out, closeTTY, err := terminal()
 	if err != nil {
@@ -185,22 +185,31 @@ func tmuxSocket() string {
 }
 
 func runDebug(stdout, stderr io.Writer) int {
-	home, err := config.Home()
+	fmt.Fprintf(stdout, "version:     %s\n", version)
+	fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", tmuxSocket(), tmuxSocket())
+	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "version:     %s\n", version)
-	fmt.Fprintf(stdout, "home:        %s\n", home)
-	fmt.Fprintf(stdout, "config:      %s\n", config.Path(home))
-	fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", tmuxSocket(), tmuxSocket())
-	if cwd, err := os.Getwd(); err == nil {
-		if repo, err := git.FindRepo(cwd); err == nil {
-			projectDir := config.ProjectDir(home, repo.Root)
-			fmt.Fprintf(stdout, "repository:  %s\n", repo.Root)
-			fmt.Fprintf(stdout, "project:     %s\n", projectDir)
-			fmt.Fprintf(stdout, "sessions:    %s\n", session.NewStore(projectDir).Path())
-		}
+	repo, err := git.FindRepo(cwd)
+	if err != nil {
+		fmt.Fprintf(stdout, "repository:  none (%v)\n", err)
+		return 0
+	}
+	dir := config.Dir(repo.Root)
+	cfg, cfgErr := config.Load(dir)
+	fmt.Fprintf(stdout, "repository:  %s\n", repo.Root)
+	fmt.Fprintf(stdout, "data:        %s\n", dir)
+	fmt.Fprintf(stdout, "config:      %s\n", config.Path(dir))
+	if cfgErr != nil {
+		fmt.Fprintf(stdout, "             unreadable, using defaults: %v\n", cfgErr)
+	}
+	fmt.Fprintf(stdout, "sessions:    %s\n", session.NewStore(dir).Path())
+	if worktrees, err := config.ResolveWorktreeDir(repo.Root, cfg.WorktreeDir); err == nil {
+		fmt.Fprintf(stdout, "worktrees:   %s\n", worktrees)
+	} else {
+		fmt.Fprintf(stdout, "worktrees:   %v\n", err)
 	}
 	return 0
 }
@@ -222,7 +231,8 @@ COMMANDS:
   help                      Show this help
 
 Sessions keep running in tmux after vineyard exits; the next launch picks them up.
-Configuration lives in ~/.vineyard/config.toml (override the directory with VINEYARD_HOME).
+Each repository keeps its configuration and sessions in .vineyard/ in its main checkout;
+only .vineyard/config.toml is meant to be committed.
 Agent sessions run on the tmux socket "vineyard" (override with VINEYARD_TMUX_SOCKET).
 `)
 }

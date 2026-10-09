@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -34,13 +37,34 @@ func TestRun_CommandsAndUsageErrors(t *testing.T) {
 	}
 }
 
+// debug reports where a repository's data lives without creating it.
 func TestRun_DebugPrintsPaths(t *testing.T) {
-	t.Setenv("VINEYARD_HOME", t.TempDir())
+	repo := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	t.Chdir(repo)
+
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"debug"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("debug exit code %d: %s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "config.toml") {
-		t.Errorf("debug output = %q", stdout.String())
+	for _, want := range []string{
+		filepath.Join(repo, ".vineyard", "config.toml"),
+		filepath.Join(repo, ".vineyard", "worktrees"),
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("debug output lacks %s:\n%s", want, stdout.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".vineyard")); !os.IsNotExist(err) {
+		t.Error("debug created .vineyard")
 	}
 }

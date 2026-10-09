@@ -145,6 +145,9 @@ var tick = tea.Tick
 type Options struct {
 	Config   config.Config
 	RepoName string
+	// RepoRoot is the repository's main checkout, which a relative
+	// worktree_dir is resolved against.
+	RepoRoot string
 	Version  string
 	// AutoYes turns auto-yes on for new sessions regardless of config.
 	AutoYes bool
@@ -984,12 +987,17 @@ func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
 	if program == "" {
 		program = m.profiles()[0].Program
 	}
+	worktreeDir, err := config.ResolveWorktreeDir(m.opts.RepoRoot, m.opts.Config.WorktreeDir)
+	if err != nil {
+		return m, m.setError(fmt.Errorf("worktree directory: %w", err))
+	}
 	s := m.backend.New(session.NewOptions{
 		Title:        msg.Title,
 		Program:      program,
 		Prompt:       msg.Prompt,
 		AutoYes:      m.opts.Config.AutoYes || m.opts.AutoYes,
 		BranchPrefix: m.opts.Config.BranchPrefix,
+		WorktreeDir:  worktreeDir,
 		Issue:        msg.Issue,
 	})
 	m.issuesOpen = false // show the new session, even when started from an issue

@@ -16,7 +16,7 @@ links each issue to the sessions working on it.
 
 ```text
 main.go
-  -> find the repository, load ~/.vineyard/config.toml, lock the project
+  -> find the repository, load .vineyard/config.toml, lock .vineyard/
   -> load sessions.json and reconcile it with live tmux sessions
   -> load grapes for the repository's .grapes directory, if any
   -> run the root TUI model (internal/tui/app.go)
