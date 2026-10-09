@@ -46,6 +46,7 @@ main.go
 | Theme, key bindings, shared messages | `internal/tui/common/` | |
 | Issues screen, sessions linked to issues | `internal/tui/app.go` | Grapes in `architecture.md` |
 | Issue tab | `refreshIssue` in `internal/tui/app.go` | `internal/tui/issueview/` |
+| Release a version | `var version` in `main.go` | Releases in `development.md` |
 
 ## Repository Map
 
@@ -67,6 +68,7 @@ internal/tui/settings/     config screen
 internal/tui/common/       theme, keys, messages
 internal/tui/testutil/     golden-file helpers and fixtures
 .grapes/                   this repository's own issues
+.github/workflows/         tag on version bump, release with GoReleaser
 ```
 
 ## Invariants Worth Knowing

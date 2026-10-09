@@ -73,6 +73,22 @@ pass the white `--background`.
 Look at each PNG before publishing it. The [pr skill](../.agents/skills/pr/SKILL.md)
 publishes the images and embeds them in the PR.
 
+## Releases
+
+`var version` in `main.go` is the release version. A push to `main` that changes
+`main.go` runs `.github/workflows/auto-tag.yml`, which creates `v<version>` if it
+does not exist. The tag runs `.github/workflows/release.yml`, and GoReleaser
+(`.goreleaser.yaml`) publishes static Linux and macOS archives for amd64 and
+arm64, with the tag stamped into `main.version`. There is no Windows build:
+sessions run in tmux, and WSL uses the Linux archive.
+
+To release, bump `version` in a PR; merging it releases. Check the release
+configuration locally without publishing:
+
+```sh
+goreleaser release --snapshot --clean --skip=publish   # writes dist/; delete it after
+```
+
 ## Common Change Paths
 
 | Change | Production files | Tests |
@@ -99,6 +115,8 @@ go work init . /path/to/grapes
 
 Commit `go.mod` only with a published grapes version or commit
 (`go get github.com/Mibokess/grapes@<tag-or-sha>`), never with a `replace`.
+Prefer a release: grapes squash-merges PRs, so a pinned PR branch commit never
+lands in grapes' history.
 
 When a change moves a responsibility or invalidates an invariant in
 [README.md](README.md) or [architecture.md](architecture.md), update the
