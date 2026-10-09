@@ -1,6 +1,6 @@
-// Package issueview shows the grapes issues a session works on, as grapes
-// renders them, in a scrollable pane.
-package issueview
+// Package textview shows rendered text in a scrollable pane, or a placeholder
+// in its place. The issue and recap tabs use it.
+package textview
 
 import (
 	"charm.land/bubbles/v2/key"
@@ -10,7 +10,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 )
 
-// Model is the issue pane's content area.
+// Model is a text pane's content area.
 type Model struct {
 	width       int
 	height      int
@@ -19,7 +19,7 @@ type Model struct {
 	viewport    viewport.Model
 }
 
-// New returns an empty issue view.
+// New returns an empty text view.
 func New(theme common.Theme) Model {
 	return Model{theme: theme, viewport: viewport.New()}
 }
@@ -38,22 +38,22 @@ func (m Model) SetTheme(theme common.Theme) Model {
 	return m
 }
 
-// SetContent shows rendered issues, keeping the scroll position, so a reload
-// of the same issues does not jump back to the top.
+// SetContent shows rendered text, keeping the scroll position, so a reload
+// of the same text does not jump back to the top.
 func (m Model) SetContent(content string) Model {
 	m.placeholder = ""
 	m.viewport.SetContent(content)
 	return m
 }
 
-// SetPlaceholder replaces the issues with a message.
+// SetPlaceholder replaces the text with a message.
 func (m Model) SetPlaceholder(text string) Model {
 	m.placeholder = text
 	m.viewport.SetContent("")
 	return m
 }
 
-// GotoTop scrolls to the top, for when another session's issues are shown.
+// GotoTop scrolls to the top, for when another session's text is shown.
 func (m Model) GotoTop() Model {
 	m.viewport.GotoTop()
 	return m

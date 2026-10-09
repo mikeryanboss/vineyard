@@ -90,6 +90,23 @@ and only when its inputs change: the selection, the tab, or a grapes update,
 which also covers resizes and theme changes, since both reach grapes through
 `updateGrapes`.
 
+## Recaps
+
+The pane's recap tab shows what Claude Code recorded about the selected
+session, read by `internal/recap` from Claude Code's transcripts:
+`$CLAUDE_CONFIG_DIR/projects` (default `~/.claude/projects`), in the directory
+named after the session's worktree path with every non-alphanumeric character
+replaced by `-`. Claude Code writes a recap (`"subtype":"away_summary"`) when
+the user returns after being away; the tab lists them newest first under the
+`ai-title`, or shows the `last-prompt` when there is none yet. The format is
+undocumented and was read off Claude Code 2.1.295; a malformed line is shown as
+an error, not skipped.
+
+`recapCmd` reads the transcripts only while the tab is shown, and only for
+sessions whose program is `claude`: on switching to the tab, on selecting a
+session, and on each diff tick. The latest result is kept in `recapShown`, so
+`refreshRecap` can re-render it on resize and theme changes.
+
 ## Storage
 
 ```text
@@ -178,7 +195,7 @@ state is keyed by path and survives diff refreshes.
 ```text
 key/mouse/tick
   -> tui.Model.Update
-  -> child view Update (list, preview, diffview, issueview, dialog) for local behaviour
+  -> child view Update (list, preview, diffview, textview, dialog) for local behaviour
   -> common message upward (NewSessionMsg, ConfirmedMsg, LeavePaneMsg, ...)
   -> root starts a command through Backend
   -> result message (startedMsg, lifecycleMsg, screenMsg, diffMsg, ...)

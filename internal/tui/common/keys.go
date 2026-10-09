@@ -34,7 +34,7 @@ var ListKeyMap = ListKeys{
 	Resume:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resume")),
 	Push:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "push")),
 	AutoYes:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
-	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue")),
+	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
 	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "scroll pane")),
 	Config:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
 	Issues:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
@@ -70,7 +70,7 @@ var PaneKeyMap = PaneKeys{
 	Toggle:   key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("enter", "fold file")),
 	Collapse: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "collapse all")),
 	Expand:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "expand all")),
-	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue")),
+	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
 	Back:     key.NewBinding(key.WithKeys("esc", "h", "left", "q"), key.WithHelp("esc", "back")),
 }
 

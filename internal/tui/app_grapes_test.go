@@ -309,8 +309,8 @@ func TestIssueTab_ShowsTheSelectedSessionsIssue(t *testing.T) {
 	}
 
 	m = keys(m, "tab")
-	if m.tab != tabPreview {
-		t.Errorf("tab from the issue tab should return to the preview, got %v", m.tab)
+	if m.tab != tabRecap {
+		t.Errorf("tab from the issue tab should reach the recap tab, got %v", m.tab)
 	}
 }
 
