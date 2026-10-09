@@ -2,7 +2,8 @@
 
 Run several coding agents in parallel from one terminal. Each agent gets its
 own git worktree, branch, and tmux session, so agents never edit the same
-checkout.
+checkout. It follows [claude-squad](https://github.com/smtg-ai/claude-squad)'s
+model, rebuilt on Bubble Tea v2.
 
 ![Vineyard demo](doc/demo.gif)
 
