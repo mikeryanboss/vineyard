@@ -1,18 +1,18 @@
-// Package config loads Vineyard's user configuration and locates its data
-// directory.
+// Package config loads a repository's Vineyard configuration and locates its
+// data directory.
 //
-// Everything lives under one home directory, ~/.vineyard by default:
+// Everything lives in the repository's main checkout, like grapes' .grapes:
 //
-//	~/.vineyard/config.toml                         user configuration
-//	~/.vineyard/projects/<project>/sessions.json    sessions for one repository
-//	~/.vineyard/projects/<project>/worktrees/<id>/  one worktree per session
-//
-// VINEYARD_HOME overrides the home directory.
+//	.vineyard/config.toml      configuration, committed
+//	.vineyard/.gitignore       keeps everything else out of git
+//	.vineyard/sessions.json    the repository's sessions
+//	.vineyard/worktrees/<id>/  one worktree per session, unless worktree_dir says otherwise
 package config
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -39,6 +39,9 @@ type Config struct {
 	AutoYes bool `toml:"auto_yes"`
 	// Profiles are the launch commands offered when creating a session.
 	Profiles []Profile `toml:"profiles"`
+	// WorktreeDir is where new sessions' worktrees go: relative to the
+	// repository root, absolute, or starting with "~/".
+	WorktreeDir string `toml:"worktree_dir"`
 }
 
 // Defaults returns the configuration used when no file exists.
@@ -46,6 +49,7 @@ func Defaults() Config {
 	return Config{
 		DefaultProgram: "claude",
 		BranchPrefix:   defaultBranchPrefix(),
+		WorktreeDir:    filepath.Join(DirName, "worktrees"),
 	}
 }
 
@@ -74,42 +78,73 @@ func (c Config) ResolvedProfiles() []Profile {
 	return profiles
 }
 
-// Home returns Vineyard's home directory.
-func Home() (string, error) {
-	if dir := os.Getenv("VINEYARD_HOME"); dir != "" {
-		return filepath.Abs(dir)
+// DirName is the name of the data directory in a repository's main checkout.
+const DirName = ".vineyard"
+
+// gitignore keeps everything in the data directory but the configuration out
+// of git.
+const gitignore = "# Written by vineyard: only the configuration is shared.\n*\n!.gitignore\n!config.toml\n"
+
+// Dir returns the data directory of the repository whose main checkout is
+// repoRoot.
+func Dir(repoRoot string) string { return filepath.Join(repoRoot, DirName) }
+
+// Prepare creates the data directory dir, and its .gitignore when missing.
+// An existing .gitignore is left as the user edited it.
+func Prepare(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	path := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		return err
 	}
-	return filepath.Join(home, ".vineyard"), nil
+	return os.WriteFile(path, []byte(gitignore), 0o644)
 }
 
-// Path returns the location of the configuration file.
-func Path(home string) string { return filepath.Join(home, "config.toml") }
+// Path returns the location of the configuration file in dir.
+func Path(dir string) string { return filepath.Join(dir, "config.toml") }
 
-// ProjectDir returns the data directory for the repository rooted at repoRoot.
-// The name combines the directory name, for humans, with a hash of the full
-// path, so two checkouts with the same name never share sessions.
-func ProjectDir(home, repoRoot string) string {
+// ProjectName names the repository whose main checkout is repoRoot, for tmux
+// session names on the shared socket. It combines the directory name, for
+// humans, with a hash of the full path, so two checkouts with the same name
+// never share a name.
+func ProjectName(repoRoot string) string {
 	sum := sha256.Sum256([]byte(filepath.Clean(repoRoot)))
-	name := filepath.Base(repoRoot) + "-" + hex.EncodeToString(sum[:4])
-	return filepath.Join(home, "projects", name)
+	return filepath.Base(repoRoot) + "-" + hex.EncodeToString(sum[:4])
 }
 
-// Save writes cfg to the configuration file in home. It writes a temporary
+// ResolveWorktreeDir returns the absolute directory that worktreeDir names
+// for the repository whose main checkout is repoRoot.
+func ResolveWorktreeDir(repoRoot, worktreeDir string) (string, error) {
+	switch {
+	case worktreeDir == "":
+		// Not the repository root: worktrees would land among its files.
+		return "", errors.New("worktree_dir is empty")
+	case strings.HasPrefix(worktreeDir, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, worktreeDir[2:]), nil
+	case filepath.IsAbs(worktreeDir):
+		return filepath.Clean(worktreeDir), nil
+	}
+	return filepath.Join(repoRoot, worktreeDir), nil
+}
+
+// Save writes cfg to the configuration file in dir. It writes a temporary
 // file and renames it into place, so a crash mid-write cannot corrupt the
 // file. Comments in a hand-written file are not preserved.
-func Save(home string, cfg Config) error {
+func Save(dir string, cfg Config) error {
 	content, err := toml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(home, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(home, ".config-*.toml")
+	tmp, err := os.CreateTemp(dir, ".config-*.toml")
 	if err != nil {
 		return err
 	}
@@ -125,15 +160,15 @@ func Save(home string, cfg Config) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), Path(home))
+	return os.Rename(tmp.Name(), Path(dir))
 }
 
-// Load reads the configuration file in home. A missing file yields defaults.
+// Load reads the configuration file in dir. A missing file yields defaults.
 // A malformed file yields clean defaults plus the parse error, so the TUI can
 // start and report the problem instead of refusing to run.
-func Load(home string) (Config, error) {
+func Load(dir string) (Config, error) {
 	cfg := Defaults()
-	content, err := os.ReadFile(Path(home))
+	content, err := os.ReadFile(Path(dir))
 	if os.IsNotExist(err) {
 		return cfg, nil
 	}
@@ -142,7 +177,7 @@ func Load(home string) (Config, error) {
 	}
 	// Defaults are set before unmarshalling, so omitted fields keep them.
 	if err := toml.Unmarshal(content, &cfg); err != nil {
-		return Defaults(), fmt.Errorf("%s: %w", Path(home), err)
+		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)
 	}
 	return cfg, nil
 }

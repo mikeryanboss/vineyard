@@ -1,11 +1,11 @@
   vineyard 0.1.0  shop                                    ◑ 1 running   ● 1 ready   ○ 1 paused   × 1 stopped  
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Config  ~/.vineyard/config.toml                                                                             
+  Config  ~/src/shop/.vineyard/config.toml                                                                    
                                                                                                               
   General       │  Default agent              claude                                                          
   Profiles      │  Branch prefix              test/                                                           
                 │  Auto-yes for new sessions  off                                                             
-                                                                                                              
+                │  Worktree directory         .vineyard/worktrees                                             
                                                                                                               
                                                                                                               
                                                                                                               

@@ -24,20 +24,22 @@ type Terminal interface {
 // mutating shared state. The TUI runs them in background commands and applies
 // the results in its update loop, so they must not touch anything else.
 type Manager struct {
-	Repo       git.Repo
-	Terminal   Terminal
-	ProjectDir string
+	Repo     git.Repo
+	Terminal Terminal
+	// Project names the repository in tmux session names, which share one
+	// socket across repositories.
+	Project string
 
 	now func() time.Time
 }
 
-// NewManager returns a manager for repo whose data lives in projectDir.
-func NewManager(repo git.Repo, terminal Terminal, projectDir string) *Manager {
+// NewManager returns a manager for repo, named project in tmux.
+func NewManager(repo git.Repo, terminal Terminal, project string) *Manager {
 	return &Manager{
-		Repo:       repo,
-		Terminal:   terminal,
-		ProjectDir: projectDir,
-		now:        time.Now,
+		Repo:     repo,
+		Terminal: terminal,
+		Project:  project,
+		now:      time.Now,
 	}
 }
 
@@ -49,6 +51,8 @@ type NewOptions struct {
 	AutoYes bool
 	// BranchPrefix is prepended to the session's branch name.
 	BranchPrefix string
+	// WorktreeDir is the absolute directory the session's worktree goes in.
+	WorktreeDir string
 	// Issue is the grapes issue the session works on, or 0. Its branch is
 	// then named "<issue>/<slug>" instead of using BranchPrefix.
 	Issue int
@@ -69,8 +73,8 @@ func (m *Manager) New(opts NewOptions) Session {
 		Program:       opts.Program,
 		Branch:        branch,
 		Issue:         opts.Issue,
-		WorktreePath:  filepath.Join(m.ProjectDir, "worktrees", id),
-		TmuxName:      "vineyard-" + filepath.Base(m.ProjectDir) + "-" + id,
+		WorktreePath:  filepath.Join(opts.WorktreeDir, id),
+		TmuxName:      "vineyard-" + m.Project + "-" + id,
 		Status:        StatusLoading,
 		AutoYes:       opts.AutoYes,
 		PendingPrompt: opts.Prompt,

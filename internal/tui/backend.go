@@ -43,8 +43,8 @@ type LiveBackend struct {
 	*session.Manager
 	Tmux  *tmux.Client
 	Store session.Store
-	// Home is Vineyard's home directory, which holds config.toml.
-	Home string
+	// Dir is the repository's .vineyard directory, which holds config.toml.
+	Dir string
 }
 
 func (b LiveBackend) Capture(s session.Session) (string, error) {
@@ -83,4 +83,4 @@ func (b LiveBackend) DiffStat(s session.Session) (git.Stat, error) {
 
 func (b LiveBackend) Save(sessions []session.Session) error { return b.Store.Save(sessions) }
 
-func (b LiveBackend) SaveConfig(cfg config.Config) error { return config.Save(b.Home, cfg) }
+func (b LiveBackend) SaveConfig(cfg config.Config) error { return config.Save(b.Dir, cfg) }

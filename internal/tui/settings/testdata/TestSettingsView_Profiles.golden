@@ -1,4 +1,4 @@
-  Config  ~/.vineyard/config.toml                                               
+  Config  ~/src/shop/.vineyard/config.toml                                      
                                                                                 
   General       │  claude         claude                                        
   Profiles      │  codex          codex --full-auto                             
