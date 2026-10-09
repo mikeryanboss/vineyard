@@ -55,7 +55,9 @@ do, and starts one when none does; that session's branch is `<id>/<title>`.
 from it or its branch changed the issue's files; the list tags it `#<id>`.
 
 Flags: `-p <command>` launches a different agent in new sessions, and `-y` turns
-on auto-yes for them. `vineyard debug` prints where everything is stored.
+on auto-yes for them. `-i <id>` opens Vineyard as if `a` were pressed on issue
+`<id>`; standalone grapes runs it for its own `a` key. `vineyard debug` prints
+where everything is stored.
 
 ## Configuration
 

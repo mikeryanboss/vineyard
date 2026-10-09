@@ -1,0 +1,6 @@
+title = 'Open vineyard at a grapes issue with --issue'
+status = 'done'
+priority = 'high'
+labels = ['cli', 'grapes']
+created = 2026-10-09T09:43:00Z
+updated = 2026-10-09T09:47:00Z
