@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Mibokess/grapes/embedded"
+	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/tui/dialog"
