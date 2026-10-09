@@ -819,7 +819,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case common.SwitchTabMsg:
-		return m, m.switchTab()
+		return m, m.switchTab(msg.Back)
 
 	case common.ScrollbackRequestMsg:
 		s, ok := m.selected()
@@ -1084,9 +1084,17 @@ var tabNames = map[tab]string{tabPreview: "preview", tabDiff: "diff", tabIssue: 
 // nextTab is the tab that the tab key switches to.
 func (m Model) nextTab() tab { return (m.tab + 1) % tab(len(tabNames)) }
 
-// switchTab shows the next tab, and fetches the recap if it is the recap tab.
-func (m *Model) switchTab() tea.Cmd {
-	m.tab = m.nextTab()
+// prevTab is the tab that shift+tab switches to.
+func (m Model) prevTab() tab { return (m.tab + tab(len(tabNames)) - 1) % tab(len(tabNames)) }
+
+// switchTab shows the next tab, or the previous one if back, and fetches the
+// recap if it is the recap tab.
+func (m *Model) switchTab(back bool) tea.Cmd {
+	if back {
+		m.tab = m.prevTab()
+	} else {
+		m.tab = m.nextTab()
+	}
 	m.preview = m.preview.ExitScroll()
 	m.refreshIssue()
 	m.refreshRecap()
@@ -1202,8 +1210,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), key.Matches(msg, keys.NewPrompt), width)
 		m.dialog = d
 		return m, cmd
-	case key.Matches(msg, keys.Tab):
-		return m, m.switchTab()
+	case key.Matches(msg, keys.Tab, keys.PrevTab):
+		return m, m.switchTab(key.Matches(msg, keys.PrevTab))
 	case key.Matches(msg, keys.Config):
 		_, _, bodyHeight := m.layout()
 		m.settings = settings.New(m.opts.Config, m.opts.ConfigPath, m.opts.ConfigErr, m.theme).SetSize(m.width, bodyHeight)

@@ -16,6 +16,7 @@ type ListKeys struct {
 	Push      key.Binding
 	AutoYes   key.Binding
 	Tab       key.Binding
+	PrevTab   key.Binding
 	Focus     key.Binding
 	Config    key.Binding
 	Issues    key.Binding
@@ -35,6 +36,7 @@ var ListKeyMap = ListKeys{
 	Push:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "push")),
 	AutoYes:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
 	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
+	PrevTab:   key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
 	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "scroll pane")),
 	Config:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
 	Issues:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
@@ -55,6 +57,7 @@ type PaneKeys struct {
 	Collapse key.Binding
 	Expand   key.Binding
 	Tab      key.Binding
+	PrevTab  key.Binding
 	Back     key.Binding
 }
 
@@ -71,6 +74,7 @@ var PaneKeyMap = PaneKeys{
 	Collapse: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "collapse all")),
 	Expand:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "expand all")),
 	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
+	PrevTab:  key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
 	Back:     key.NewBinding(key.WithKeys("esc", "h", "left", "q"), key.WithHelp("esc", "back")),
 }
 

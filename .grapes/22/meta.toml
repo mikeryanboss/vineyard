@@ -1,0 +1,6 @@
+title = 'Cycle pane tabs backward with shift+tab'
+status = 'done'
+priority = 'low'
+labels = ['tui']
+created = 2026-10-09T10:06:00Z
+updated = 2026-10-09T10:08:00Z

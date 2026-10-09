@@ -39,8 +39,8 @@ type ScrollbackRequestMsg struct{}
 // LeavePaneMsg returns focus from the preview or diff pane to the list.
 type LeavePaneMsg struct{}
 
-// SwitchTabMsg toggles the right pane between preview and diff.
-type SwitchTabMsg struct{}
+// SwitchTabMsg moves the right pane to the next tab, or the previous one if Back.
+type SwitchTabMsg struct{ Back bool }
 
 // SaveConfigMsg asks for the configuration to be written and applied.
 type SaveConfigMsg struct{ Config config.Config }

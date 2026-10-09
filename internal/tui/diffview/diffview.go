@@ -137,8 +137,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, keys.Back):
 			return m, func() tea.Msg { return common.LeavePaneMsg{} }
-		case key.Matches(msg, keys.Tab):
-			return m, func() tea.Msg { return common.SwitchTabMsg{} }
+		case key.Matches(msg, keys.Tab, keys.PrevTab):
+			back := key.Matches(msg, keys.PrevTab)
+			return m, func() tea.Msg { return common.SwitchTabMsg{Back: back} }
 		case key.Matches(msg, keys.Up):
 			m.viewport.ScrollUp(1)
 		case key.Matches(msg, keys.Down):
