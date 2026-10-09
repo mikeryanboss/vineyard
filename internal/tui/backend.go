@@ -56,6 +56,9 @@ type Backend interface {
 	// claiming the role if it is free. Only the leader types into agents.
 	Lead() (bool, error)
 	SaveConfig(cfg config.Config) error
+	// Templates reads the prompt templates, together with inline, those in
+	// the configuration.
+	Templates(inline []config.Template) ([]config.Template, error)
 }
 
 // LiveBackend is the Backend backed by tmux, git, and the session store.
@@ -159,3 +162,7 @@ func (b LiveBackend) Recap(s session.Session) (recap.Recap, error) {
 }
 
 func (b LiveBackend) SaveConfig(cfg config.Config) error { return config.Save(b.Dir, cfg) }
+
+func (b LiveBackend) Templates(inline []config.Template) ([]config.Template, error) {
+	return config.LoadTemplates(b.Dir, inline)
+}

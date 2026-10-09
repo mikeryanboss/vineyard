@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
+	"github.com/mikeryanboss/vineyard/internal/prompt"
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
@@ -168,6 +169,13 @@ type (
 	jumpToSessionMsg struct{ id string }
 	// openIssueMsg shows an issue's detail on the issues screen.
 	openIssueMsg struct{ id int }
+	// templatesMsg carries the prompt templates read to start a session on
+	// an issue.
+	templatesMsg struct {
+		issue     int
+		templates []config.Template
+		err       error
+	}
 )
 
 // tick schedules timer messages. Tests replace it to drive the polling loops
@@ -964,6 +972,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case embedded.SessionsMsg:
 		return m.showSessions(msg.IssueID)
 
+	case templatesMsg:
+		if msg.err != nil {
+			return m, m.setError(fmt.Errorf("reading prompt templates: %w", msg.err))
+		}
+		issue, _ := m.grapes.Issue(msg.issue)
+		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), true, min(70, m.width-4))
+		m.dialog = d.ForIssue(issue.Title, msg.templates, m.promptData(issue), m.height-statusBarHeight)
+		return m, cmd
+
 	case jumpToSessionMsg:
 		m.dialog = nil
 		m.issuesOpen = false
@@ -1156,11 +1173,12 @@ func (m Model) showSessions(issueID int) (tea.Model, tea.Cmd) {
 	width := min(70, m.width-4)
 	switch len(found) {
 	case 0:
-		issue, _ := m.grapes.Issue(issueID)
-		prompt := fmt.Sprintf("Work on grapes issue #%d: %s. Its specification is in .grapes/%d/.", issueID, issue.Title, issueID)
-		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), true, width)
-		m.dialog = d.ForIssue(issueID, issue.Title, prompt)
-		return m, cmd
+		// The dialog opens once the templates are read.
+		backend, inline := m.backend, m.opts.Config.Templates
+		return m, func() tea.Msg {
+			templates, err := backend.Templates(inline)
+			return templatesMsg{issue: issueID, templates: templates, err: err}
+		}
 	case 1:
 		return m.Update(jumpToSessionMsg{id: found[0].ID})
 	}
@@ -1173,6 +1191,35 @@ func (m Model) showSessions(issueID int) (tea.Model, tea.Cmd) {
 	}
 	m.dialog = dialog.NewPick(m.theme, fmt.Sprintf("Sessions working on #%d", issueID), choices, width)
 	return m, nil
+}
+
+// promptData describes issue to the templates of its sessions' prompts.
+func (m Model) promptData(issue embedded.Issue) prompt.Data {
+	ref := func(id int) prompt.Issue {
+		iss, _ := m.grapes.Issue(id)
+		return prompt.Issue{ID: id, Title: iss.Title, Status: iss.Status}
+	}
+	data := prompt.Data{Issue: ref(issue.ID), Labels: issue.Labels}
+	if issue.Parent > 0 {
+		parent := ref(issue.Parent)
+		data.Parent = &parent
+	}
+	for _, id := range issue.Children {
+		sub := prompt.SubIssue{Issue: ref(id)}
+		for _, s := range m.sessions {
+			if slices.Contains(m.issuesOf(s), id) {
+				sub.Branch = s.Branch
+				break
+			}
+		}
+		data.SubIssues = append(data.SubIssues, sub)
+	}
+	for _, id := range issue.BlockedBy {
+		if blocker := ref(id); blocker.Status != "done" && blocker.Status != "cancelled" {
+			data.Blockers = append(data.Blockers, blocker)
+		}
+	}
+	return data
 }
 
 // showIssues opens the issues screen at the issue session s works on. With

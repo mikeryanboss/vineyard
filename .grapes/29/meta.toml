@@ -1,0 +1,6 @@
+title = 'Start issue sessions with prompts rendered from templates'
+status = 'done'
+priority = 'high'
+labels = ['feature', 'grapes', 'tui']
+created = 2026-10-09T19:38:00Z
+updated = 2026-10-09T19:38:00Z

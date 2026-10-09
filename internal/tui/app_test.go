@@ -37,6 +37,8 @@ type fakeBackend struct {
 	recaps   map[string]recap.Recap // by session ID
 	attaches int
 	tools    []*exec.Cmd // diff tools built
+	// templates are the template files; Templates adds the inline ones.
+	templates []config.Template
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
@@ -173,6 +175,10 @@ func (f *fakeBackend) SaveConfig(cfg config.Config) error {
 	defer f.mu.Unlock()
 	f.configs = append(f.configs, cfg)
 	return nil
+}
+
+func (f *fakeBackend) Templates(inline []config.Template) ([]config.Template, error) {
+	return append(slices.Clone(f.templates), inline...), nil
 }
 
 const sampleDiff = `diff --git a/auth.go b/auth.go

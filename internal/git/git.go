@@ -101,6 +101,13 @@ func Head(dir string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// HasPath reports whether commit rev of the repository at dir contains path,
+// a file or directory relative to the repository root.
+func HasPath(dir, rev, path string) bool {
+	_, err := run(dir, "cat-file", "-e", rev+":"+filepath.ToSlash(path))
+	return err == nil
+}
+
 // AddWorktree creates a worktree at path on a new branch that starts at base.
 // Its links to the repository are relative, so they survive moving the
 // repository together with the worktree.

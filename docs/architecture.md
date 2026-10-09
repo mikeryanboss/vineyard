@@ -52,7 +52,9 @@ The TUI's git poll also reads each session's branch, so the list follows branch
 switches within one poll.
 
 A session started from a grapes issue records it in `Issue`, and `New` names its
-branch `<issue>/<slug>` instead of using the prefix.
+branch `<issue>/<slug>` instead of using the prefix. `Start` refuses an issue
+that is not committed at the checkout's HEAD: the worktree starts there, and
+the prompt tells the agent to read the issue in it.
 
 ## Grapes
 
@@ -72,6 +74,16 @@ The root model owns one `embedded.Model` for the life of the program:
 - Grapes sends two messages for vineyard instead of acting itself:
   `embedded.CloseMsg` when the user presses quit, and `embedded.SessionsMsg`
   when the user asks for an issue's sessions.
+
+`showSessions` with no session on the issue reads the prompt templates in a
+command (`Backend.Templates`: `.vineyard/templates/*.md` plus `[[templates]]`
+in the configuration), and `templatesMsg` opens the new-session dialog.
+`promptData` describes the issue from `embedded.Model.Issue`: its labels,
+parent, sub-issues with the branch of a session on each (by `issuesOf`), and
+blockers not yet done. The dialog renders the chosen template with
+`prompt.Render`, and again whenever the template or the Build sub-issues
+checkbox changes. `config.Prepare` writes the example templates once, when the
+templates directory is missing; after that they are the repository's.
 
 `vineyard --issue <id>` sets `Options.Issue`, and the first window size runs
 `showSessions` for it, as `SessionsMsg` would; the dialogs need that width.

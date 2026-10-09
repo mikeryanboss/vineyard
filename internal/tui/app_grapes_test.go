@@ -32,6 +32,33 @@ func writeIssue(t *testing.T, checkout string, id int, title string) {
 	}
 }
 
+// appendMeta adds lines, such as labels or a parent, to issue id's meta.toml.
+func appendMeta(t *testing.T, checkout string, id int, lines string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(checkout, ".grapes", fmt.Sprint(id), "meta.toml"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(lines); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// exampleTemplates returns the prompt templates a new repository starts with.
+func exampleTemplates(t *testing.T) []config.Template {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), config.DirName)
+	if err := config.Prepare(dir); err != nil {
+		t.Fatal(err)
+	}
+	templates, err := config.LoadTemplates(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return templates
+}
+
 // withGrapes gives m the issue tracker in root's .grapes directory. Its Init is
 // never run: the file watcher would block the test helpers.
 func withGrapes(t *testing.T, m Model, root string) Model {
@@ -49,7 +76,8 @@ func withGrapes(t *testing.T, m Model, root string) Model {
 // grapesModel returns a model whose repository has issues #7 and #8.
 func grapesModel(t *testing.T, sessions []session.Session) Model {
 	t.Helper()
-	m, _ := newTestModel(t, sessions)
+	m, backend := newTestModel(t, sessions)
+	backend.templates = exampleTemplates(t)
 	root := t.TempDir()
 	writeIssue(t, root, 7, "Embed grapes")
 	writeIssue(t, root, 8, "Pick a session")
@@ -157,8 +185,8 @@ func TestIssues_SessionsKeyWithNoSessionStartsOne(t *testing.T) {
 		t.Fatalf("no session created: %+v", m.sessions)
 	}
 	s := m.sessions[i]
-	if s.Issue != 7 || !strings.Contains(s.PendingPrompt, ".grapes/7/") {
-		t.Errorf("session = %+v, want issue 7 and a prompt naming .grapes/7/", s)
+	if s.Issue != 7 || !strings.HasPrefix(s.PendingPrompt, "You own grapes issue #7: Embed grapes.") {
+		t.Errorf("session = %+v, want issue 7 and the default template's prompt", s)
 	}
 	if m.issuesOpen || selectedID(m) != s.ID {
 		t.Error("the new session should be shown and selected")
@@ -382,6 +410,54 @@ func TestIssueTab_FollowsGrapesReloads(t *testing.T) {
 	}
 }
 
+// The prompt describes the issue as grapes and Vineyard know it: its label
+// picks the template, and a sub-issue shows the branch of its session.
+func TestIssues_PromptDescribesTheIssue(t *testing.T) {
+	m, backend := newTestModel(t, []session.Session{
+		{ID: "b", Title: "pick", Status: session.StatusReady, Issue: 8, Branch: "8/pick"},
+	})
+	backend.templates = exampleTemplates(t)
+	root := t.TempDir()
+	writeIssue(t, root, 7, "Embed grapes")
+	writeIssue(t, root, 8, "Pick a session")
+	writeIssue(t, root, 9, "Fix the header")
+	appendMeta(t, root, 7, "labels = ['bug']\n")
+	appendMeta(t, root, 8, "parent = 7\n")
+	appendMeta(t, root, 9, "parent = 7\n")
+	meta := filepath.Join(root, ".grapes", "9", "meta.toml")
+	content, err := os.ReadFile(meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(meta, []byte(strings.Replace(string(content), "'todo'", "'done'", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m = withGrapes(t, m, root)
+
+	m = send(m, embedded.SessionsMsg{IssueID: 7})
+	view := screen(m)
+	for _, want := range []string{"‹ bug ›", "[ ] Build sub-issues", "You own grapes issue #7"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("dialog lacks %q:\n%s", want, view)
+		}
+	}
+	m = keys(m, "tab", "tab", "space", "enter") // tick Build sub-issues, create
+	i := m.find("embed-grapes")
+	if i < 0 {
+		t.Fatalf("no session created:\n%s", screen(m))
+	}
+	got := m.sessions[i].PendingPrompt
+	for _, want := range []string{
+		"It is a bug. Reproduce it first",
+		"- #8 Pick a session (todo): another session works on it in branch 8/pick; do not edit its files\n- #9 Fix the header (done)",
+		"Build the open sub-issues no other session works on yourself",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, got)
+		}
+	}
+}
+
 // startedAt builds a model the way main does for vineyard --issue id.
 func startedAt(t *testing.T, id int, sessions []session.Session) Model {
 	t.Helper()
@@ -391,7 +467,7 @@ func startedAt(t *testing.T, id int, sessions []session.Session) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewModel(&fakeBackend{}, sessions, Options{Grapes: &g, Issue: id})
+	return NewModel(&fakeBackend{templates: exampleTemplates(t)}, sessions, Options{Grapes: &g, Issue: id})
 }
 
 func TestStartIssue_OpensTheNewSessionDialogOnceSized(t *testing.T) {
@@ -400,7 +476,7 @@ func TestStartIssue_OpensTheNewSessionDialogOnceSized(t *testing.T) {
 		t.Fatal("the dialog needs the window's width; it must wait for the first size")
 	}
 
-	m = update(m, tea.WindowSizeMsg{Width: 110, Height: 26})
+	m = send(m, tea.WindowSizeMsg{Width: 110, Height: 26})
 	if _, ok := m.dialog.(*dialog.NewSession); !ok || !strings.Contains(screen(m), "New session for #7") {
 		t.Fatalf("dialog = %T, want the new-session dialog for #7:\n%s", m.dialog, screen(m))
 	}

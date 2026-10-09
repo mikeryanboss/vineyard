@@ -1,10 +1,12 @@
 package dialog_test
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/mikeryanboss/vineyard/internal/config"
+	"github.com/mikeryanboss/vineyard/internal/prompt"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/dialog"
 	"github.com/mikeryanboss/vineyard/internal/tui/testutil"
@@ -88,6 +90,82 @@ func TestNewSession_EscCancels(t *testing.T) {
 func TestNewSessionView_WithPrompt(t *testing.T) {
 	d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles, true, 60)
 	testutil.RequireGolden(t, d.View())
+}
+
+var templates = []config.Template{
+	{Name: "bug", Text: "Fix #{{.ID}}."},
+	{Name: "default", Text: "Do #{{.ID}}."},
+	{Name: "research", Text: "Study #{{.ID}}."},
+}
+
+// issueDialog opens the dialog for issue #7 with data and returns it with its
+// prompt as a session created at once would get it.
+func issueDialog(data prompt.Data) *dialog.NewSession {
+	data.ID = 7
+	d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles[:1], true, 60)
+	return d.ForIssue("Embed grapes", templates, data, 40)
+}
+
+func submittedPrompt(t *testing.T, d dialog.Dialog) string {
+	t.Helper()
+	_, msg := press(d, "enter")
+	got, ok := msg.(common.NewSessionMsg)
+	if !ok {
+		t.Fatalf("enter produced %T, want NewSessionMsg", msg)
+	}
+	return got.Prompt
+}
+
+// The template named after a label is preselected, and left and right on the
+// Template field cycle through the templates and none, rendering each.
+func TestNewSession_ForIssueChoosesTheTemplate(t *testing.T) {
+	var d dialog.Dialog = issueDialog(prompt.Data{Labels: []string{"tui", "bug"}})
+	d, _ = press(d, "tab") // to the template
+	if got := submittedPrompt(t, d); got != "Fix #7." {
+		t.Errorf("an issue labelled bug got %q, want the bug template", got)
+	}
+	for _, want := range []string{"", "Study #7.", "Do #7.", "Fix #7."} {
+		d, _ = press(d, "left")
+		if got := submittedPrompt(t, d); got != want {
+			t.Errorf("after left, prompt = %q, want %q", got, want)
+		}
+	}
+	d, _ = press(issueDialog(prompt.Data{}), "tab")
+	if got := submittedPrompt(t, d); got != "Do #7." {
+		t.Errorf("an issue without labels got %q, want the default template", got)
+	}
+}
+
+func TestNewSession_BuildSubIssuesCheckbox(t *testing.T) {
+	text := "{{if .BuildSubIssues}}Build them.{{else}}Leave them.{{end}}"
+	open := func(data prompt.Data) dialog.Dialog {
+		data.ID = 7
+		d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles[:1], true, 60)
+		return d.ForIssue("Embed grapes", []config.Template{{Name: "default", Text: text}}, data, 40)
+	}
+	if view := open(prompt.Data{}).View(); strings.Contains(view, "Build sub-issues") {
+		t.Errorf("an issue without sub-issues should have no checkbox:\n%s", view)
+	}
+
+	d := open(prompt.Data{SubIssues: []prompt.SubIssue{{Issue: prompt.Issue{ID: 8}}}})
+	d, _ = press(d, "tab") // to the template
+	d, _ = press(d, "tab") // to the checkbox
+	if got := submittedPrompt(t, d); got != "Leave them." {
+		t.Errorf("unticked prompt = %q", got)
+	}
+	d, _ = press(d, "space")
+	if got := submittedPrompt(t, d); got != "Build them." {
+		t.Errorf("ticked prompt = %q", got)
+	}
+	testutil.RequireGolden(t, d.View())
+}
+
+func TestNewSession_ShowsTemplateErrors(t *testing.T) {
+	d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles[:1], true, 60)
+	d = d.ForIssue("Embed grapes", []config.Template{{Name: "default", Text: "{{.Nope}}"}}, prompt.Data{Issue: prompt.Issue{ID: 7}}, 40)
+	if view := testutil.StripANSI(d.View()); !strings.Contains(view, "Template default:") {
+		t.Errorf("the dialog should show the template's error:\n%s", view)
+	}
 }
 
 func TestConfirm(t *testing.T) {
