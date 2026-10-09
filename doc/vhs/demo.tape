@@ -14,7 +14,7 @@ Set FontSize 14
 Set Width 1200
 Set Height 720
 Set Padding 20
-Set Theme "Catppuccin Mocha"
+Set Theme "Catppuccin Latte"
 Set TypingSpeed 50ms
 
 # Off camera: create the repository and start agents on issues #2 and #3.

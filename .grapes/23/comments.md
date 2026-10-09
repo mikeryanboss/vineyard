@@ -9,3 +9,6 @@
 
 ### 2026-10-09T12:59
 [DONE] Rewrote `README.md` around the major features and embedded `doc/demo.gif`. Added `doc/vhs/demo.tape`, `demo-repo.sh`, `demo-submit.sh`; documented re-recording in `docs/development.md` and added `doc/` to `docs/README.md`.
+
+### 2026-10-09T13:12
+[DECISION] Record in light mode, at the reviewer's request: the tape uses VHS's `Catppuccin Latte` theme, so Vineyard picks its light theme. Re-recorded `doc/demo.gif` (30 s, 1.2 MB) on the first take; all steps show as before.
