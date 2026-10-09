@@ -20,7 +20,7 @@ type Backend interface {
 	Pause(s session.Session) (session.Session, error)
 	Resume(s session.Session, width, height int) (session.Session, error)
 	Kill(s session.Session) (session.KillResult, error)
-	Push(s session.Session) error
+	Push(s session.Session) (session.Session, error)
 	EnsureShell(s session.Session, width, height int) error
 
 	Capture(s session.Session) (string, error)
@@ -33,6 +33,7 @@ type Backend interface {
 
 	Diff(s session.Session) (string, error)
 	DiffStat(s session.Session) (git.Stat, error)
+	Branch(s session.Session) (string, error)
 
 	Save(sessions []session.Session) error
 	SaveConfig(cfg config.Config) error
@@ -79,6 +80,10 @@ func (b LiveBackend) Diff(s session.Session) (string, error) {
 
 func (b LiveBackend) DiffStat(s session.Session) (git.Stat, error) {
 	return git.DiffStat(s.WorktreePath, s.BaseCommit)
+}
+
+func (b LiveBackend) Branch(s session.Session) (string, error) {
+	return git.CurrentBranch(s.WorktreePath)
 }
 
 func (b LiveBackend) Save(sessions []session.Session) error { return b.Store.Save(sessions) }

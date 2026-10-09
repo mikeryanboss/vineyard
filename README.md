@@ -10,7 +10,7 @@ which it will integrate with more deeply over time.
 
 ## Requirements
 
-- git
+- git 2.48 or newer
 - tmux
 - Go 1.25 or newer, to build from source
 

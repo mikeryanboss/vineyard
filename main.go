@@ -106,9 +106,16 @@ func runTUI(program string, autoYes bool, issue int) error {
 	if err != nil {
 		return err
 	}
+	worktreeDir, err := config.ResolveWorktreeDir(repo.Root, cfg.WorktreeDir)
+	if err != nil {
+		return fmt.Errorf("worktree directory: %w", err)
+	}
 	client := tmux.New(tmuxSocket())
 	manager := session.NewManager(repo, client, config.ProjectName(repo.Root))
-	sessions = manager.Restore(sessions)
+	sessions, err = manager.Restore(sessions, worktreeDir)
+	if err != nil {
+		return err
+	}
 	if err := store.Save(sessions); err != nil {
 		return err
 	}

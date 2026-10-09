@@ -28,6 +28,7 @@ type fakeBackend struct {
 	pasted   []string
 	enters   []string
 	killed   []string
+	branches map[string]string // session ID -> checked-out branch
 	resized  [][2]int
 	configs  []config.Config
 }
@@ -63,10 +64,10 @@ func (f *fakeBackend) Kill(s session.Session) (session.KillResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.killed = append(f.killed, s.ID)
-	return session.KillResult{KeptBranch: true}, nil
+	return session.KillResult{KeptBranch: s.Branch}, nil
 }
 
-func (f *fakeBackend) Push(s session.Session) error                            { return nil }
+func (f *fakeBackend) Push(s session.Session) (session.Session, error)         { return s, nil }
 func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error           { return nil }
 func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, nil }
 func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
@@ -74,6 +75,15 @@ func (f *fakeBackend) AttachCommand(s session.Session) *exec.Cmd               {
 func (f *fakeBackend) ShellAttachCommand(s session.Session) *exec.Cmd          { return exec.Command("true") }
 func (f *fakeBackend) Diff(s session.Session) (string, error)                  { return f.diff, nil }
 func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error)            { return git.Stat{Added: 3}, nil }
+
+func (f *fakeBackend) Branch(s session.Session) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if branch, ok := f.branches[s.ID]; ok {
+		return branch, nil
+	}
+	return s.Branch, nil
+}
 
 func (f *fakeBackend) Resize(s session.Session, w, h int) error {
 	f.mu.Lock()
@@ -382,6 +392,18 @@ func TestApp_KillAfterConfirmation(t *testing.T) {
 	}
 	if s, ok := m.selected(); !ok || s.ID != "tests-2" {
 		t.Errorf("selection after kill = %q, want the next session", s.ID)
+	}
+}
+
+// Agents switch branches inside their worktree; the list must follow git.
+func TestApp_GitPollFollowsBranchSwitches(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	backend.branches = map[string]string{"login-1": "19/real-work", "tests-2": "20/other"}
+	m = send(m, m.diffCmd()())
+	for id, want := range backend.branches {
+		if got := m.sessions[m.find(id)].Branch; got != want {
+			t.Errorf("%s branch = %q, want %q", id, got, want)
+		}
 	}
 }
 

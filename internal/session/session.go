@@ -38,12 +38,17 @@ type Session struct {
 	Title string `json:"title"`
 	// Program is the shell command that launches the agent.
 	Program string `json:"program"`
-	// Branch is the git branch the session works on.
+	// Branch is the git branch the session works on. While the session has a
+	// worktree, git is the authority: agents switch branches, and Restore and
+	// the lifecycle operations read the branch back. It is saved for paused
+	// sessions, whose worktree, and so git's record, is gone.
 	Branch string `json:"branch"`
 	// BaseCommit is the commit the branch started from. Diffs compare against it.
 	BaseCommit string `json:"base_commit"`
-	// WorktreePath is where the session's checkout lives.
-	WorktreePath string `json:"worktree_path"`
+	// WorktreePath is where the session's checkout lives. It is not saved:
+	// git records where each worktree is, and Restore asks it, so a moved
+	// repository does not leave sessions pointing at old paths.
+	WorktreePath string `json:"-"`
 	// TmuxName is the session's name on Vineyard's tmux server.
 	TmuxName string `json:"tmux_name"`
 	// Status is the last known lifecycle state.

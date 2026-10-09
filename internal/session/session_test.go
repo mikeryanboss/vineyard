@@ -87,6 +87,42 @@ func startSession(t *testing.T, m *Manager, title string) Session {
 	return s
 }
 
+// restore restores sessions as a restart does: through the store, which keeps
+// only what is saved, and with the default worktree directory.
+func restore(t *testing.T, m *Manager, sessions ...Session) []Session {
+	t.Helper()
+	store := NewStore(t.TempDir())
+	if err := store.Save(sessions); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := m.Restore(loaded, worktrees(m))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return restored
+}
+
+// moveRepo renames the repository directory, as moving or copying a project
+// does, and returns a manager for it at the new location.
+func moveRepo(t *testing.T, m *Manager) *Manager {
+	t.Helper()
+	moved := m.Repo.Root + "-moved"
+	if err := os.Rename(m.Repo.Root, moved); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := git.FindRepo(moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := NewManager(repo, m.Terminal, m.Project)
+	next.now = m.now
+	return next
+}
+
 func TestStart_CreatesBranchWorktreeAndTerminal(t *testing.T) {
 	m, term := newTestManager(t)
 	s := startSession(t, m, "Fix the login bug!")
@@ -209,7 +245,7 @@ func TestResume_StoppedSessionKeepsUncommittedWork(t *testing.T) {
 	s := startSession(t, m, "crashy")
 	writeFile(t, s.WorktreePath, "draft.txt", "unsaved\n")
 	delete(term.live, s.TmuxName) // the tmux server died
-	s = m.Restore([]Session{s})[0]
+	s = restore(t, m, s)[0]
 	if s.Status != StatusStopped {
 		t.Fatalf("restored status = %s, want stopped", s.Status)
 	}
@@ -251,7 +287,7 @@ func TestKill_DeletesBranchWithoutCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.KeptBranch || git.BranchExists(m.Repo.Root, s.Branch) {
+	if result.KeptBranch != "" || git.BranchExists(m.Repo.Root, s.Branch) {
 		t.Error("a branch without commits should be deleted")
 	}
 }
@@ -267,7 +303,7 @@ func TestKill_KeepsBranchWithCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.KeptBranch || !git.BranchExists(m.Repo.Root, s.Branch) {
+	if result.KeptBranch != s.Branch || !git.BranchExists(m.Repo.Root, s.Branch) {
 		t.Error("a branch with commits must be kept")
 	}
 }
@@ -275,16 +311,137 @@ func TestKill_KeepsBranchWithCommits(t *testing.T) {
 func TestRestore_MarksLiveSessionsReadyAndKeepsPaused(t *testing.T) {
 	m, term := newTestManager(t)
 	term.live["alive"] = "/x"
-	got := m.Restore([]Session{
-		{TmuxName: "alive", Status: StatusRunning},
-		{TmuxName: "gone", Status: StatusReady},
-		{TmuxName: "gone", Status: StatusPaused},
-	})
+	got := restore(t, m,
+		Session{TmuxName: "alive", Status: StatusRunning},
+		Session{TmuxName: "gone", Status: StatusReady},
+		Session{TmuxName: "gone", Status: StatusPaused},
+	)
 	want := []Status{StatusReady, StatusStopped, StatusPaused}
 	for i := range want {
 		if got[i].Status != want[i] {
 			t.Errorf("session %d status = %s, want %s", i, got[i].Status, want[i])
 		}
+	}
+}
+
+func TestRestore_FindsWorktreesAfterRepositoryMoves(t *testing.T) {
+	m, _ := newTestManager(t)
+	relative := startSession(t, m, "relative")
+	if link, _ := os.ReadFile(filepath.Join(relative.WorktreePath, ".git")); strings.HasPrefix(string(link), "gitdir: /") {
+		t.Errorf("new worktrees must link to the repository relatively: %s", link)
+	}
+	// A worktree created before Vineyard used relative links.
+	legacy := m.New(NewOptions{Title: "legacy", Program: "claude", WorktreeDir: worktrees(m)})
+	runGit(t, m.Repo.Root, "worktree", "add", "-q", "-b", "legacy", legacy.WorktreePath)
+	paused, err := m.Pause(startSession(t, m, "paused"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m = moveRepo(t, m)
+	got := restore(t, m, relative, legacy, paused)
+
+	for _, s := range got {
+		if want := filepath.Join(worktrees(m), s.ID); s.WorktreePath != want {
+			t.Errorf("%s: worktree path = %q, want %q", s.Title, s.WorktreePath, want)
+		}
+	}
+	for _, s := range got[:2] {
+		if !git.IsWorktree(s.WorktreePath) {
+			t.Errorf("%s: worktree unusable after the move", s.Title)
+		}
+	}
+	if _, err := m.Resume(got[2], 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if !git.IsWorktree(got[2].WorktreePath) {
+		t.Error("a paused session should resume inside the moved repository")
+	}
+}
+
+func TestBranch_FollowsTheAgentsCheckout(t *testing.T) {
+	m, _ := newTestManager(t)
+	s := startSession(t, m, "switcher")
+	runGit(t, s.WorktreePath, "switch", "-q", "-c", "19/real-work")
+
+	if got := restore(t, m, s)[0].Branch; got != "19/real-work" {
+		t.Errorf("restored branch = %q, want the checked-out 19/real-work", got)
+	}
+	paused, err := m.Pause(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paused.Branch != "19/real-work" {
+		t.Errorf("paused branch = %q, want the checked-out 19/real-work", paused.Branch)
+	}
+	resumed, err := m.Resume(paused, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch, _ := git.CurrentBranch(resumed.WorktreePath); branch != "19/real-work" {
+		t.Errorf("resumed on %q, want 19/real-work", branch)
+	}
+}
+
+func TestPushAndKill_UseTheCheckedOutBranch(t *testing.T) {
+	m, _ := newTestManager(t)
+	remote := t.TempDir()
+	runGit(t, remote, "init", "-q", "--bare")
+	runGit(t, m.Repo.Root, "remote", "add", "origin", remote)
+	s := startSession(t, m, "pusher")
+	runGit(t, s.WorktreePath, "switch", "-q", "-c", "19/real-work")
+	writeFile(t, s.WorktreePath, "work.txt", "x\n")
+
+	pushed, err := m.Push(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pushed.Branch != "19/real-work" {
+		t.Errorf("pushed branch = %q, want 19/real-work", pushed.Branch)
+	}
+	runGit(t, remote, "rev-parse", "--verify", "refs/heads/19/real-work")
+
+	result, err := m.Kill(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.KeptBranch != "19/real-work" {
+		t.Errorf("kept branch = %q, want the one with the commit, 19/real-work", result.KeptBranch)
+	}
+}
+
+func TestLifecycle_RefusesDetachedHead(t *testing.T) {
+	m, _ := newTestManager(t)
+	s := startSession(t, m, "detached")
+	runGit(t, s.WorktreePath, "switch", "-q", "--detach")
+
+	if _, err := m.Pause(s); err == nil || !strings.Contains(err.Error(), "detached") {
+		t.Errorf("pause err = %v, want a detached HEAD error", err)
+	}
+	if _, err := m.Push(s); err == nil || !strings.Contains(err.Error(), "detached") {
+		t.Errorf("push err = %v, want a detached HEAD error", err)
+	}
+	if _, err := m.Kill(s); err == nil || !strings.Contains(err.Error(), "detached") {
+		t.Errorf("kill err = %v, want a detached HEAD error", err)
+	}
+	if !git.IsWorktree(s.WorktreePath) {
+		t.Error("a refused operation must leave the worktree in place")
+	}
+}
+
+// The worktree path belongs to the machine and git records it; saving it
+// breaks sessions when the repository moves.
+func TestStore_DoesNotSaveWorktreePath(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if err := store.Save([]Session{{ID: "a", WorktreePath: "/home/someone/shop/.vineyard/worktrees/a"}}); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(store.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "/home/someone") {
+		t.Errorf("sessions.json holds a machine path:\n%s", content)
 	}
 }
 

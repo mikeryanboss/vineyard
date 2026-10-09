@@ -25,14 +25,14 @@ Changes:
 - Out of scope: adopting a branch pushed from another machine as a session; grapes `NextID` not seeing other machines' IDs.
 
 ## Acceptance Criteria
-- [ ] `sessions.json` contains no `worktree_path`.
-- [ ] New worktrees' `.git` files hold a relative `gitdir`.
-- [ ] After the repository directory is renamed, `Restore` finds a session's worktree at its new location, for both relative links and legacy absolute links (repaired).
-- [ ] A paused session restored after a move resumes inside the moved repository.
-- [ ] A session whose agent switched branches gets the new branch from `Restore`, and `Pause`, `Push`, and `Kill` act on the checked-out branch.
-- [ ] `Pause`, `Push`, and `Kill` fail with a clear error on a detached HEAD.
-- [ ] The session list shows a branch change within one git poll.
-- [ ] Docs describe the new persistence and the git >= 2.48 requirement.
+- [x] `sessions.json` contains no `worktree_path`.
+- [x] New worktrees' `.git` files hold a relative `gitdir`.
+- [x] After the repository directory is renamed, `Restore` finds a session's worktree at its new location, for both relative links and legacy absolute links (repaired).
+- [x] A paused session restored after a move resumes inside the moved repository.
+- [x] A session whose agent switched branches gets the new branch from `Restore`, and `Pause`, `Push`, and `Kill` act on the checked-out branch.
+- [x] `Pause`, `Push`, and `Kill` fail with a clear error on a detached HEAD.
+- [x] The session list shows a branch change within one git poll.
+- [x] Docs describe the new persistence and the git >= 2.48 requirement.
 
 ## Verify
 Run from the worktree root:

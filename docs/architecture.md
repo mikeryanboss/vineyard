@@ -6,7 +6,10 @@ Stable responsibilities and data flow. Check the named code before relying on de
 
 A session (`internal/session/session.go`) is a title, a launch command, a
 branch, the commit the branch started from, a worktree path, and a tmux session
-name. Its `Status` is one of:
+name. Git owns the worktree path and, while a worktree exists, the branch:
+agents switch branches inside their worktree, and the repository may move. The
+path is never saved, and the branch is read back from git before it is used.
+Its `Status` is one of:
 
 | Status | Meaning |
 | --- | --- |
@@ -23,18 +26,30 @@ name. Its `Status` is one of:
   title. The TUI passes the prefix from its current config, so a prefix saved
   on the config screen applies to the next session.
 - `Start` numbers the branch if the name is taken, branches from the HEAD of
-  the checkout Vineyard runs in, adds the worktree, and launches the program
+  the checkout Vineyard runs in, adds the worktree with relative links
+  (`git worktree add --relative-paths`, git 2.48+), and launches the program
   sized to the preview pane. A failed launch removes the worktree and branch
   again.
-- `Pause` commits all changes as a checkpoint, stops the agent and its shell,
-  and removes the worktree so the branch can be checked out elsewhere.
+- `Pause` records the checked-out branch, commits all changes as a checkpoint,
+  stops the agent and its shell, and removes the worktree so the branch can be
+  checked out elsewhere. The recorded branch is what `Resume` checks out.
 - `Resume` re-adds the worktree from the branch when it is missing and restarts
   the program. For stopped sessions the worktree, and any uncommitted work in
   it, is reused.
-- `Kill` stops everything and removes the worktree. The branch is deleted only
-  when it has no commits beyond its base.
-- `Push` commits and runs `git push -u origin <branch>`.
-- `Restore` runs at startup: sessions whose tmux session vanished become stopped.
+- `Kill` stops everything and removes the worktree. The checked-out branch is
+  deleted only when it has no commits beyond its base.
+- `Push` commits and runs `git push -u origin <branch>` for the checked-out
+  branch.
+- `Pause`, `Kill`, and `Push` refuse a worktree with a detached HEAD.
+- `Restore` runs at startup. It finds each session's worktree in
+  `git worktree list` by directory name, which is the session ID, and takes its
+  branch from there. A worktree git lost track of because something moved is
+  reconnected with `git worktree repair --relative-paths` when it is at
+  `<worktree_dir>/<id>`; that is also where a session without a worktree gets
+  one on `Resume`. Sessions whose tmux session vanished become stopped.
+
+The TUI's git poll also reads each session's branch, so the list follows branch
+switches within one poll.
 
 A session started from a grapes issue records it in `Issue`, and `New` names its
 branch `<issue>/<slug>` instead of using the prefix.
@@ -90,9 +105,13 @@ The directory is in the main checkout, found through git's common directory, so
 starting Vineyard from any linked worktree shows the same sessions. The lock
 stops two Vineyard processes from overwriting each other's state.
 
-`worktree_dir` is resolved against the main checkout when a session is created
-(`config.ResolveWorktreeDir`), and each session stores the absolute
-`WorktreePath` it got, so changing the setting never moves existing sessions.
+`worktree_dir` is resolved against the main checkout
+(`config.ResolveWorktreeDir`) when a session is created and at startup.
+`sessions.json` holds no paths: git records where each worktree is, so changing
+the setting never moves existing worktrees, and moving the repository keeps
+them. Relative links survive moving worktrees inside the repository, or moving
+the repository and an outside `worktree_dir` together. When only the
+repository moves, `Restore` repairs worktrees found at `<worktree_dir>/<id>`.
 tmux session names use `config.ProjectName`, the checkout's directory name plus
 a hash of its path, because one tmux server serves every repository.
 
