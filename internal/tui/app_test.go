@@ -25,7 +25,9 @@ type fakeBackend struct {
 	screen   string
 	diff     string
 	startErr error
-	saved    [][]session.Session
+	file     []session.Session   // sessions.json, which other Vineyards share
+	saved    [][]session.Session // the file after each write
+	follower bool                // another Vineyard leads
 	pasted   []string
 	enters   []string
 	killed   []string
@@ -130,12 +132,41 @@ func (f *fakeBackend) Paste(s session.Session, text string) error {
 	return nil
 }
 
-func (f *fakeBackend) Save(sessions []session.Session) error {
+// write changes the file as the store does, under its lock.
+func (f *fakeBackend) write(change func([]session.Session) []session.Session) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.saved = append(f.saved, slices.Clone(sessions))
+	f.file = change(f.file)
+	f.saved = append(f.saved, slices.Clone(f.file))
 	return nil
 }
+
+func (f *fakeBackend) Add(s session.Session) error {
+	return f.write(func(file []session.Session) []session.Session { return append(file, s) })
+}
+
+func (f *fakeBackend) Replace(s session.Session) error {
+	return f.write(func(file []session.Session) []session.Session {
+		if i := slices.IndexFunc(file, func(o session.Session) bool { return o.ID == s.ID }); i >= 0 {
+			file[i] = s
+		}
+		return file
+	})
+}
+
+func (f *fakeBackend) Remove(id string) error {
+	return f.write(func(file []session.Session) []session.Session {
+		return slices.DeleteFunc(file, func(o session.Session) bool { return o.ID == id })
+	})
+}
+
+func (f *fakeBackend) Load(string) ([]session.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.file), nil
+}
+
+func (f *fakeBackend) Lead() (bool, error) { return !f.follower, nil }
 
 func (f *fakeBackend) SaveConfig(cfg config.Config) error {
 	f.mu.Lock()
@@ -158,7 +189,7 @@ func newTestModel(t *testing.T, sessions []session.Session) (Model, *fakeBackend
 	t.Helper()
 	// Timers never fire in tests; each test sends tick messages itself.
 	tick = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
-	backend := &fakeBackend{screen: "✻ Thinking…\n\n> fix the redirect", diff: sampleDiff}
+	backend := &fakeBackend{screen: "✻ Thinking…\n\n> fix the redirect", diff: sampleDiff, file: slices.Clone(sessions)}
 	m := NewModel(backend, sessions, Options{
 		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/", WorktreeDir: ".vineyard/worktrees"},
 		RepoName:   "shop",
@@ -333,19 +364,19 @@ func TestApp_StartFailureRemovesSession(t *testing.T) {
 func TestApp_StatusFollowsScreenChanges(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
 	id := "login-1"
-	m = send(m, statusMsg{results: []screenStatus{{id: id, hash: 1}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, hash: 1}}})
 	if statusOf(m, id) != session.StatusRunning {
 		t.Fatal("the first fingerprint has nothing to compare with and must not change state")
 	}
-	m = send(m, statusMsg{results: []screenStatus{{id: id, hash: 1}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, hash: 1}}})
 	if got := statusOf(m, id); got != session.StatusReady {
 		t.Errorf("unchanged screen: status = %s, want ready", got)
 	}
-	m = send(m, statusMsg{results: []screenStatus{{id: id, hash: 2}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, hash: 2}}})
 	if got := statusOf(m, id); got != session.StatusRunning {
 		t.Errorf("changed screen: status = %s, want running", got)
 	}
-	m = send(m, statusMsg{results: []screenStatus{{id: id, gone: true}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, gone: true}}})
 	if got := statusOf(m, id); got != session.StatusStopped {
 		t.Errorf("vanished tmux session: status = %s, want stopped", got)
 	}
@@ -357,11 +388,11 @@ func readySession(prompt string, autoYes bool) session.Session {
 
 func TestApp_PendingPromptIsSentOnceReady(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("write tests", false)})
-	m = send(m, statusMsg{results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
 	if len(backend.pasted) != 0 {
 		t.Fatal("the prompt must wait until the screen has been still for a poll")
 	}
-	m = send(m, statusMsg{results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
 	if !slices.Equal(backend.pasted, []string{"write tests"}) || !slices.Equal(backend.enters, []string{"s1"}) {
 		t.Fatalf("pasted %q and pressed enter for %q", backend.pasted, backend.enters)
 	}
@@ -376,8 +407,8 @@ func TestApp_PendingPromptIsSentOnceReady(t *testing.T) {
 
 func TestApp_TrustPromptHoldsPendingPrompt(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("go", false)})
-	m = send(m, statusMsg{results: []screenStatus{{id: "s1", hash: 7, trust: true}}})
-	m = send(m, statusMsg{results: []screenStatus{{id: "s1", hash: 7, trust: true}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, trust: true}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, trust: true}}})
 	if len(backend.pasted) != 0 || len(backend.enters) != 0 {
 		t.Error("nothing may be typed into a trust prompt without auto-yes")
 	}
@@ -388,15 +419,81 @@ func TestApp_TrustPromptHoldsPendingPrompt(t *testing.T) {
 
 func TestApp_AutoYesAnswersPermissionPrompts(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("", true)})
-	send(m, statusMsg{results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
+	send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
 	if !slices.Equal(backend.enters, []string{"s1"}) {
 		t.Errorf("enters = %q, want one for s1", backend.enters)
 	}
 
 	m, backend = newTestModel(t, []session.Session{readySession("", false)})
-	send(m, statusMsg{results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
+	send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
 	if len(backend.enters) != 0 {
 		t.Error("without auto-yes, permission prompts are left for the user")
+	}
+}
+
+// Every Vineyard on a repository polls every screen; only the one that leads
+// types into agents, so no prompt is pasted twice and no Enter lands on the
+// agent's next question.
+func TestApp_OnlyTheLeaderTypesIntoAgents(t *testing.T) {
+	m, backend := newTestModel(t, []session.Session{readySession("write tests", true)})
+	for range 2 {
+		m = send(m, statusMsg{lead: false, results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
+	}
+	if len(backend.pasted) != 0 || len(backend.enters) != 0 {
+		t.Fatalf("a follower pasted %q and pressed enter for %q", backend.pasted, backend.enters)
+	}
+	if m.sessions[0].PendingPrompt != "write tests" {
+		t.Fatal("a follower must leave the pending prompt to the leader")
+	}
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	if !slices.Equal(backend.pasted, []string{"write tests"}) {
+		t.Errorf("the leader pasted %q, want the pending prompt", backend.pasted)
+	}
+}
+
+// A reload that read the file before this process's own write must not undo
+// it: restoring a delivered prompt would send it again.
+func TestApp_StaleReloadIsDropped(t *testing.T) {
+	m, backend := newTestModel(t, []session.Session{readySession("write tests", false)})
+	stale := reloadedMsg{sessions: slices.Clone(backend.file), writes: m.writes}
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, stale)
+	if m.sessions[0].PendingPrompt != "" {
+		t.Fatal("a reload that predates the write restored the delivered prompt")
+	}
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	if len(backend.pasted) != 1 {
+		t.Errorf("pasted %q, want the prompt once", backend.pasted)
+	}
+}
+
+// Each tick reloads the sessions other Vineyards save: their new sessions
+// appear and the ones they killed go. A session this process is still
+// starting is not saved yet and stays.
+func TestApp_ReloadAdoptsOtherVineyardsSessions(t *testing.T) {
+	mine := session.Session{ID: "mine", Title: "Mine", Status: session.StatusRunning}
+	killed := session.Session{ID: "killed", Title: "Killed", Status: session.StatusReady}
+	m, backend := newTestModel(t, []session.Session{mine, killed})
+	starting := session.Session{ID: "starting", Title: "Starting", Status: session.StatusLoading}
+	m.sessions = append(m.sessions, starting)
+
+	saved := mine
+	saved.Status = session.StatusReady // as another Vineyard last saw it
+	saved.AutoYes = true               // switched on in another Vineyard
+	other := session.Session{ID: "other", Title: "Other", Status: session.StatusPaused}
+	backend.file = []session.Session{saved, other}
+
+	m = send(m, statusTickMsg{})
+	var ids []string
+	for _, s := range m.sessions {
+		ids = append(ids, s.ID)
+	}
+	if !slices.Equal(ids, []string{"mine", "other", "starting"}) {
+		t.Fatalf("sessions = %q, want mine, other, starting", ids)
+	}
+	if got := m.sessions[0]; got.Status != session.StatusRunning || !got.AutoYes {
+		t.Errorf("mine = %+v; want this process's running status and the saved auto-yes", got)
 	}
 }
 

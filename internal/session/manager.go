@@ -231,12 +231,9 @@ func (m *Manager) Push(s Session) (Session, error) {
 
 // Restore reconciles saved sessions with reality after a restart.
 //
-// Git, not the saved state, knows where each worktree is and what it has
-// checked out. Restore finds a session's worktree by its directory name, the
-// session ID, and takes the branch from it. A worktree git lost track of,
-// because the repository or the worktree moved, is reconnected when it is at
-// <worktreeDir>/<id>; that is also where a session without a worktree gets
-// one when it resumes.
+// A worktree git lost track of, because the repository or the worktree
+// moved, is reconnected when it is at <worktreeDir>/<id>. Locate then finds
+// each session's worktree and branch.
 //
 // A session whose tmux session is gone becomes stopped; its worktree is left
 // alone.
@@ -257,10 +254,32 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 			return nil, fmt.Errorf("reconnecting the worktree of %q: %w", s.Title, err)
 		}
 	}
-	if found, err = m.worktreesByID(); err != nil {
+	out, err := m.Locate(sessions, worktreeDir)
+	if err != nil {
 		return nil, err
 	}
+	for i, s := range out {
+		switch {
+		case s.Status == StatusPaused:
+		case m.Terminal.Exists(s.TmuxName):
+			out[i].Status = StatusReady
+		default:
+			out[i].Status = StatusStopped
+		}
+	}
+	return out, nil
+}
 
+// Locate fills in where saved sessions' worktrees are and what they have
+// checked out. Git, not the saved state, knows both: Locate finds a session's
+// worktree by its directory name, the session ID, and takes the branch from
+// it. A session without a worktree gets <worktreeDir>/<id>, where it gets one
+// when it resumes.
+func (m *Manager) Locate(sessions []Session, worktreeDir string) ([]Session, error) {
+	found, err := m.worktreesByID()
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Session, len(sessions))
 	for i, s := range sessions {
 		s.WorktreePath = filepath.Join(worktreeDir, s.ID)
@@ -269,13 +288,6 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 			if w.Branch != "" {
 				s.Branch = w.Branch
 			}
-		}
-		switch {
-		case s.Status == StatusPaused:
-		case m.Terminal.Exists(s.TmuxName):
-			s.Status = StatusReady
-		default:
-			s.Status = StatusStopped
 		}
 		out[i] = s
 	}

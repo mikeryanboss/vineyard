@@ -89,7 +89,9 @@ ls`). The preview mirrors the agent's screen with `tmux capture-pane`. An agent
 whose screen keeps changing is working; one whose screen is still is waiting
 for you. Attaching hands the terminal to tmux.
 
-Vineyard also keeps its session list and a lock file in `.vineyard/`, and writes
+You can run several Vineyards on one repository, for example one per terminal
+window; they share the session list and show each other's changes within a
+second. Vineyard keeps that list and its lock files in `.vineyard/`, and writes
 a `.vineyard/.gitignore` so that only the configuration reaches git.
 
 Contributors: see [docs/README.md](docs/README.md).

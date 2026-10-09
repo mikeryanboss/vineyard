@@ -26,15 +26,15 @@ Out of scope, recorded as known limits in `docs/architecture.md`: two processes 
 - `docs/architecture.md` Storage section and `docs/README.md` describe the lock.
 
 ## Acceptance Criteria
-- [ ] A second `vineyard` in a repository where one already runs starts instead of failing with `ErrLocked`.
-- [ ] A session created in one vineyard appears in the other within 2 s; killing, pausing, or resuming it in one shows in the other within 2 s.
-- [ ] Concurrent store writes from two `Store` values keep each other's sessions (unit test).
-- [ ] `Replace` of a session no longer saved does not re-add it (unit test).
-- [ ] A vineyard that does not lead neither presses Enter for auto-yes nor pastes a pending prompt; the leader does (unit test).
-- [ ] A reload result is dropped when a write was issued after it started, so a cleared pending prompt is not restored (unit test).
-- [ ] A reload adds sessions saved by another process, drops sessions it removed, and keeps sessions this process is starting (unit test).
-- [ ] When the leading vineyard exits, another running vineyard delivers pending prompts (manual check).
-- [ ] `docs/architecture.md` and `docs/README.md` describe the store lock, reloads, and the lead role instead of the single-process lock.
+- [x] A second `vineyard` in a repository where one already runs starts instead of failing with `ErrLocked`.
+- [x] A session created in one vineyard appears in the other within 2 s; killing, pausing, or resuming it in one shows in the other within 2 s.
+- [x] Concurrent store writes from two `Store` values keep each other's sessions (unit test).
+- [x] `Replace` of a session no longer saved does not re-add it (unit test).
+- [x] A vineyard that does not lead neither presses Enter for auto-yes nor pastes a pending prompt; the leader does (unit test).
+- [x] A reload result is dropped when a write was issued after it started, so a cleared pending prompt is not restored (unit test).
+- [x] A reload adds sessions saved by another process, drops sessions it removed, and keeps sessions this process is starting (unit test).
+- [x] When the leading vineyard exits, another running vineyard delivers pending prompts (manual check).
+- [x] `docs/architecture.md` and `docs/README.md` describe the store lock, reloads, and the lead role instead of the single-process lock.
 
 ## Verify
 Run from the repository root:

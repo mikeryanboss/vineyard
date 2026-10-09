@@ -2,18 +2,17 @@ package session
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 const stateVersion = 1
 
-// ErrLocked reports that another Vineyard process owns the project.
-var ErrLocked = errors.New("another vineyard is already running for this repository")
-
-// Store persists a project's sessions as JSON.
+// Store persists a project's sessions as JSON. Several Vineyards may share a
+// store: each change reads the file and writes it back under a lock, and
+// touches only the sessions it is about.
 type Store struct {
 	path string
 }
@@ -50,9 +49,56 @@ func (s Store) Load() ([]Session, error) {
 	return state.Sessions, nil
 }
 
-// Save replaces the saved sessions. The file is written to a temporary name
-// and renamed into place, so a crash mid-write cannot corrupt it.
-func (s Store) Save(sessions []Session) error {
+// Update changes the saved sessions under the store's lock, so concurrent
+// Vineyards never lose each other's changes. change receives the sessions as
+// saved now, and what it returns is saved.
+func (s Store) Update(change func([]Session) ([]Session, error)) ([]Session, error) {
+	release, err := lock(filepath.Join(filepath.Dir(s.path), "sessions.lock"), true)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	sessions, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+	if sessions, err = change(sessions); err != nil {
+		return nil, err
+	}
+	return sessions, s.save(sessions)
+}
+
+// Add saves a new session.
+func (s Store) Add(session Session) error {
+	_, err := s.Update(func(saved []Session) ([]Session, error) {
+		return append(saved, session), nil
+	})
+	return err
+}
+
+// Replace saves a changed session. A session no longer saved stays gone:
+// another Vineyard has killed it.
+func (s Store) Replace(session Session) error {
+	_, err := s.Update(func(saved []Session) ([]Session, error) {
+		if i := slices.IndexFunc(saved, func(o Session) bool { return o.ID == session.ID }); i >= 0 {
+			saved[i] = session
+		}
+		return saved, nil
+	})
+	return err
+}
+
+// Remove deletes a saved session.
+func (s Store) Remove(id string) error {
+	_, err := s.Update(func(saved []Session) ([]Session, error) {
+		return slices.DeleteFunc(saved, func(o Session) bool { return o.ID == id }), nil
+	})
+	return err
+}
+
+// save replaces the saved sessions. The file is written to a temporary name
+// and renamed into place, so a reader never sees half a file.
+func (s Store) save(sessions []Session) error {
 	if sessions == nil {
 		sessions = []Session{}
 	}

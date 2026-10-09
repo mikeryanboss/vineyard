@@ -9,21 +9,28 @@ import (
 	"syscall"
 )
 
-// Lock takes exclusive ownership of a project for this process. Two Vineyard
-// processes on one repository would overwrite each other's session state.
-// The lock is released by calling the returned function, or when the process exits.
-func Lock(projectDir string) (release func(), err error) {
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+// errBusy reports that another process holds a lock taken without waiting.
+var errBusy = errors.New("lock held by another process")
+
+// lock takes an exclusive flock on path, creating the file. With wait, it
+// blocks until the lock is free; without, it fails with errBusy. The lock is
+// released by calling the returned function, or when the process exits.
+func lock(path string, wait bool) (release func(), err error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(filepath.Join(projectDir, "lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	how := syscall.LOCK_EX
+	if !wait {
+		how |= syscall.LOCK_NB
+	}
+	if err := syscall.Flock(int(f.Fd()), how); err != nil {
 		f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, ErrLocked
+			return nil, errBusy
 		}
 		return nil, err
 	}

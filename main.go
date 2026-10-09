@@ -95,28 +95,17 @@ func runTUI(program string, autoYes bool, issue int) error {
 	}
 	cfg, cfgErr := config.Load(dir)
 
-	release, err := session.Lock(dir)
-	if err != nil {
-		return err
-	}
-	defer release()
-
 	store := session.NewStore(dir)
-	sessions, err := store.Load()
-	if err != nil {
-		return err
-	}
 	worktreeDir, err := config.ResolveWorktreeDir(repo.Root, cfg.WorktreeDir)
 	if err != nil {
 		return fmt.Errorf("worktree directory: %w", err)
 	}
 	client := tmux.New(tmuxSocket())
 	manager := session.NewManager(repo, client, config.ProjectName(repo.Root))
-	sessions, err = manager.Restore(sessions, worktreeDir)
+	sessions, err := store.Update(func(saved []session.Session) ([]session.Session, error) {
+		return manager.Restore(saved, worktreeDir)
+	})
 	if err != nil {
-		return err
-	}
-	if err := store.Save(sessions); err != nil {
 		return err
 	}
 
@@ -144,7 +133,7 @@ func runTUI(program string, autoYes bool, issue int) error {
 		GrapesErr:  grapesErr,
 		Issue:      issue,
 	}
-	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Dir: dir}, sessions, opts)
+	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Leader: session.NewLeader(dir), Dir: dir}, sessions, opts)
 
 	in, out, closeTTY, err := terminal()
 	if err != nil {
