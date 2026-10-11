@@ -131,15 +131,23 @@ reads the list off a captured screen (`Parse`) and drives Claude Code's keys
 (`Open`). The format and keys are undocumented and were read off Claude Code
 2.1.296; `internal/subagent/testdata` holds screens it drew.
 
-The status poll parses the screen of every session whose program is `claude`,
-and the list shows a row per subagent under its session. Claude Code draws at
-most five; the others get a row without a label, `subagent 6`. Subagents that
-a subagent started are rows indented under it while Claude Code shows that
-subagent's view; otherwise Claude Code only counts them, and the row says
-`(+2)`. A subagent leaves the list when it finishes, except the one whose view
-is open. The selection keeps its place in a session's subagents through a poll
-that sees fewer rows, since Claude Code draws fewer for a moment while it
-redraws, as after a detach.
+The status poll parses the screen of every session whose program is `claude`.
+A session's subagents start collapsed into one line counting them,
+`▸ 3 subagents`: the poll finds them up to a second after they start, and a
+collapsed entry then grows by one line instead of one per subagent. The count
+is all the status there is to show. Claude Code drops a subagent from its list
+when it finishes, except the one whose view is open, which it draws like a
+running one. `→` (`l`) expands the selected session into a row per subagent,
+and `←` (`h`) collapses it. A session stays expanded until collapsed, also
+through polls that see no subagents. Where there is nothing to expand, `→`
+gives the pane focus for scrolling, as `l` always did.
+
+Claude Code draws at most five subagents; the others get a row without a
+label, `subagent 6`. Subagents that a subagent started are rows indented under
+it while Claude Code shows that subagent's view; otherwise Claude Code only
+counts them, and the row says `(+2)`. The selection keeps its place in a
+session's subagents through a poll that sees fewer rows, since Claude Code
+draws fewer for a moment while it redraws, as after a detach.
 
 Selecting a row types nothing. `enter` on the preview tab, or `o`, runs `Open`
 and then attaches:

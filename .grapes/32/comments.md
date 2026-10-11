@@ -6,3 +6,12 @@
 
 ### 2026-10-11T15:33
 [STARTED] Collapse subagents in `internal/tui/list`, bind ← and →, update the status bar and docs.
+
+### 2026-10-11T15:44
+[DECISION] The count line says `▸ 4 subagents`, not "running": in the manual run, a finished subagent whose view was open stayed in Claude Code's list, drawn like the running ones.
+
+### 2026-10-11T15:44
+[VERIFY] From the worktree root: `gofmt -l .` printed nothing; `go vet ./...` passed; `go test -count=1 ./...` passed in 5.9 s. Manual, development build in a 140×36 tmux window on a throwaway repository, `claude --model haiku`, four background subagents waiting on files: the session showed `▸ 4 subagents` and the status bar `→ show subagents`; → showed four rows with the session still selected; Enter on `error messages` attached to its view (`Message @general-purpose…`); after detaching, ← collapsed the rows and selected the session; `l` and `h` did the same; → on an expanded session and on a session without subagents gave the pane focus; finishing three subagents left `▸ 1 subagent` (the one whose view was open). PASS. Screenshots in the PR.
+
+### 2026-10-11T15:44
+[DONE] `internal/tui/list`: subagents collapsed by default, `Expand`, `Collapse`, count line; `internal/tui/common/keys.go`: `ListKeys.Collapse` (h, ←); `internal/tui/app.go`: → expands before giving the pane focus, ← collapses, status bar hints; tests; `README.md`, `docs/README.md`, `docs/architecture.md`.

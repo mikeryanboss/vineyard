@@ -1,6 +1,6 @@
 title = 'Collapse subagent rows by default and expand them with the right arrow'
-status = 'in_progress'
+status = 'done'
 priority = 'medium'
 labels = ['feature', 'tui', 'claude']
 created = 2026-10-11T15:28:00Z
-updated = 2026-10-11T15:33:00Z
+updated = 2026-10-11T15:44:00Z

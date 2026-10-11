@@ -8,7 +8,7 @@ Show a Claude Code session's subagents as one line counting them, and show their
 
 This issue collapses every session's subagents by default:
 
-- A collapsed session with subagents shows one line under its branch line: `▸ 3 subagents running` (`1 subagent running`). It belongs to the session's row: it is highlighted with it, and clicking it selects the session.
+- A collapsed session with subagents shows one line under its branch line: `▸ 3 subagents` (`▸ 1 subagent`). It belongs to the session's row: it is highlighted with it, and clicking it selects the session.
 - → or `l` on a session with collapsed subagents expands them: the rows from #31 replace the count. Anywhere else → and `l` keep their job of giving the pane focus for scrolling.
 - ← or `h` in the list collapses the selected session's subagents and selects the session.
 - A session stays expanded until the user collapses it, also while it has no subagents.
@@ -32,14 +32,14 @@ Planned:
 
 ## Acceptance Criteria
 
-- [ ] A session with subagents shows `▸ N subagents running` under its branch line and no subagent rows, until expanded.
-- [ ] → and `l` on a collapsed session with subagents expand it, and the selection stays on the session; on any other row they give the pane focus, as before.
-- [ ] ← and `h` collapse the selected session from its session row or any of its subagent rows, and select the session.
-- [ ] j/k, the mouse wheel, and clicks skip a collapsed session's subagents; clicking the count line selects the session.
-- [ ] Enter and `o` on an expanded session's subagent row still open that subagent's view and attach.
-- [ ] The status bar shows `→ show subagents` or `← hide subagents` for the selected session when either applies.
-- [ ] Tests cover the collapsed rendering, expanding and collapsing, navigation past collapsed rows, and → falling back to the pane.
-- [ ] `README.md` and `docs/architecture.md` describe collapsed subagents and the keys.
+- [x] A session with subagents shows `▸ N subagents` under its branch line and no subagent rows, until expanded.
+- [x] → and `l` on a collapsed session with subagents expand it, and the selection stays on the session; on any other row they give the pane focus, as before.
+- [x] ← and `h` collapse the selected session from its session row or any of its subagent rows, and select the session.
+- [x] j/k, the mouse wheel, and clicks skip a collapsed session's subagents; clicking the count line selects the session.
+- [x] Enter and `o` on an expanded session's subagent row still open that subagent's view and attach.
+- [x] The status bar shows `→ show subagents` or `← hide subagents` for the selected session when either applies.
+- [x] Tests cover the collapsed rendering, expanding and collapsing, navigation past collapsed rows, and → falling back to the pane.
+- [x] `README.md` and `docs/architecture.md` describe collapsed subagents and the keys.
 
 ## Verify
 

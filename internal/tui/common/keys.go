@@ -19,6 +19,7 @@ type ListKeys struct {
 	Tab       key.Binding
 	PrevTab   key.Binding
 	Focus     key.Binding
+	Collapse  key.Binding
 	Config    key.Binding
 	Issues    key.Binding
 	Quit      key.Binding
@@ -39,7 +40,8 @@ var ListKeyMap = ListKeys{
 	AutoYes:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
 	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
 	PrevTab:   key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
-	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "scroll pane")),
+	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "show subagents or scroll pane")),
+	Collapse:  key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "hide subagents")),
 	Config:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
 	Issues:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
 	Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
