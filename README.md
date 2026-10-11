@@ -55,10 +55,12 @@ Run `vineyard` inside a git repository.
 The mouse works too: click a session, a subagent, a tab, a diff file's header
 to fold it or its line in the summary to go to it, a dialog's field or answer,
 or a config field (click it again to edit it); click `▸ N subagents` to show a
-session's subagents and `▾ N subagents` to hide them. The wheel moves the
-selection in the list and scrolls the pane. Scrolling back in the preview
-reads tmux's scrollback, which an agent drawing fullscreen, such as Claude Code
-with `"tui": "fullscreen"`, does not have; attach to scroll it.
+session's subagents and `▾ N subagents` to hide them. A double click acts:
+on a session or the preview it does what `enter` does, on a subagent it opens
+the subagent's view, and on a tab it opens the tab, as `enter` does there. The
+wheel moves the selection in the list and scrolls the pane. Scrolling back in
+the preview reads tmux's scrollback, which an agent drawing fullscreen, such as
+Claude Code with `"tui": "fullscreen"`, does not have; attach to scroll it.
 
 Flags: `-p <command>` runs a different agent in new sessions, `-y` turns on
 auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed

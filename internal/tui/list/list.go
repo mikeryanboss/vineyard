@@ -264,29 +264,65 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// at returns the entry drawn on line y, counted from the list's top, and
+// which of its lines y is: 0 its title, 1 its branch, 2 the count of its
+// subagents if it has any. ok is false where no entry is drawn.
+func (m Model) at(y int) (entry, line int, ok bool) {
+	y -= headerHeight
+	if y < 0 || y >= m.room() {
+		return 0, 0, false
+	}
+	for i := m.offset; i < len(m.items); i++ {
+		if height := m.entryHeight(m.items[i]); y >= height {
+			y -= height
+			continue
+		}
+		return i, y, true
+	}
+	return 0, 0, false
+}
+
+// Line is what a line of the list shows.
+type Line int
+
+const (
+	LineNone     Line = iota // no entry
+	LineSession              // a session's title, branch, or the blank after it
+	LineCount                // the line counting a session's subagents
+	LineSubagent             // a subagent's row
+)
+
+// LineAt returns what line y, counted from the list's top, shows.
+func (m Model) LineAt(y int) Line {
+	i, line, ok := m.at(y)
+	switch {
+	case !ok:
+		return LineNone
+	case line == 2 && m.items[i].Subagents.Len() > 0:
+		return LineCount
+	case line >= 3 && line-3 < m.rows(m.items[i]):
+		return LineSubagent
+	}
+	return LineSession
+}
+
 // click selects the row on line y, counted from the list's top. A subagent
 // row selects the subagent, any other line of an entry its session; the line
 // counting a session's subagents also shows or hides their rows.
 func (m Model) click(y int) Model {
-	y -= headerHeight
-	if y < 0 || y >= m.room() {
+	i, line, ok := m.at(y)
+	if !ok {
 		return m
 	}
-	for i := m.offset; i < len(m.items); i++ {
-		item := m.items[i]
-		if y < m.entryHeight(item) {
-			m.selected, m.sub = i, -1
-			switch row := y - 3; {
-			case y == 2 && item.Subagents.Len() > 0:
-				return m.setExpanded(item.Session.ID, !m.expanded[item.Session.ID])
-			case row >= 0 && row < m.rows(item):
-				m.sub = row
-			}
-			return m.clamp()
-		}
-		y -= m.entryHeight(item)
+	id := m.items[i].Session.ID
+	m.selected, m.sub = i, -1
+	switch m.LineAt(y) {
+	case LineCount:
+		return m.setExpanded(id, !m.expanded[id])
+	case LineSubagent:
+		m.sub = line - 3
 	}
-	return m
+	return m.clamp()
 }
 
 // View renders the list at exactly its set size.
