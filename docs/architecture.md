@@ -140,17 +140,24 @@ stopped: a conversation's transcript grows to tens of megabytes. From them it
 knows each subagent's description, prompt, report, the files it edited, the
 subagents it started, and its status:
 
-- **Done** or **failed** once a task notification for it, which Claude Code
+- **Done** or **stopped** once a task notification for it, which Claude Code
   queues in the conversation when a subagent stops, is newer than its
   transcript's last message. `completed` is done; anything else, such as a
-  subagent the user stopped, failed.
+  failure or a subagent the user stopped, is stopped.
+- **Stopped** too, at its last message, when its conversation has not been
+  written to since the session's Claude Code started (tmux's
+  `session_created`, since the tmux session runs Claude Code itself).
+  Subagents run inside Claude Code's process and end with it unreported, as
+  when the session is paused. A resumed session's new Claude Code writes no
+  transcript until its first prompt, so until then the old conversation is
+  the newest.
 - **Running** otherwise, also again after its caller resumed it with a
   message, which appends to the same transcript.
 
 Claude Code drops a finished subagent from its list at once. Vineyard keeps
 it, marked done, until the user sends the conversation a new prompt (a
 transcript line from a `human` origin): `Conversation.Kept`. A row shows the
-subagent's status icon (◑ running, ● done, × failed) and description, under
+subagent's status icon (◑ running, ● done, × stopped) and description, under
 the subagent that started it.
 
 A session's subagents start collapsed into one line counting them by status,
@@ -166,7 +173,7 @@ The status poll still parses the screen of every Claude session
 (`subagent.Parse`), because opening a subagent needs its position in Claude
 Code's list. `subagent.Match` reads that list in terms of the transcripts:
 Claude Code lists the running subagents the conversation started, and those
-that failed in the last 30 seconds, in the order they started; the one whose
+that stopped in the last 30 seconds, in the order they started; the one whose
 view it shows even when that one finished, titling the view with its
 description; and under that one, the subagents it started that run. Vineyard
 highlights the subagent in view, and opens one only when exactly one reading

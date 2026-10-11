@@ -17,10 +17,10 @@ Verified on 2.1.296 in a scratch repository (`.grapes/39/tmp/kill/demo`): a suba
 
 ## Acceptance Criteria
 
-- [ ] A conversation whose transcripts were all last written before the session's Claude Code started has no running subagents: those still running count as stopped, ended at their last message.
-- [ ] A conversation written to since then is read as before.
-- [ ] A subagent that stopped without completing reads "stopped" (×): failed, stopped by the user, or ended with its Claude Code.
-- [ ] Docs describe it.
+- [x] A conversation whose transcripts were all last written before the session's Claude Code started has no running subagents: those still running count as stopped, ended at their last message.
+- [x] A conversation written to since then is read as before.
+- [x] A subagent that stopped without completing reads "stopped" (×): failed, stopped by the user, or ended with its Claude Code.
+- [x] Docs describe it.
 
 ## Verify
 

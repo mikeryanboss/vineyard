@@ -439,7 +439,7 @@ func count(agents []subagent.Agent) string {
 		noun = "subagent"
 	}
 	var parts []string
-	for _, status := range []subagent.Status{subagent.Running, subagent.Done, subagent.Failed} {
+	for _, status := range []subagent.Status{subagent.Running, subagent.Done, subagent.Stopped} {
 		if n := len(slices.DeleteFunc(slices.Clone(agents), func(a subagent.Agent) bool { return a.Status != status })); n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, statusWords[status]))
 		}
@@ -450,14 +450,14 @@ func count(agents []subagent.Agent) string {
 	return fmt.Sprintf("%d %s: %s", len(agents), noun, strings.Join(parts, ", "))
 }
 
-var statusWords = map[subagent.Status]string{subagent.Running: "running", subagent.Done: "done", subagent.Failed: "failed"}
+var statusWords = map[subagent.Status]string{subagent.Running: "running", subagent.Done: "done", subagent.Stopped: "stopped"}
 
 // sessionStatus is the session status whose icon and colour a subagent's
 // status shares: done is ready for review.
 var sessionStatus = map[subagent.Status]session.Status{
 	subagent.Running: session.StatusRunning,
 	subagent.Done:    session.StatusReady,
-	subagent.Failed:  session.StatusStopped,
+	subagent.Stopped: session.StatusStopped,
 }
 
 // renderSubagent renders the row of item's subagent i, counted from 0, as a

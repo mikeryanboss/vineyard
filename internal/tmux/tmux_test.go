@@ -48,6 +48,7 @@ func TestCommands_TargetSessionsExactly(t *testing.T) {
 	_ = c.SendEnter("s1")
 	_ = c.SendKeys("s1", "Down")
 	_ = c.Exists("s1")
+	_, _ = c.Created("s1")
 	for _, call := range r.calls {
 		joined := strings.Join(call, " ")
 		if !strings.Contains(joined, "-t =s1") {
@@ -95,8 +96,12 @@ func TestLiveSession(t *testing.T) {
 	c := New(socket)
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })
 
+	before := time.Now().Truncate(time.Second)
 	if err := c.Start("live", t.TempDir(), "sh", 60, 10); err != nil {
 		t.Fatal(err)
+	}
+	if created, err := c.Created("live"); err != nil || created.Before(before) || created.After(time.Now()) {
+		t.Errorf("Created = %v, %v; want the time Start ran", created, err)
 	}
 	if !c.Exists("live") {
 		t.Fatal("session should exist after Start")

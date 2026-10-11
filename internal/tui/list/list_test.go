@@ -87,7 +87,7 @@ func withSubagents() []list.Item {
 		agent("a2", "find where redirects are built", 0, subagent.Running),
 		agent("a3", "read the router", 1, subagent.Running),
 		agent("a4", "review the diff", 0, subagent.Done),
-		agent("a5", "update the docs", 0, subagent.Failed),
+		agent("a5", "update the docs", 0, subagent.Stopped),
 		agent("a6", "write the changelog", 0, subagent.Running),
 	}
 	items[0].Shown = "a2"

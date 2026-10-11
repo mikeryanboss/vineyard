@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
@@ -139,7 +140,16 @@ func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error)
 	if err != nil {
 		return subagent.Conversation{}, err
 	}
-	return b.Transcripts.Load(recap.Dir(dir, s.WorktreePath))
+	// The tmux session runs Claude Code itself, so it started with it. tmux
+	// counts whole seconds; an exiting Claude Code, as on a pause, writes
+	// until the moment its successor starts, which may be within that
+	// second, while the successor needs longer than a second to start and be
+	// sent a prompt before it writes. So the second after counts as the start.
+	created, err := b.Tmux.Created(s.TmuxName)
+	if err != nil {
+		return subagent.Conversation{}, err
+	}
+	return b.Transcripts.Load(recap.Dir(dir, s.WorktreePath), created.Add(time.Second))
 }
 
 func (b LiveBackend) SubagentEvents(s session.Session, id string) ([]subagent.Event, error) {
