@@ -24,7 +24,7 @@ Fix: `release.yml` also runs as a reusable workflow (`workflow_call`), and Auto 
 - [x] Auto Tag calls `release.yml` when, and only when, it created the tag.
 - [x] `release.yml` still runs on a tag push.
 - [x] `docs/development.md` describes how a release runs.
-- [ ] After merge: the v0.1.4 tag exists and a GitHub release v0.1.4 has the four archives and `checksums.txt`.
+- [x] After merge: the v0.1.4 tag exists and a GitHub release v0.1.4 has the four archives and `checksums.txt`.
 
 ## Verify
 
