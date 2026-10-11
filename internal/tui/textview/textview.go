@@ -59,6 +59,15 @@ func (m Model) GotoTop() Model {
 	return m
 }
 
+// GotoBottom scrolls to the end.
+func (m Model) GotoBottom() Model {
+	m.viewport.GotoBottom()
+	return m
+}
+
+// AtBottom reports whether the end of the text is in view.
+func (m Model) AtBottom() bool { return m.viewport.AtBottom() }
+
 // Update handles keys while the pane has focus, and the mouse wheel.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {

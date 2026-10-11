@@ -173,6 +173,24 @@ highlights the subagent in view, and opens one only when exactly one reading
 fits the list. A finished subagent that Claude Code no longer lists cannot be
 opened: its caller can resume it with a message.
 
+Selecting a subagent's row shows the subagent in every tab, as selecting a
+session shows the session (`shownAgent` next to `shownID`):
+
+- **Preview:** its transcript (`Reader.Events`), condensed the way Claude
+  Code shows a conversation: messages, each tool call with a one-line summary,
+  and the first three lines of its result. It follows new lines while
+  scrolled to the bottom. A subagent has no screen of its own, and showing its
+  view would mean typing into the session.
+- **Diff:** the diff of the git worktree holding the directory it last worked
+  in (`Agent.Dir`: where it last edited a file, else where it last `cd`-ed
+  to, else its working directory), from where that worktree's branch forks
+  from the mainline (`git.Base`). In its session's worktree, the session's
+  diff. `enter` runs the diff tool in that worktree.
+- **Issue:** for a subagent in a worktree of its own, the issues of that
+  diff, as for sessions; in its session's worktree, the issues whose files it
+  edited (`shownIssues`).
+- **Recap:** its description, type, status, report, and prompt.
+
 Selecting a row types nothing. `enter` on the preview tab, or `o`, runs `Open`
 and then attaches:
 

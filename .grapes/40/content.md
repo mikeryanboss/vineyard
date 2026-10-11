@@ -20,11 +20,11 @@ Today a subagent row shows its session's panes. The user asked for "everything l
 
 ## Acceptance Criteria
 
-- [ ] With a subagent row selected, Preview shows its rendered transcript and follows new lines.
-- [ ] Diff shows its own worktree's diff when it works in another worktree, else the session's.
-- [ ] Issue shows its issues as described, or says it has none.
-- [ ] Recap shows its description, status, prompt, and report.
-- [ ] Moving between the session row and its subagent rows switches every tab.
+- [x] With a subagent row selected, Preview shows its rendered transcript and follows new lines.
+- [x] Diff shows its own worktree's diff when it works in another worktree, else the session's.
+- [x] Issue shows its issues as described, or says it has none.
+- [x] Recap shows its description, status, prompt, and report.
+- [x] Moving between the session row and its subagent rows switches every tab.
 
 ## Verify
 

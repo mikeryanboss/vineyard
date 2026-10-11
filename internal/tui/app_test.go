@@ -42,8 +42,13 @@ type fakeBackend struct {
 	tools    []*exec.Cmd // diff tools built
 	opened   [][2]int    // position and total of each subagent opened
 	openErr  error
-	// conversation is what every Claude session's transcripts say.
+	// conversation is what every Claude session's transcripts say, and
+	// events each subagent's transcript, by ID.
 	conversation subagent.Conversation
+	events       map[string][]subagent.Event
+	// trees maps a directory to the worktree holding it, and treeDiffs a
+	// worktree to its diff.
+	trees, treeDiffs map[string]string
 	// templates are the template files; Templates adds the inline ones.
 	templates []config.Template
 }
@@ -92,7 +97,7 @@ func (f *fakeBackend) AttachCommand(s session.Session) *exec.Cmd {
 }
 
 func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
-	cmd, err := diffTool(s, s.BaseCommit, command)
+	cmd, err := diffTool(s.WorktreePath, s.BaseCommit, command)
 	if err == nil {
 		f.mu.Lock()
 		f.tools = append(f.tools, cmd)
@@ -113,6 +118,22 @@ func (f *fakeBackend) Subagents(s session.Session) (subagent.Conversation, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.conversation, nil
+}
+func (f *fakeBackend) SubagentEvents(s session.Session, id string) ([]subagent.Event, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.events[id], nil
+}
+func (f *fakeBackend) Worktree(dir string) string           { return f.trees[dir] }
+func (f *fakeBackend) TreeDiff(root string) (string, error) { return f.treeDiffs[root], nil }
+func (f *fakeBackend) TreeDiffTool(root, command string) (*exec.Cmd, error) {
+	cmd, err := diffTool(root, "base", command)
+	if err == nil {
+		f.mu.Lock()
+		f.tools = append(f.tools, cmd)
+		f.mu.Unlock()
+	}
+	return cmd, err
 }
 func (f *fakeBackend) Diff(s session.Session) (string, error)       { return f.diff, nil }
 func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error) { return git.Stat{Added: 3}, nil }
@@ -982,6 +1003,62 @@ func TestApp_OpenFindsTheSubagentInClaudeCodesList(t *testing.T) {
 	m = keys(m, "j", "o")
 	if len(backend.opened) != 1 || !contains(m.status, "has finished") {
 		t.Errorf("opened %v, status %q; a finished subagent out of Claude Code's list must not be opened", backend.opened, m.status)
+	}
+}
+
+// A subagent row shows the subagent in every tab: its transcript in place of
+// the screen, its own worktree's diff and issue, and what it reported.
+func TestApp_ASubagentRowShowsTheSubagent(t *testing.T) {
+	sessions := testutil.Sessions()
+	sessions[0].WorktreePath = "/src/shop/.vineyard/worktrees/login"
+	m, backend := newTestModel(t, sessions)
+	conv := running("write the tests", "update the docs")
+	conv.Agents[0].Dir = "/src/shop/.claude/worktrees/tests/internal"
+	conv.Agents[0].Status, conv.Agents[0].Ended = subagent.Done, time.Unix(100, 0)
+	conv.Agents[0].Prompt, conv.Agents[0].Report = "Write the parser tests.", "All 12 tests pass."
+	conv.Agents[1].Edited = []string{"/src/shop/.vineyard/worktrees/login/.grapes/3/comments.md"}
+	backend.conversation = conv
+	backend.events = map[string][]subagent.Event{"a1": {
+		{Kind: subagent.Prompt, Text: "Write the parser tests."},
+		{Kind: subagent.Tool, Name: "Bash", Text: "go test ./..."},
+		{Kind: subagent.Result, Text: "ok  shop/parser"},
+		{Kind: subagent.Text, Text: "All 12 tests pass."},
+	}}
+	backend.trees = map[string]string{"/src/shop/.claude/worktrees/tests/internal": "/src/shop/.claude/worktrees/tests"}
+	backend.treeDiffs = map[string]string{"/src/shop/.claude/worktrees/tests": strings.ReplaceAll(sampleDiff, "auth.go", "parser_test.go") +
+		"diff --git a/.grapes/7/meta.toml b/.grapes/7/meta.toml\n--- a/.grapes/7/meta.toml\n+++ b/.grapes/7/meta.toml\n@@ -1 +1 @@\n-status = 'todo'\n+status = 'done'\n"}
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: conv}}})
+	m = keys(m, "l", "j")
+
+	view := screen(m)
+	for _, want := range []string{"❯ Write the parser tests.", "● Bash(go test ./...)", "⎿ ok  shop/parser", "● All 12 tests pass."} {
+		if !contains(view, want) {
+			t.Errorf("the preview should show the subagent's transcript, with %q:\n%s", want, view)
+		}
+	}
+	if contains(view, "fix the redirect") {
+		t.Errorf("the preview still shows the session's screen:\n%s", view)
+	}
+	m = send(m, diffTickMsg{})
+	if view := screen(keys(m, "tab")); !contains(view, "parser_test.go") || contains(view, "auth.go") {
+		t.Errorf("the diff should be the subagent's own worktree's:\n%s", view)
+	}
+	s, _ := m.selected()
+	if ids := m.shownIssues(s); !slices.Equal(ids, []int{7}) {
+		t.Errorf("issues = %v, want 7, from its worktree's diff", ids)
+	}
+	if view := screen(keys(m, "tab", "tab", "tab")); !contains(view, "write the tests") || !contains(view, "done") || !contains(view, "All 12 tests pass.") || !contains(view, "Write the parser tests.") {
+		t.Errorf("the recap should show the subagent's description, status, report, and prompt:\n%s", view)
+	}
+
+	m = keys(m, "j") // the subagent in the session's worktree, on the preview tab
+	m = send(m, diffTickMsg{})
+	if s, _ := m.selected(); !slices.Equal(m.shownIssues(s), []int{3}) || m.agentTree != "" {
+		t.Errorf("issues = %v, tree %q; want 3, whose file it edited, in the session's worktree", m.shownIssues(s), m.agentTree)
+	}
+	m = keys(m, "k", "k")
+	if view := screen(m); !contains(view, "fix the redirect") {
+		t.Errorf("the session row should show the session's screen again:\n%s", view)
 	}
 }
 

@@ -53,6 +53,7 @@ main.go
 | Prompt of a session started from an issue | `internal/prompt/`, `promptData` in `internal/tui/app.go` | templates in `internal/config/templates.go`, `ForIssue` in `internal/tui/dialog/` |
 | Recap tab | `refreshRecap` in `internal/tui/app.go` | `internal/recap/`, Recaps in `architecture.md` |
 | Subagent rows, their status, opening a subagent | `internal/subagent/` (`transcript.go` reads the transcripts, `subagent.go` the screen) | `openSubagent` in `internal/tui/app.go`, Subagents in `architecture.md` |
+| A selected subagent's tabs | `refreshShown`, `refreshTranscript`, `shownIssues`, `renderAgentRecap` in `internal/tui/app.go` | `TreeDiff` in `internal/tui/backend.go`, Subagents in `architecture.md` |
 | Release a version | `var version` in `main.go` | Releases in `development.md` |
 | Re-record the README demo | `doc/vhs/demo.tape` | README Demo in `development.md` |
 

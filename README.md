@@ -11,8 +11,10 @@ model, rebuilt on Bubble Tea v2.
 - **Live preview.** See each agent's screen, whether it is working or waiting
   for you, and the diff of its branch.
 - **Subagents.** Each session counts Claude Code's subagents by status; `→`
-  lists them, running or done, and `enter` on a running one opens its view in
-  Claude Code and attaches. Finished ones stay until your next prompt.
+  lists them, running or done. Selecting one shows its transcript, the diff
+  of the worktree it works in, its issue, and its report; `o` on a running one
+  opens its view in Claude Code and attaches. Finished ones stay until your
+  next prompt.
 - **Issues.** Vineyard embeds the [grapes](https://github.com/Mibokess/grapes)
   issue tracker. Start an agent from an issue, and see which session works on
   which issue.
