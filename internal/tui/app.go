@@ -238,8 +238,11 @@ type Model struct {
 	sizes    map[string][2]int // tmux window size last applied per session
 	shownID  string            // session whose screen and diff are displayed
 	// subagents are the running subagents Claude Code lists on each
-	// session's screen, as of the last status poll.
+	// session's screen, as of the last status poll that is believed.
 	subagents map[string]subagent.List
+	// fewer marks sessions whose last poll showed fewer subagents than are
+	// shown, which the next poll must confirm (see seeSubagents).
+	fewer map[string]bool
 
 	previewInFlight bool
 	statusInFlight  bool
@@ -306,6 +309,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		recap:    textview.New(theme),
 
 		subagents:  map[string]subagent.List{},
+		fewer:      map[string]bool{},
 		startIssue: opts.Issue,
 	}
 	if opts.ConfigErr != nil {
@@ -377,6 +381,7 @@ func (m *Model) remove(id string) {
 	delete(m.busy, id)
 	delete(m.sizes, id)
 	delete(m.subagents, id)
+	delete(m.fewer, id)
 }
 
 // syncList rebuilds the list entries from the sessions.
@@ -575,6 +580,7 @@ func (m *Model) adopt(saved []session.Session) {
 				// this process's own lifecycle operations.
 				delete(m.hashes, s.ID)
 				delete(m.sizes, s.ID)
+				delete(m.subagents, s.ID)
 				if s.ID == m.shownID {
 					m.shownID = ""
 				}
@@ -873,6 +879,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.replace(msg.session)
 			delete(m.hashes, msg.session.ID)
+			delete(m.subagents, msg.session.ID)
 			cmds = append(cmds, m.replaceCmd(msg.session))
 			switch msg.verb {
 			case "pause":
@@ -1313,6 +1320,20 @@ func (m Model) openIssue(id int) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// seeSubagents records the subagents a status poll found on a session's
+// screen. Claude Code draws its agent list last, so a poll that catches it
+// redrawing, as right after a detach, sees fewer subagents than there are,
+// often none. A poll showing fewer is believed only when the next one
+// agrees; until then the shown list stays.
+func (m *Model) seeSubagents(id string, seen subagent.List) {
+	if seen.Len() < m.subagents[id].Len() && !m.fewer[id] {
+		m.fewer[id] = true
+		return
+	}
+	m.subagents[id] = seen
+	delete(m.fewer, id)
+}
+
 // applyStatus updates running/ready states from fresh screen fingerprints.
 // If this process leads, it also answers prompts for auto-yes sessions and
 // delivers pending prompts.
@@ -1336,7 +1357,7 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			changed = append(changed, s)
 			continue
 		}
-		m.subagents[s.ID] = r.subagents
+		m.seeSubagents(s.ID, r.subagents)
 		previous, seen := m.hashes[s.ID]
 		m.hashes[s.ID] = r.hash
 		// Only a screen seen twice unchanged proves the agent is waiting. The

@@ -1,0 +1,6 @@
+title = 'Keep the subagent count through a poll that catches a redraw'
+status = 'done'
+priority = 'high'
+labels = ['bug', 'tui', 'subagents']
+created = 2026-10-11T20:04:00Z
+updated = 2026-10-11T20:11:00Z

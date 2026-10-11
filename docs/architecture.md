@@ -147,9 +147,16 @@ gives the pane focus for scrolling, as `l` always did.
 Claude Code draws at most five subagents; the others get a row without a
 label, `subagent 6`. Subagents that a subagent started are rows indented under
 it while Claude Code shows that subagent's view; otherwise Claude Code only
-counts them, and the row says `(+2)`. The selection keeps its place in a
-session's subagents through a poll that sees fewer rows, since Claude Code
-draws fewer for a moment while it redraws, as after a detach.
+counts them, and the row says `(+2)`.
+
+Claude Code draws its agent list last, so a poll that catches it redrawing,
+as right after every detach, sees fewer subagents than there are, often none.
+`seeSubagents` believes a poll showing fewer subagents only when the next poll
+agrees; until then the session keeps the list it shows. More subagents show at
+once, and a finished one leaves the list about a poll later. Pausing or
+resuming a session restarts Claude Code and forgets its subagents at once. The
+selection keeps its place in a session's subagents through a list that
+shrinks.
 
 Selecting a row types nothing. `enter` on the preview tab, or `o`, runs `Open`
 and then attaches:
