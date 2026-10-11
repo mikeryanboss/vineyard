@@ -8,10 +8,10 @@ links only as far as the task requires.
 A Go terminal application that runs coding agents in parallel. A session is one
 agent program in a detached tmux session, working in its own git worktree and
 branch. The TUI lists sessions, mirrors the selected agent's screen, shows its
-diff, its issue, and Claude Code's recaps of it, lists Claude Code's running
-subagents under it, and hands the terminal to tmux when the user attaches. Its
-issues screen is the [grapes](https://github.com/Mibokess/grapes) issue
-tracker, embedded, and links each issue to the sessions working on it.
+diff, its issue, and Claude Code's recaps of it, counts and lists Claude Code's
+running subagents under it, and hands the terminal to tmux when the user
+attaches. Its issues screen is the [grapes](https://github.com/Mibokess/grapes)
+issue tracker, embedded, and links each issue to the sessions working on it.
 
 ## Runtime Mental Model
 

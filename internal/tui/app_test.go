@@ -859,9 +859,41 @@ func TestApp_StatusPollListsClaudeSubagents(t *testing.T) {
 	backend.screen = agentScreen
 	m = send(m, statusTickMsg{})
 	view := screen(m)
+	claude, count, aider := indexOf(view, "Claude session"), indexOf(view, "▸ 3 subagents"), indexOf(view, "Aider session")
+	if !(claude < count && count < aider) || strings.Count(view, "▸") != 1 || contains(view, "Running the parser tests") {
+		t.Errorf("want three subagents counted, not listed, under the Claude session only:\n%s", view)
+	}
+	view = screen(keys(m, "right"))
 	claude, rows, aider := indexOf(view, "Claude session"), indexOf(view, "├ Running the parser tests"), indexOf(view, "Aider session")
 	if !(claude < rows && rows < aider) || strings.Count(view, "├")+strings.Count(view, "└") != 3 || !contains(view, "└ subagent 3") {
-		t.Errorf("want three subagents, one out of Claude Code's sight, under the Claude session only:\n%s", view)
+		t.Errorf("→ should list the three subagents, one out of Claude Code's sight, under the Claude session:\n%s", view)
+	}
+}
+
+// → and ← fold a session's subagent rows, and → gives the pane focus where
+// there is nothing to show.
+func TestApp_ArrowsFoldSubagentsBeforeThePane(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	listed := subagent.List{Rows: []subagent.Row{{Type: "general-purpose", Label: "one"}}, Shown: 0, Focus: -1}
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	if !contains(screen(m), "→ show subagents") {
+		t.Errorf("the status bar should offer to show the subagents:\n%s", screen(m))
+	}
+	m = keys(m, "l")
+	if m.focus != focusList || !contains(screen(m), "└ one") {
+		t.Fatalf("l should show the subagent rows and keep the list focused; focus=%d\n%s", m.focus, screen(m))
+	}
+	m = keys(m, "j", "left")
+	if _, ok := m.list.SelectedSubagent(); ok || contains(screen(m), "└ one") || selectedID(m) != "login-1" {
+		t.Errorf("← on a subagent row should hide the rows and select the session:\n%s", screen(m))
+	}
+	m = keys(m, "right", "right")
+	if m.focus != focusPane {
+		t.Errorf("→ on a session showing its subagents should give the pane focus; focus=%d", m.focus)
+	}
+	m = keys(m, "esc", "left", "j", "right")
+	if selectedID(m) == "login-1" || m.focus != focusPane {
+		t.Errorf("→ on a session without subagents should give the pane focus; focus=%d", m.focus)
 	}
 }
 
@@ -872,7 +904,7 @@ func TestApp_EnterOnASubagentRowOpensItThenAttaches(t *testing.T) {
 		Above: 1, Below: 1, Shown: 0, Focus: -1,
 	}
 	m = send(m, statusMsg{lead: false, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
-	m = keys(m, "j", "j", "j") // the third subagent, the second Claude Code draws
+	m = keys(m, "l", "j", "j", "j") // the third subagent, the second Claude Code draws
 	if len(backend.opened) != 0 || len(backend.enters) != 0 || backend.attaches != 0 {
 		t.Fatal("selecting a subagent row must not type into the agent")
 	}
@@ -891,7 +923,7 @@ func TestApp_FailedSubagentOpenDoesNotAttach(t *testing.T) {
 	backend.openErr = subagent.ErrChanged
 	listed := subagent.List{Rows: []subagent.Row{{Type: "general-purpose", Label: "one"}}, Shown: 0, Focus: -1}
 	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
-	m = keys(m, "j", "enter")
+	m = keys(m, "l", "j", "enter")
 	if backend.attaches != 0 {
 		t.Error("a subagent that did not open must not be attached to")
 	}

@@ -91,14 +91,74 @@ func withSubagents() []list.Item {
 	return items
 }
 
-func TestListView_Subagents(t *testing.T) {
+// expanded returns a list of withSubagents with the first session's
+// subagent rows shown.
+func expanded(t *testing.T, height int) list.Model {
+	t.Helper()
+	m, ok := list.New(common.NewTheme(true)).SetItems(withSubagents()).SetSize(36, height).Expand()
+	if !ok {
+		t.Fatal("the first session's subagents did not expand")
+	}
+	return m
+}
+
+func TestListView_SubagentsCollapsed(t *testing.T) {
 	m := list.New(common.NewTheme(true)).SetItems(withSubagents()).SetSize(36, 20)
+	testutil.RequireGolden(t, m.View())
+}
+
+func TestListView_Subagents(t *testing.T) {
+	m := expanded(t, 20)
 	m, _ = m.Update(testutil.Key("j"))
 	testutil.RequireGolden(t, m.View())
 }
 
-func TestList_NavigationVisitsSubagentRows(t *testing.T) {
+func TestList_CollapsedSubagentsAreSkipped(t *testing.T) {
 	m := list.New(common.NewTheme(true)).SetItems(withSubagents()).SetSize(36, 20)
+	m, _ = m.Update(testutil.Key("j"))
+	if item, _ := m.Selected(); item.Session.ID != "tests-2" {
+		t.Errorf("down from a collapsed session selected %s, want tests-2", item.Session.ID)
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 2}) // the count line
+	if item, _ := m.Selected(); item.Session.ID != "login-1" {
+		t.Errorf("click on the count line selected %s, want login-1", item.Session.ID)
+	}
+	if _, ok := m.SelectedSubagent(); ok {
+		t.Error("the count line must select the session")
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 4}) // the next session's title line
+	if item, _ := m.Selected(); item.Session.ID != "tests-2" {
+		t.Errorf("click selected %s, want tests-2", item.Session.ID)
+	}
+	if _, ok := m.Expand(); ok {
+		t.Error("a session without subagents must not expand")
+	}
+}
+
+func TestList_CollapseSelectsTheSession(t *testing.T) {
+	m := expanded(t, 20)
+	if _, ok := m.Expand(); ok {
+		t.Error("an expanded session must not expand again")
+	}
+	m, _ = m.Update(testutil.Key("j"))
+	m, _ = m.Update(testutil.Key("j"))
+	m = m.Collapse()
+	if item, _ := m.Selected(); item.Session.ID != "login-1" {
+		t.Errorf("collapse selected %s, want login-1", item.Session.ID)
+	}
+	if _, ok := m.SelectedSubagent(); ok {
+		t.Error("collapse must select the session")
+	}
+	if view := testutil.StripANSI(m.View()); strings.Contains(view, "Running the parser tests") || !strings.Contains(view, "▸ 6 subagents") {
+		t.Errorf("collapsed session shows its rows:\n%s", view)
+	}
+	if _, ok := m.Expand(); !ok {
+		t.Error("a collapsed session must expand again")
+	}
+}
+
+func TestList_NavigationVisitsSubagentRows(t *testing.T) {
+	m := expanded(t, 20)
 	want := []struct {
 		id  string
 		sub int // -1 for the session row
@@ -121,9 +181,10 @@ func TestList_NavigationVisitsSubagentRows(t *testing.T) {
 }
 
 // Claude Code draws fewer rows for a moment while it redraws, as after a
-// detach. The selection must come back to the subagent the user chose.
+// detach. The session must stay expanded, and the selection come back to
+// the subagent the user chose.
 func TestList_SubagentSelectionSurvivesARedraw(t *testing.T) {
-	m := list.New(common.NewTheme(true)).SetItems(withSubagents()).SetSize(36, 20)
+	m := expanded(t, 20)
 	for range 3 {
 		m, _ = m.Update(testutil.Key("j")) // the third subagent
 	}
@@ -144,7 +205,7 @@ func TestList_SubagentSelectionSurvivesARedraw(t *testing.T) {
 }
 
 func TestList_ClickSelectsSubagentRow(t *testing.T) {
-	m := list.New(common.NewTheme(true)).SetItems(withSubagents()).SetSize(36, 20)
+	m := expanded(t, 20)
 	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 3}) // the second subagent line
 	if sub, ok := m.SelectedSubagent(); !ok || sub != 1 {
 		t.Errorf("click selected row %d (%v), want subagent 1", sub, ok)
@@ -159,7 +220,7 @@ func TestList_ClickSelectsSubagentRow(t *testing.T) {
 }
 
 func TestList_ScrollsTallEntriesIntoView(t *testing.T) {
-	m := list.New(common.NewTheme(true)).SetItems(withSubagents()).SetSize(36, 10) // eight lines of entries
+	m := expanded(t, 10) // eight lines of entries
 	for range 8 {
 		m, _ = m.Update(testutil.Key("j"))
 	}

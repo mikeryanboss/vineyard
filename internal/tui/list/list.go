@@ -4,6 +4,7 @@ package list
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -30,10 +31,6 @@ type Item struct {
 	Subagents subagent.List
 }
 
-// height is the number of lines the entry occupies: its title and branch
-// lines, a line per subagent, and a blank line.
-func (item Item) height() int { return 3 + item.Subagents.Len() }
-
 // Model is the session list.
 type Model struct {
 	items    []Item
@@ -48,11 +45,14 @@ type Model struct {
 	// selection stays put while Claude Code briefly draws fewer, as it does
 	// while redrawing; the row method returns the subagent selected.
 	sub int
+	// expanded holds the IDs of the sessions whose subagent rows are shown.
+	// The others show one line counting their subagents.
+	expanded map[string]bool
 }
 
 // New returns an empty list.
 func New(theme common.Theme) Model {
-	return Model{theme: theme, focused: true, sub: -1}
+	return Model{theme: theme, focused: true, sub: -1, expanded: map[string]bool{}}
 }
 
 // SetItems replaces the entries, keeping the selection on the same session,
@@ -81,6 +81,43 @@ func (m Model) Select(id string) Model {
 		}
 	}
 	return m.clamp()
+}
+
+// Expand shows the selected session's subagent rows. It reports whether it
+// did: the session has subagents, and their rows were hidden.
+func (m Model) Expand() (Model, bool) {
+	if !m.Expandable() {
+		return m, false
+	}
+	m.expanded = maps.Clone(m.expanded)
+	m.expanded[m.items[m.selected].Session.ID] = true
+	return m.clamp(), true
+}
+
+// Collapse hides the selected session's subagent rows and selects the
+// session.
+func (m Model) Collapse() Model {
+	item, ok := m.Selected()
+	if !ok {
+		return m
+	}
+	m.expanded = maps.Clone(m.expanded)
+	delete(m.expanded, item.Session.ID)
+	m.sub = -1
+	return m.clamp()
+}
+
+// Expandable reports whether the selected session has subagents whose rows
+// are hidden.
+func (m Model) Expandable() bool {
+	item, ok := m.Selected()
+	return ok && m.collapsed(item)
+}
+
+// Collapsible reports whether the selected session shows subagent rows.
+func (m Model) Collapsible() bool {
+	item, ok := m.Selected()
+	return ok && m.rows(item) > 0
 }
 
 // SetSize sets the list's outer size.
@@ -125,7 +162,30 @@ func (m Model) row() int {
 	if m.selected >= len(m.items) {
 		return -1
 	}
-	return min(m.sub, m.items[m.selected].Subagents.Len()-1)
+	return min(m.sub, m.rows(m.items[m.selected])-1)
+}
+
+// rows is the number of subagent rows item shows: none while collapsed.
+func (m Model) rows(item Item) int {
+	if m.expanded[item.Session.ID] {
+		return item.Subagents.Len()
+	}
+	return 0
+}
+
+// collapsed reports whether item has subagents and counts them instead of
+// showing their rows.
+func (m Model) collapsed(item Item) bool {
+	return item.Subagents.Len() > 0 && !m.expanded[item.Session.ID]
+}
+
+// entryHeight is the number of lines item occupies: its title and branch
+// lines, its subagent rows or the line counting them, and a blank line.
+func (m Model) entryHeight(item Item) int {
+	if m.collapsed(item) {
+		return 4
+	}
+	return 3 + m.rows(item)
 }
 
 // Len returns the number of entries.
@@ -141,12 +201,12 @@ func (m Model) move(delta int) Model {
 	switch {
 	case m.sub < -1 && m.selected > 0:
 		m.selected--
-		m.sub = m.items[m.selected].Subagents.Len() - 1
-	case m.sub >= m.items[m.selected].Subagents.Len() && m.selected < len(m.items)-1:
+		m.sub = m.rows(m.items[m.selected]) - 1
+	case m.sub >= m.rows(m.items[m.selected]) && m.selected < len(m.items)-1:
 		m.selected++
 		m.sub = -1
 	}
-	m.sub = max(-1, min(m.sub, m.items[m.selected].Subagents.Len()-1))
+	m.sub = max(-1, min(m.sub, m.rows(m.items[m.selected])-1))
 	return m.clamp()
 }
 
@@ -157,7 +217,7 @@ func (m Model) room() int { return m.height - headerHeight }
 func (m Model) span(first, last int) int {
 	lines := 0
 	for _, item := range m.items[first : last+1] {
-		lines += item.height()
+		lines += m.entryHeight(item)
 	}
 	return lines
 }
@@ -203,7 +263,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 // click selects the row on line y, counted from the list's top. A subagent
-// line selects the subagent, any other line of an entry its session.
+// row selects the subagent, any other line of an entry its session.
 func (m Model) click(y int) Model {
 	y -= headerHeight
 	if y < 0 {
@@ -211,14 +271,14 @@ func (m Model) click(y int) Model {
 	}
 	for i := m.offset; i < len(m.items); i++ {
 		item := m.items[i]
-		if y < item.height() {
+		if y < m.entryHeight(item) {
 			m.selected, m.sub = i, -1
-			if row := y - 2; row >= 0 && row < item.Subagents.Len() {
+			if row := y - 2; row >= 0 && row < m.rows(item) {
 				m.sub = row
 			}
 			return m.clamp()
 		}
-		y -= item.height()
+		y -= m.entryHeight(item)
 	}
 	return m
 }
@@ -252,8 +312,9 @@ func (m Model) View() string {
 }
 
 // renderItem renders one entry as its title line, branch line, subagent
-// lines, and spacer. sub is the selected row of the entry: -1 for the
-// session, a subagent counted from 0, or -2 for none.
+// rows or the line counting its subagents, and spacer. sub is the selected
+// row of the entry: -1 for the session, a subagent counted from 0, or -2 for
+// none.
 func (m Model) renderItem(item Item, sub int) []string {
 	t := m.theme
 	s := item.Session
@@ -296,8 +357,17 @@ func (m Model) renderItem(item Item, sub int) []string {
 		pad(titleLine, m.width, style(lipgloss.NewStyle())),
 		padBetween(branchLine, stat, m.width, style(lipgloss.NewStyle())),
 	}
-	for i := range item.Subagents.Len() {
+	for i := range m.rows(item) {
 		lines = append(lines, m.renderSubagent(item.Subagents, i, i == sub))
+	}
+	if m.collapsed(item) {
+		count := fmt.Sprintf("▸ %d subagents", item.Subagents.Len())
+		if item.Subagents.Len() == 1 {
+			count = "▸ 1 subagent"
+		}
+		countLine := marker + style(lipgloss.NewStyle()).Render("  ") +
+			style(t.StyleFaint).Render(ansi.Truncate(count, max(0, m.width-4), "…"))
+		lines = append(lines, pad(countLine, m.width, style(lipgloss.NewStyle())))
 	}
 	return append(lines, "")
 }

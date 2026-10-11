@@ -1503,9 +1503,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.configOpen = true
 		return m, nil
 	case key.Matches(msg, keys.Focus):
-		if ok {
+		// The selected session's subagent rows come first, then the pane.
+		var expanded bool
+		if m.list, expanded = m.list.Expand(); !expanded && ok {
 			m.setFocus(focusPane)
 		}
+		return m, nil
+	case key.Matches(msg, keys.Collapse):
+		m.list = m.list.Collapse()
 		return m, nil
 	case key.Matches(msg, keys.Issues), key.Matches(msg, keys.Open) && m.tab == tabIssue:
 		return m.showIssues(s, ok)
@@ -1811,11 +1816,20 @@ func (m Model) renderStatusBar() string {
 		if m.tab != tabPreview {
 			hints = append(hints, [2]string{"o", attach})
 		}
+		switch {
+		case m.list.Expandable():
+			hints = append(hints, [2]string{"→", "show subagents"})
+		case m.list.Collapsible():
+			hints = append(hints, [2]string{"←", "hide subagents"})
+		}
 		hints = append(hints, [][2]string{
 			{"t", "shell"}, {"s", "push"}, {"c", "checkout"}, {"r", "resume"}, {"D", "kill"},
-			{"a", "auto-yes"}, {"tab", tabNames[m.nextTab()]}, {"l", "scroll"}, {"i", "issues"},
-			{"C", "config"}, {"q", "quit"},
+			{"a", "auto-yes"}, {"tab", tabNames[m.nextTab()]},
 		}...)
+		if !m.list.Expandable() { // otherwise l shows the subagents first
+			hints = append(hints, [2]string{"l", "scroll"})
+		}
+		hints = append(hints, [][2]string{{"i", "issues"}, {"C", "config"}, {"q", "quit"}}...)
 	}
 	dot := t.StyleFaint.Render(" · ")
 	var b strings.Builder
