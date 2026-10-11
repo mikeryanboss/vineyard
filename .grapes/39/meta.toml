@@ -1,0 +1,6 @@
+title = 'Read subagents from Claude Code transcripts: status, and finished ones until the next prompt'
+status = 'in_progress'
+priority = 'high'
+labels = ['tui', 'subagents']
+created = 2026-10-11T20:29:00Z
+updated = 2026-10-11T20:30:00Z
