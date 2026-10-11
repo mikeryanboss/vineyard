@@ -207,3 +207,12 @@ func TestSettings_PickerTakesClicksAndTheWheel(t *testing.T) {
 		t.Errorf("the wheel moved the picker to %q, want gemini", m.Config().DefaultProgram)
 	}
 }
+
+// On a short screen the field list scrolls to the selected field; another
+// category must start at its first field, not scrolled to the old one's place.
+func TestSettings_AnotherCategoryStartsAtItsFirstField(t *testing.T) {
+	m, _ := press(newSettings(twoProfiles(), nil).SetSize(80, 6), "l", "j", "j", "esc", "j")
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "│  claude") {
+		t.Errorf("Profiles should show its first field, claude:\n%s", view)
+	}
+}
