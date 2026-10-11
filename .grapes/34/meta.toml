@@ -1,6 +1,6 @@
 title = 'Double-click acts like enter: attach, open a subagent, open a tab'
-status = 'in_progress'
+status = 'done'
 priority = 'medium'
 labels = ['feature', 'tui', 'mouse']
 created = 2026-10-11T16:21:00Z
-updated = 2026-10-11T16:21:00Z
+updated = 2026-10-11T16:26:00Z

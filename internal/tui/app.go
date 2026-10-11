@@ -46,6 +46,9 @@ const (
 	statusMessageDuration = 4 * time.Second
 	// scrollbackLines is how much history scroll mode loads.
 	scrollbackLines = 5000
+	// doubleClickTime is how soon a second click on the same cell makes a
+	// double click.
+	doubleClickTime = 500 * time.Millisecond
 
 	headerHeight    = 2
 	statusBarHeight = 1
@@ -191,6 +194,9 @@ type (
 // and status timeouts by hand.
 var tick = tea.Tick
 
+// now tells the time of a click. Tests replace it to space clicks apart.
+var now = time.Now
+
 // Options configure the model.
 type Options struct {
 	Config   config.Config
@@ -258,6 +264,8 @@ type Model struct {
 	// recapShown is the latest recap fetched for the shown session, kept to
 	// re-render the recap tab when the pane changes size or theme.
 	recapShown recapMsg
+	// lastClick is the last click on the list or pane, to tell double clicks.
+	lastClick clickAt
 
 	// configOpen shows the config screen in place of the list and panes.
 	configOpen bool
@@ -1613,10 +1621,20 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleMouse handles clicks and the wheel.
+// handleMouse handles clicks and the wheel. A double click on the list or
+// pane does what enter does there.
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
 	_, click := msg.(tea.MouseClickMsg)
+	double := false
+	switch {
+	case !click:
+	case m.dialog != nil || m.issuesOpen || m.configOpen:
+		// The click that closes a dialog must not pair with the next one.
+		m.lastClick = clickAt{}
+	default:
+		double = m.doubleClick(mouse.X, mouse.Y)
+	}
 	listWidth, _, bodyHeight := m.layout()
 	var cmd tea.Cmd
 	switch {
@@ -1642,6 +1660,15 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case m.configOpen:
 		m.settings, cmd = m.settings.Update(moved(msg, 0, -headerHeight))
 		return m, cmd
+	case mouse.X < listWidth && double:
+		// The first click selected the row.
+		switch m.list.LineAt(mouse.Y - headerHeight) {
+		case list.LineSession:
+			return m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+		case list.LineSubagent:
+			return m.handleKey(tea.KeyPressMsg{Code: 'o', Text: "o"}) // open it on any tab
+		}
+		return m, nil // the first click expanded or collapsed the subagents
 	case mouse.X < listWidth:
 		if click {
 			m.setFocus(focusList)
@@ -1653,10 +1680,18 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// The pane: its border, then the tab bar, then the content.
 	x, y := mouse.X-listWidth-1, mouse.Y-headerHeight-1
 	if t, ok := m.tabAt(x); click && ok && y == 0 {
+		if double {
+			return m.enter() // the first click showed the tab
+		}
 		m.setZoom(false)
 		return m, m.showTab(t)
 	}
-	if click {
+	switch {
+	case double && m.tab == tabDiff:
+		return m, nil // the first click folded a file or jumped to one
+	case double:
+		return m.enter()
+	case click:
 		m.setFocus(focusPane)
 	}
 	content := moved(msg, -listWidth-1, -headerHeight-2)
@@ -1671,6 +1706,31 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.preview, cmd = m.preview.Update(content)
 	}
 	return m, cmd
+}
+
+// clickAt is where and when a click landed.
+type clickAt struct {
+	x, y int
+	at   time.Time
+}
+
+// doubleClick records a click at x, y and reports whether it makes a double
+// click with the one before: on the same line, within a column, and soon
+// enough. The click after a double click starts over.
+func (m *Model) doubleClick(x, y int) bool {
+	at, last := now(), m.lastClick
+	double := y == last.y && x >= last.x-1 && x <= last.x+1 && at.Sub(last.at) <= doubleClickTime
+	m.lastClick = clickAt{x: x, y: y, at: at}
+	if double {
+		m.lastClick = clickAt{}
+	}
+	return double
+}
+
+// enter does what the enter key does in the list, for a double click.
+func (m Model) enter() (tea.Model, tea.Cmd) {
+	m.setFocus(focusList)
+	return m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 }
 
 // moved returns the click or wheel event msg moved by dx and dy, to make its

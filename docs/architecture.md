@@ -331,6 +331,16 @@ the list's entry heights, the tab labels (`tabLabels`), the diff's
 `fileStarts`, a dialog's content lines. Mouse release and motion events are
 not handled, and reach grapes like any other message the root leaves alone.
 
+Bubble Tea reports single clicks only. `doubleClick` pairs a click on the list
+or pane with the one before it when both land within a column on the same line
+within 500 ms (`lastClick`; tests replace `now`). The first click of a pair
+acts as a single click; the second runs `enter` through `handleKey`, or `o` on
+a subagent row, so a double click opens a subagent on every tab. Where the
+first click already acted, on a subagent count line or in the diff, the second
+is dropped. Clicks on a dialog, the issues screen, or the config screen clear
+`lastClick`, so the click that closes a dialog never pairs with a click on the
+screen beneath.
+
 The preview's scroll mode shows tmux's scrollback. A program on the alternate
 screen, such as Claude Code with `"tui": "fullscreen"`, has none; when the
 history is no longer than the screen, the preview stays live and the status

@@ -26,17 +26,17 @@ Planned:
 
 - `Model.lastClick` (time and cell of the last click on the list or pane) and a `now` variable for tests; a click counts as double when it lands within one column on the same line within 500 ms; a third click starts over.
 - Clicks that dialogs, the issues screen, or the config screen take clear `lastClick`, so the click that closes a dialog cannot pair with one on the screen beneath.
-- `list.Model.CountLine(y)` tells the count line apart.
+- `list.Model.LineAt(y)` tells a session line, the count line, and a subagent row apart.
 - A double click runs `enter`, or `o` on a subagent row, through `handleKey` with the list focused.
 
 ## Acceptance Criteria
 
-- [ ] A double click on a session attaches on Preview and zooms the recap on Recap; on a subagent row it opens the subagent's view and attaches, on any tab.
-- [ ] A double click on a tab shows it and does `enter` for it; on Preview, Issue, or Recap content it does `enter` for the tab.
-- [ ] A double click on the count line expands or collapses once; on Diff content it folds a file once and opens nothing.
-- [ ] Two clicks further apart than 500 ms, or on different cells, are two single clicks; a click that closes a dialog never makes a double click with the next one.
-- [ ] Tests cover each of the above.
-- [ ] `README.md` and `docs/architecture.md` describe double clicks.
+- [x] A double click on a session attaches on Preview and zooms the recap on Recap; on a subagent row it opens the subagent's view and attaches, on any tab.
+- [x] A double click on a tab shows it and does `enter` for it; on Preview, Issue, or Recap content it does `enter` for the tab.
+- [x] A double click on the count line expands or collapses once; on Diff content it folds a file once and opens nothing.
+- [x] Two clicks further apart than 500 ms, or on different cells, are two single clicks; a click that closes a dialog never makes a double click with the next one.
+- [x] Tests cover each of the above.
+- [x] `README.md` and `docs/architecture.md` describe double clicks.
 
 ## Verify
 

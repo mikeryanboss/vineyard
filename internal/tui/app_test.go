@@ -937,14 +937,21 @@ func TestApp_FailedSubagentOpenDoesNotAttach(t *testing.T) {
 // from down.
 func clickOn(t *testing.T, m Model, text string, from int) Model {
 	t.Helper()
+	return send(m, find(t, m, text, from))
+}
+
+// find returns a click on the first cell of the first text on the screen,
+// from line from down.
+func find(t *testing.T, m Model, text string, from int) tea.MouseClickMsg {
+	t.Helper()
 	lines := strings.Split(screen(m), "\n")
 	for y := from; y < len(lines); y++ {
 		if i := strings.Index(lines[y], text); i >= 0 {
-			return send(m, tea.MouseClickMsg{X: ansi.StringWidth(lines[y][:i]), Y: y})
+			return tea.MouseClickMsg{X: ansi.StringWidth(lines[y][:i]), Y: y}
 		}
 	}
 	t.Fatalf("%q is not on the screen:\n%s", text, screen(m))
-	return m
+	return tea.MouseClickMsg{}
 }
 
 func TestApp_ClickingATabShowsIt(t *testing.T) {
@@ -1007,5 +1014,95 @@ func TestApp_DialogsAndConfigTakeClicks(t *testing.T) {
 	m = clickOn(t, m, "Profiles", headerHeight)
 	if !contains(screen(m), "+ Add profile") {
 		t.Errorf("a click on Profiles should show its fields:\n%s", screen(m))
+	}
+}
+
+// clock makes now return a time the test moves on, and returns it.
+func clock(t *testing.T) *time.Time {
+	t.Helper()
+	c, before := time.Unix(0, 0), now
+	now = func() time.Time { return c }
+	t.Cleanup(func() { now = before })
+	return &c
+}
+
+// doubleClickOn clicks text twice, 100 ms apart.
+func doubleClickOn(t *testing.T, m Model, c *time.Time, text string, from int) Model {
+	t.Helper()
+	m = clickOn(t, m, text, from)
+	*c = c.Add(100 * time.Millisecond)
+	return clickOn(t, m, text, from)
+}
+
+func TestApp_DoubleClickOnASessionIsEnter(t *testing.T) {
+	c := clock(t)
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = clickOn(t, m, "Fix login redirect", 0)
+	*c = c.Add(600 * time.Millisecond)
+	m = clickOn(t, m, "Fix login redirect", 0)
+	if backend.attaches != 0 {
+		t.Fatal("two clicks 600 ms apart are two single clicks")
+	}
+	*c = c.Add(600 * time.Millisecond)
+	m = doubleClickOn(t, m, c, "Fix login redirect", 0)
+	if backend.attaches != 1 {
+		t.Errorf("a double click on a session in the preview tab attached %d times, want 1", backend.attaches)
+	}
+	*c = c.Add(time.Second)
+	m = doubleClickOn(t, m, c, "Recap", headerHeight+1)
+	if !m.zoomed || m.tab != tabRecap {
+		t.Errorf("a double click on the Recap tab should show and zoom it; tab %d, zoomed %v", m.tab, m.zoomed)
+	}
+}
+
+func TestApp_DoubleClickOnASubagentOpensIt(t *testing.T) {
+	c := clock(t)
+	m, backend := newTestModel(t, testutil.Sessions())
+	listed := subagent.List{Rows: []subagent.Row{{Type: "general-purpose", Label: "one"}}, Shown: 0, Focus: -1}
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	m = doubleClickOn(t, m, c, "1 subagent", 0)
+	if !contains(screen(m), "▾ 1 subagent") || backend.attaches != 0 {
+		t.Fatalf("a double click on the count line should expand it once and attach nothing; attached %d\n%s", backend.attaches, screen(m))
+	}
+	m = clickOn(t, m, "Diff", headerHeight+1)
+	*c = c.Add(time.Second)
+	doubleClickOn(t, m, c, "└ one", 0)
+	if !slices.Equal(backend.opened, [][2]int{{1, 1}}) || backend.attaches != 1 {
+		t.Errorf("a double click on a subagent on the diff tab opened %v and attached %d times", backend.opened, backend.attaches)
+	}
+}
+
+func TestApp_DoubleClickInThePane(t *testing.T) {
+	c := clock(t)
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = send(m, previewTickMsg{}) // capture the screen
+	m = doubleClickOn(t, m, c, "fix the redirect", headerHeight+2)
+	if backend.attaches != 1 {
+		t.Errorf("a double click on the preview attached %d times, want 1", backend.attaches)
+	}
+	*c = c.Add(time.Second)
+	m = keys(m, "tab") // the diff
+	m = send(m, diffTickMsg{})
+	m = doubleClickOn(t, m, c, "auth.go", headerHeight+2) // in the summary
+	if backend.attaches != 1 || len(backend.tools) != 0 || m.diff.CurrentFile() != 0 {
+		t.Errorf("a double click on the diff summary should only jump to the file: attached %d, tools %d, file %d", backend.attaches, len(backend.tools), m.diff.CurrentFile())
+	}
+}
+
+// The click that answers a dialog closes it; the clicks before and after it
+// on the same cell land on the screen beneath and must not make a double
+// click there.
+func TestApp_ClosingADialogMakesNoDoubleClick(t *testing.T) {
+	c := clock(t)
+	m, backend := newTestModel(t, testutil.Sessions())
+	cancel := find(t, keys(m, "D"), "n cancel", 0)
+	m = send(m, cancel) // on the preview, beneath where the dialog opens
+	m = keys(m, "esc", "D")
+	for range 2 {
+		*c = c.Add(100 * time.Millisecond)
+		m = send(m, cancel)
+	}
+	if m.dialog != nil || backend.attaches != 0 || len(backend.killed) != 0 {
+		t.Errorf("dialog open %v, attached %d, killed %v", m.dialog != nil, backend.attaches, backend.killed)
 	}
 }
