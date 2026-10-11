@@ -1,0 +1,4 @@
+# Written by vineyard: only the configuration is shared.
+*
+!.gitignore
+!config.toml

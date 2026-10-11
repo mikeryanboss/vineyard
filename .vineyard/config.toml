@@ -1,0 +1,9 @@
+default_program = 'claude'
+branch_prefix = 'mboss/'
+auto_yes = false
+worktree_dir = '.vineyard/worktrees'
+diff_command = 'hunk diff {base} --watch'
+
+[[profiles]]
+name = 'claude'
+program = 'claude'
