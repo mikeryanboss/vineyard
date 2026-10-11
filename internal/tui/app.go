@@ -23,6 +23,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/prompt"
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
+	"github.com/mikeryanboss/vineyard/internal/subagent"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/dialog"
 	"github.com/mikeryanboss/vineyard/internal/tui/diffview"
@@ -85,6 +86,8 @@ type (
 		permission bool
 		trust      bool
 		gone       bool
+		// subagents is Claude Code's list of running subagents on the screen.
+		subagents subagent.List
 	}
 	statusMsg struct {
 		results []screenStatus
@@ -137,6 +140,12 @@ type (
 		err     error
 	}
 	attachDoneMsg struct {
+		id  string
+		err error
+	}
+	// subagentOpenedMsg reports that a session shows a subagent's view, ready
+	// to attach to, or why it does not.
+	subagentOpenedMsg struct {
 		id  string
 		err error
 	}
@@ -222,6 +231,9 @@ type Model struct {
 	busy     map[string]bool   // sessions with a lifecycle operation in flight
 	sizes    map[string][2]int // tmux window size last applied per session
 	shownID  string            // session whose screen and diff are displayed
+	// subagents are the running subagents Claude Code lists on each
+	// session's screen, as of the last status poll.
+	subagents map[string]subagent.List
 
 	previewInFlight bool
 	statusInFlight  bool
@@ -285,6 +297,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		issue:    textview.New(theme),
 		recap:    textview.New(theme),
 
+		subagents:  map[string]subagent.List{},
 		startIssue: opts.Issue,
 	}
 	if opts.ConfigErr != nil {
@@ -355,6 +368,7 @@ func (m *Model) remove(id string) {
 	delete(m.hashes, id)
 	delete(m.busy, id)
 	delete(m.sizes, id)
+	delete(m.subagents, id)
 }
 
 // syncList rebuilds the list entries from the sessions.
@@ -365,6 +379,9 @@ func (m *Model) syncList() {
 			s.Status = session.StatusLoading
 		}
 		items[i] = list.Item{Session: s, Stat: m.stats[s.ID], Issues: m.issuesOf(s)}
+		if s.Status.Active() {
+			items[i].Subagents = m.subagents[s.ID]
+		}
 	}
 	m.list = m.list.SetItems(items)
 }
@@ -621,6 +638,9 @@ func (m Model) statusCmd() tea.Cmd {
 					permission: session.AwaitingPermission(s.Program, screen),
 					trust:      session.AwaitingTrust(screen),
 				}
+				if isClaude(s) {
+					results[i].subagents, _ = subagent.Parse(screen)
+				}
 			}()
 		}
 		for range active {
@@ -693,6 +713,16 @@ func (m Model) promptCmd(s session.Session, prompt string) tea.Cmd {
 		// Give the agent a moment to take in the paste before submitting it.
 		time.Sleep(150 * time.Millisecond)
 		return promptSentMsg{id: s.ID, err: backend.SendEnter(s)}
+	}
+}
+
+// openSubagentCmd makes s show the view of its subagent i, counted from 0
+// in Claude Code's list.
+func (m Model) openSubagentCmd(s session.Session, i int) tea.Cmd {
+	backend := m.backend
+	total := m.subagents[s.ID].Len()
+	return func() tea.Msg {
+		return subagentOpenedMsg{id: s.ID, err: backend.OpenSubagent(s, i+1, total)}
 	}
 }
 
@@ -892,6 +922,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.captureCmd(s))
 		}
 		return m, tea.Batch(cmds...)
+
+	case subagentOpenedMsg:
+		if msg.err != nil {
+			return m, m.setError(fmt.Errorf("opening the subagent: %w", msg.err))
+		}
+		i := m.find(msg.id)
+		if i < 0 || !m.sessions[i].Status.Active() {
+			return m, nil // killed or stopped while its subagent opened
+		}
+		m.status = ""
+		id := msg.id
+		return m, tea.ExecProcess(m.backend.AttachCommand(m.sessions[i]), func(err error) tea.Msg {
+			return attachDoneMsg{id: id, err: err}
+		})
 
 	case diffToolMsg:
 		if s, ok := m.selected(); !ok || s.ID != msg.id || m.tab != tabDiff {
@@ -1275,9 +1319,11 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			s.Status = session.StatusStopped
 			m.sessions[i] = s
 			delete(m.hashes, s.ID)
+			delete(m.subagents, s.ID)
 			changed = append(changed, s)
 			continue
 		}
+		m.subagents[s.ID] = r.subagents
 		previous, seen := m.hashes[s.ID]
 		m.hashes[s.ID] = r.hash
 		// Only a screen seen twice unchanged proves the agent is waiting. The
@@ -1490,6 +1536,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Attach, keys.Open):
 		if !s.Status.Active() {
 			return m, m.setStatus(s.Title+" is not running. Press r to resume it.", false)
+		}
+		if row, ok := m.list.SelectedSubagent(); ok {
+			// Opening types into the agent at the user's request, so every
+			// Vineyard may do it, not only the one that leads.
+			return m, tea.Batch(m.setStatus("Opening the subagent…", false), m.openSubagentCmd(s, row))
 		}
 		id := s.ID
 		return m, tea.ExecProcess(m.backend.AttachCommand(s), func(err error) tea.Msg {
@@ -1749,9 +1800,16 @@ func (m Model) renderStatusBar() string {
 	case m.focus == focusPane:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
 	default:
-		hints = [][2]string{{"n", "new"}, {"N", "new+prompt"}, {"enter", openNames[m.tab]}}
+		open, attach := openNames[m.tab], "attach"
+		if _, ok := m.list.SelectedSubagent(); ok {
+			attach = "open subagent"
+			if m.tab == tabPreview {
+				open = attach
+			}
+		}
+		hints = [][2]string{{"n", "new"}, {"N", "new+prompt"}, {"enter", open}}
 		if m.tab != tabPreview {
-			hints = append(hints, [2]string{"o", "attach"})
+			hints = append(hints, [2]string{"o", attach})
 		}
 		hints = append(hints, [][2]string{
 			{"t", "shell"}, {"s", "push"}, {"c", "checkout"}, {"r", "resume"}, {"D", "kill"},

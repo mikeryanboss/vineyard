@@ -10,6 +10,8 @@ model, rebuilt on Bubble Tea v2.
 - **Any agent.** Claude Code, Codex, Gemini, Aider, or any other CLI.
 - **Live preview.** See each agent's screen, whether it is working or waiting
   for you, and the diff of its branch.
+- **Subagents.** Claude Code's running subagents appear under their session;
+  `enter` on one opens its view in Claude Code and attaches.
 - **Issues.** Vineyard embeds the [grapes](https://github.com/Mibokess/grapes)
   issue tracker. Start an agent from an issue, and see which session works on
   which issue.
@@ -35,8 +37,8 @@ Run `vineyard` inside a git repository.
 | Key | Action |
 | --- | --- |
 | `n` / `N` | New session / new session with a prompt |
-| `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the issue from Issue, the full recap from Recap |
-| `o` | Attach to the agent from any tab; `ctrl-q` returns |
+| `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the issue from Issue, the full recap from Recap. On a subagent, attach to its view |
+| `o` | Attach to the agent, or the selected subagent's view, from any tab; `ctrl-q` returns |
 | `tab` / `shift+tab` | Switch the pane: preview, diff, issue, recap |
 | `l` | Scroll the pane; `esc` returns to the list |
 | `t` | Open a shell in the session's worktree |

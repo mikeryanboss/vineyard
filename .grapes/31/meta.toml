@@ -1,0 +1,6 @@
+title = 'Show Claude Code subagents in the session list and open them'
+status = 'done'
+priority = 'medium'
+labels = ['feature', 'tui', 'claude']
+created = 2026-10-11T11:10:00Z
+updated = 2026-10-11T11:46:00Z

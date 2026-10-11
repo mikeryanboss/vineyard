@@ -1,0 +1,30 @@
+
+[38;5;241m[48;5;255m❯ [38;5;16mRun the Bash command [38;5;105msleep 8[38;5;16m fifteen times. Make each call in the foreground, one call at a [39m
+  [38;5;16mtime, waiting for each to finish before starting the next. Do not run anything else. When all[39m
+  [38;5;16mfifteen calls have finished, reply with exactly: done[39m
+
+[49m  [38;5;241mCalled [1m1[0m[38;5;241m tool, ran [1m15[0m[38;5;241m shell commands [39m
+
+[38;5;241m[48;5;255m❯ [38;5;16mLaunch three general-purpose background subagents in one message, described as 'alpha', [39m
+  [38;5;16m'beta', 'gamma'. Each runs the Bash command 'sleep 8' eight times, one foreground call at a [39m
+  [38;5;16mtime, then replies done. Just wait.[39m
+
+[49m  [38;5;241mRan [1m3[0m[38;5;241m agents [39m
+
+[38;5;16m●[39m Three background subagents are running: alpha, beta, and gamma. Each runs [38;5;105msleep 8[39m eight times
+  in the foreground, one call at a time, then replies "done". I'm waiting for their completion
+  notifications and haven't read their output.
+
+[38;5;241m✻[39m [38;5;241mWaiting for [1m3[0m[38;5;241m background agents to finish[39m
+
+[38;5;37m─────────────────────────────────────────────────────────────────────────[38;5;231m[48;5;37m check error messages [38;5;37m[49m─
+[39m❯ [2mMessage @general-purpose…[0m
+[38;5;37m────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [1m[34m~/src/shop/demo/.vineyard…[0m
+  [38;5;241m↑/↓ to select · Enter to view[39m
+
+❯ ◯ main
+[1m  ● general-purpose[0m    [1mPausing for 8-second sleep[0m                      [1m2m 51s · ↓ 25.8k tokens[0m
+[38;5;241m  ├ ◯ general-purpose[39m  [38;5;241mRunning third of eight sleeps[39m                      [38;5;241m40s · ↓ 22.0k tokens[39m
+[38;5;241m  ├ ◯ general-purpose[39m  [38;5;241mRunning sleep 8 (3 of 8)[39m                           [38;5;241m40s · ↓ 22.0k tokens[39m
+[38;5;241m  └ ◯ general-purpose[39m  [38;5;241mRunning sleep 8 (3 of 8)[39m                           [38;5;241m40s · ↓ 22.0k tokens[39m

@@ -151,6 +151,12 @@ func (c *Client) SendEnter(name string) error {
 	return err
 }
 
+// SendKeys presses keys in the session, named as tmux names them, such as Down.
+func (c *Client) SendKeys(name string, keys ...string) error {
+	_, err := c.command(append([]string{"send-keys", "-t", exact(name) + ":"}, keys...)...)
+	return err
+}
+
 // Paste types text into the session as a bracketed paste, so multi-line text
 // arrives as one input instead of being submitted line by line.
 func (c *Client) Paste(name, text string) error {

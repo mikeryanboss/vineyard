@@ -9,6 +9,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
+	"github.com/mikeryanboss/vineyard/internal/subagent"
 	"github.com/mikeryanboss/vineyard/internal/tmux"
 )
 
@@ -33,6 +34,9 @@ type Backend interface {
 	Paste(s session.Session, text string) error
 	AttachCommand(s session.Session) *exec.Cmd
 	ShellAttachCommand(s session.Session) *exec.Cmd
+	// OpenSubagent makes s show the view of the subagent at position in
+	// Claude Code's list, which must still hold total subagents.
+	OpenSubagent(s session.Session, position, total int) error
 	// DiffTool builds the configured diff command for s. Its error wraps
 	// exec.ErrNotFound when the command is empty or its program is missing.
 	DiffTool(s session.Session, command string) (*exec.Cmd, error)
@@ -109,6 +113,19 @@ func (b LiveBackend) AttachCommand(s session.Session) *exec.Cmd {
 func (b LiveBackend) ShellAttachCommand(s session.Session) *exec.Cmd {
 	return b.Tmux.AttachCommand(s.ShellName())
 }
+
+func (b LiveBackend) OpenSubagent(s session.Session, position, total int) error {
+	return subagent.Open(tmuxScreen{b.Tmux, s.TmuxName}, position, total)
+}
+
+// tmuxScreen is a session's tmux window as subagent.Open drives it.
+type tmuxScreen struct {
+	tmux *tmux.Client
+	name string
+}
+
+func (w tmuxScreen) Capture() (string, error)      { return w.tmux.Capture(w.name) }
+func (w tmuxScreen) SendKeys(keys ...string) error { return w.tmux.SendKeys(w.name, keys...) }
 
 func (b LiveBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
 	base, err := git.Base(s.WorktreePath, s.BaseCommit)
