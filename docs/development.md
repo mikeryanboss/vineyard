@@ -112,8 +112,9 @@ vhs doc/vhs/demo.tape
 
 `var version` in `main.go` is the release version. A push to `main` that changes
 `main.go` runs `.github/workflows/auto-tag.yml`, which creates `v<version>` if it
-does not exist. The tag runs `.github/workflows/release.yml`, and GoReleaser
-(`.goreleaser.yaml`) publishes static Linux and macOS archives for amd64 and
+does not exist, then calls `.github/workflows/release.yml`: a tag pushed with a
+workflow's `GITHUB_TOKEN` starts no workflow by itself. A tag pushed by hand runs
+`release.yml` directly. GoReleaser (`.goreleaser.yaml`) publishes static Linux and macOS archives for amd64 and
 arm64, with the tag stamped into `main.version`. There is no Windows build:
 sessions run in tmux, and WSL uses the Linux archive.
 

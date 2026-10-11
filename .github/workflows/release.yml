@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  # Auto Tag calls this after it creates a tag.
+  workflow_call:
 
 permissions:
   contents: write
