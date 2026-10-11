@@ -89,9 +89,7 @@ func (m Model) Expand() (Model, bool) {
 	if !m.Expandable() {
 		return m, false
 	}
-	m.expanded = maps.Clone(m.expanded)
-	m.expanded[m.items[m.selected].Session.ID] = true
-	return m.clamp(), true
+	return m.setExpanded(m.items[m.selected].Session.ID, true), true
 }
 
 // Collapse hides the selected session's subagent rows and selects the
@@ -101,9 +99,18 @@ func (m Model) Collapse() Model {
 	if !ok {
 		return m
 	}
-	m.expanded = maps.Clone(m.expanded)
-	delete(m.expanded, item.Session.ID)
 	m.sub = -1
+	return m.setExpanded(item.Session.ID, false)
+}
+
+// setExpanded shows or hides the subagent rows of the session with id.
+func (m Model) setExpanded(id string, expanded bool) Model {
+	m.expanded = maps.Clone(m.expanded)
+	if expanded {
+		m.expanded[id] = true
+	} else {
+		delete(m.expanded, id)
+	}
 	return m.clamp()
 }
 
@@ -111,7 +118,7 @@ func (m Model) Collapse() Model {
 // are hidden.
 func (m Model) Expandable() bool {
 	item, ok := m.Selected()
-	return ok && m.collapsed(item)
+	return ok && item.Subagents.Len() > 0 && !m.expanded[item.Session.ID]
 }
 
 // Collapsible reports whether the selected session shows subagent rows.
@@ -173,19 +180,14 @@ func (m Model) rows(item Item) int {
 	return 0
 }
 
-// collapsed reports whether item has subagents and counts them instead of
-// showing their rows.
-func (m Model) collapsed(item Item) bool {
-	return item.Subagents.Len() > 0 && !m.expanded[item.Session.ID]
-}
-
 // entryHeight is the number of lines item occupies: its title and branch
-// lines, its subagent rows or the line counting them, and a blank line.
+// lines, the line counting its subagents and their rows, and a blank line.
 func (m Model) entryHeight(item Item) int {
-	if m.collapsed(item) {
-		return 4
+	height := 3 + m.rows(item)
+	if item.Subagents.Len() > 0 {
+		height++ // the line counting them
 	}
-	return 3 + m.rows(item)
+	return height
 }
 
 // Len returns the number of entries.
@@ -263,17 +265,21 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 // click selects the row on line y, counted from the list's top. A subagent
-// row selects the subagent, any other line of an entry its session.
+// row selects the subagent, any other line of an entry its session; the line
+// counting a session's subagents also shows or hides their rows.
 func (m Model) click(y int) Model {
 	y -= headerHeight
-	if y < 0 {
+	if y < 0 || y >= m.room() {
 		return m
 	}
 	for i := m.offset; i < len(m.items); i++ {
 		item := m.items[i]
 		if y < m.entryHeight(item) {
 			m.selected, m.sub = i, -1
-			if row := y - 2; row >= 0 && row < m.rows(item) {
+			switch row := y - 3; {
+			case y == 2 && item.Subagents.Len() > 0:
+				return m.setExpanded(item.Session.ID, !m.expanded[item.Session.ID])
+			case row >= 0 && row < m.rows(item):
 				m.sub = row
 			}
 			return m.clamp()
@@ -311,8 +317,8 @@ func (m Model) View() string {
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).MaxHeight(m.height).Render(strings.Join(lines, "\n"))
 }
 
-// renderItem renders one entry as its title line, branch line, subagent
-// rows or the line counting its subagents, and spacer. sub is the selected
+// renderItem renders one entry as its title line, branch line, the line
+// counting its subagents and their rows, and spacer. sub is the selected
 // row of the entry: -1 for the session, a subagent counted from 0, or -2 for
 // none.
 func (m Model) renderItem(item Item, sub int) []string {
@@ -357,17 +363,21 @@ func (m Model) renderItem(item Item, sub int) []string {
 		pad(titleLine, m.width, style(lipgloss.NewStyle())),
 		padBetween(branchLine, stat, m.width, style(lipgloss.NewStyle())),
 	}
-	for i := range m.rows(item) {
-		lines = append(lines, m.renderSubagent(item.Subagents, i, i == sub))
-	}
-	if m.collapsed(item) {
-		count := fmt.Sprintf("▸ %d subagents", item.Subagents.Len())
-		if item.Subagents.Len() == 1 {
-			count = "▸ 1 subagent"
+	if n := item.Subagents.Len(); n > 0 {
+		count := fmt.Sprintf("%d subagents", n)
+		if n == 1 {
+			count = "1 subagent"
+		}
+		toggle := "▸ "
+		if m.expanded[s.ID] {
+			toggle = "▾ "
 		}
 		countLine := marker + style(lipgloss.NewStyle()).Render("  ") +
-			style(t.StyleFaint).Render(ansi.Truncate(count, max(0, m.width-4), "…"))
+			style(t.StyleFaint).Render(ansi.Truncate(toggle+count, max(0, m.width-4), "…"))
 		lines = append(lines, pad(countLine, m.width, style(lipgloss.NewStyle())))
+	}
+	for i := range m.rows(item) {
+		lines = append(lines, m.renderSubagent(item.Subagents, i, i == sub))
 	}
 	return append(lines, "")
 }

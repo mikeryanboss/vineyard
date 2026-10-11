@@ -5,6 +5,7 @@ package dialog
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -37,6 +38,13 @@ const (
 	fieldSubIssues
 	fieldPrompt
 	fieldProfile
+	fieldNone // text that is no field
+)
+
+// The dialog box's border and padding come before its content.
+const (
+	contentTop  = 2
+	contentLeft = 3
 )
 
 var (
@@ -168,20 +176,61 @@ func (d *NewSession) fields() []field {
 
 func (d *NewSession) move(step int) tea.Cmd {
 	fields := d.fields()
-	i := 0
-	for j, f := range fields {
-		if f == d.focus {
-			i = j
-		}
-	}
-	d.focus = fields[(i+step+len(fields))%len(fields)]
+	i := max(0, slices.Index(fields, d.focus))
+	return d.focusOn(fields[(i+step+len(fields))%len(fields)])
+}
+
+// focusOn gives field f the focus.
+func (d *NewSession) focusOn(f field) tea.Cmd {
+	d.focus = f
 	d.title.Blur()
 	d.prompt.Blur()
-	switch d.focus {
+	switch f {
 	case fieldTitle:
 		return d.title.Focus()
 	case fieldPrompt:
 		return d.prompt.Focus()
+	}
+	return nil
+}
+
+// step shows the next template or agent, or the previous one for a negative
+// step, when field f offers them.
+func (d *NewSession) step(f field, step int) {
+	switch f {
+	case fieldTemplate:
+		d.cycleTemplate(step)
+	case fieldProfile:
+		d.profile = (d.profile + step + len(d.profiles)) % len(d.profiles)
+	}
+}
+
+// click focuses the field drawn at content column x and line y. On a picker,
+// ‹ and › also step through its choices; on the sub-issues box, a click
+// toggles it.
+func (d *NewSession) click(x, y int) tea.Cmd {
+	// The box wraps lines wider than its content, so a block may take more
+	// lines than it has.
+	wrap := lipgloss.NewStyle().Width(d.width - 2*contentLeft)
+	for _, b := range d.blocks() {
+		if height := lipgloss.Height(wrap.Render(b.text)); y >= height {
+			y -= height
+			continue
+		}
+		if b.field == fieldNone {
+			return nil
+		}
+		cmd := d.focusOn(b.field)
+		switch {
+		case b.picker && x < 2:
+			d.step(b.field, -1)
+		case b.picker && x >= ansi.StringWidth(b.text)-2:
+			d.step(b.field, 1)
+		case b.field == fieldSubIssues:
+			d.data.BuildSubIssues = !d.data.BuildSubIssues
+			d.render()
+		}
+		return cmd
 	}
 	return nil
 }
@@ -204,8 +253,11 @@ func (d *NewSession) submit() tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// Update handles input.
+// Update handles input. Clicks are relative to the dialog box.
 func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
+	if c, ok := msg.(tea.MouseClickMsg); ok {
+		return d, d.click(c.X-contentLeft, c.Y-contentTop)
+	}
 	if k, ok := msg.(tea.KeyPressMsg); ok {
 		switch {
 		case key.Matches(k, keyCancel):
@@ -220,21 +272,15 @@ func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 				return d, d.move(1)
 			}
 			return d, d.submit()
-		case d.focus == fieldTemplate && key.Matches(k, keyLeft):
-			d.cycleTemplate(-1)
+		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keyLeft):
+			d.step(d.focus, -1)
 			return d, nil
-		case d.focus == fieldTemplate && key.Matches(k, keyRight):
-			d.cycleTemplate(1)
+		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keyRight):
+			d.step(d.focus, 1)
 			return d, nil
 		case d.focus == fieldSubIssues && key.Matches(k, keyToggle):
 			d.data.BuildSubIssues = !d.data.BuildSubIssues
 			d.render()
-			return d, nil
-		case d.focus == fieldProfile && key.Matches(k, keyLeft):
-			d.profile = (d.profile - 1 + len(d.profiles)) % len(d.profiles)
-			return d, nil
-		case d.focus == fieldProfile && key.Matches(k, keyRight):
-			d.profile = (d.profile + 1) % len(d.profiles)
 			return d, nil
 		}
 		d.err = ""
@@ -249,15 +295,29 @@ func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 	return d, cmd
 }
 
-// View renders the dialog box.
-func (d *NewSession) View() string {
+// block is a part of the dialog's content, and the field a click on it
+// focuses.
+type block struct {
+	field field
+	text  string
+	// picker marks a line of choices between ‹ and ›.
+	picker bool
+}
+
+// blocks returns the dialog's content, top to bottom.
+func (d *NewSession) blocks() []block {
 	t := d.theme
-	label := func(text string, f field) string {
+	label := func(text string, f field) block {
 		if d.focus == f {
-			return t.StyleTitle.Foreground(t.ColorAccent).Render(text)
+			return block{field: f, text: t.StyleTitle.Foreground(t.ColorAccent).Render(text)}
 		}
-		return t.StyleSubtitle.Render(text)
+		return block{field: f, text: t.StyleSubtitle.Render(text)}
 	}
+	picker := func(name string, f field) block {
+		text := t.StyleFaint.Render("‹ ") + t.StyleTitle.Render(name) + t.StyleFaint.Render(" ›")
+		return block{field: f, text: text, picker: true}
+	}
+	text := func(s string) block { return block{field: fieldNone, text: s} }
 	heading := "New session"
 	switch {
 	case d.issue > 0:
@@ -265,11 +325,11 @@ func (d *NewSession) View() string {
 	case d.withPrompt:
 		heading = "New session with prompt"
 	}
-	parts := []string{
-		t.StyleTitle.Render(heading),
-		"",
+	blocks := []block{
+		text(t.StyleTitle.Render(heading)),
+		text(""),
 		label("Title", fieldTitle),
-		d.title.View(),
+		{field: fieldTitle, text: d.title.View()},
 	}
 	if d.issue > 0 {
 		if len(d.templates) > 0 {
@@ -277,10 +337,9 @@ func (d *NewSession) View() string {
 			if d.template >= 0 {
 				name = d.templates[d.template].Name
 			}
-			picker := t.StyleFaint.Render("‹ ") + t.StyleTitle.Render(name) + t.StyleFaint.Render(" ›")
-			parts = append(parts, "", label("Template", fieldTemplate), picker)
+			blocks = append(blocks, text(""), label("Template", fieldTemplate), picker(name, fieldTemplate))
 		} else {
-			parts = append(parts, "", t.StyleFaint.Render("Template: none in .vineyard/templates or config.toml"))
+			blocks = append(blocks, text(""), text(t.StyleFaint.Render("Template: none in .vineyard/templates or config.toml")))
 		}
 	}
 	if len(d.data.SubIssues) > 0 {
@@ -288,22 +347,29 @@ func (d *NewSession) View() string {
 		if d.data.BuildSubIssues {
 			box = "[x]"
 		}
-		parts = append(parts, "", label(box+" Build sub-issues", fieldSubIssues))
+		blocks = append(blocks, text(""), label(box+" Build sub-issues", fieldSubIssues))
 	}
 	if d.withPrompt {
-		parts = append(parts, "", label("Prompt", fieldPrompt), d.prompt.View())
+		blocks = append(blocks, text(""), label("Prompt", fieldPrompt), block{field: fieldPrompt, text: d.prompt.View()})
 	}
 	if len(d.profiles) > 1 {
-		name := d.profiles[d.profile].Name
-		picker := t.StyleFaint.Render("‹ ") + t.StyleTitle.Render(name) + t.StyleFaint.Render(" ›")
-		parts = append(parts, "", label("Agent", fieldProfile), picker)
+		blocks = append(blocks, text(""), label("Agent", fieldProfile), picker(d.profiles[d.profile].Name, fieldProfile))
 	} else if len(d.profiles) == 1 {
-		parts = append(parts, "", t.StyleFaint.Render("Agent: "+d.profiles[0].Program))
+		blocks = append(blocks, text(""), text(t.StyleFaint.Render("Agent: "+d.profiles[0].Program)))
 	}
 	if d.err != "" {
-		parts = append(parts, "", t.StyleError.Render(d.err))
+		blocks = append(blocks, text(""), text(t.StyleError.Render(d.err)))
 	}
-	return t.StyleDialog.Width(d.width).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	return blocks
+}
+
+// View renders the dialog box.
+func (d *NewSession) View() string {
+	var parts []string
+	for _, b := range d.blocks() {
+		parts = append(parts, b.text)
+	}
+	return d.theme.StyleDialog.Width(d.width).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
 // Hints returns the status bar key hints.
@@ -320,7 +386,7 @@ func (d *NewSession) Hints() [][2]string {
 		hints = append(hints, [2]string{"←/→", "template"})
 	case d.focus == fieldSubIssues:
 		hints = append(hints, [2]string{"space", "toggle"})
-	case len(d.profiles) > 1:
+	case d.focus == fieldProfile:
 		hints = append(hints, [2]string{"←/→", "agent"})
 	}
 	return append(hints, [2]string{"esc", "cancel"})
@@ -339,13 +405,26 @@ func NewConfirm(theme common.Theme, message string, action common.Action, sessio
 	return &Confirm{theme: theme, message: message, action: action, sessionID: sessionID}
 }
 
-// Update handles input.
+// Update handles input. Clicks are relative to the dialog box: on the
+// answers below the question, they answer it.
 func (d *Confirm) Update(msg tea.Msg) (Dialog, tea.Cmd) {
-	k, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return d, nil
+	answer := ""
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		answer = msg.String()
+	case tea.MouseClickMsg:
+		yes, no := d.answers()
+		x := msg.X - contentLeft
+		if msg.Y == lipgloss.Height(d.View())-contentTop-1 { // the last line of content
+			switch {
+			case x >= 0 && x < ansi.StringWidth(yes):
+				answer = "y"
+			case x >= lipgloss.Width(yes+confirmSeparator) && x < lipgloss.Width(yes+confirmSeparator+no):
+				answer = "n"
+			}
+		}
 	}
-	switch k.String() {
+	switch answer {
 	case "y", "Y", "enter":
 		confirmed := common.ConfirmedMsg{Action: d.action, SessionID: d.sessionID}
 		return d, func() tea.Msg { return confirmed }
@@ -355,13 +434,22 @@ func (d *Confirm) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 	return d, nil
 }
 
+// confirmSeparator separates a Confirm's answers.
+const confirmSeparator = "  ·  "
+
+// answers returns the answers a Confirm offers, as drawn.
+func (d *Confirm) answers() (yes, no string) {
+	return d.theme.FormatKeyHint("y", "confirm"), d.theme.FormatKeyHint("n", "cancel")
+}
+
 // View renders the dialog box.
 func (d *Confirm) View() string {
 	t := d.theme
+	yes, no := d.answers()
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		t.StyleTitle.Render(d.message),
 		"",
-		t.FormatKeyHint("y", "confirm")+t.StyleFaint.Render("  ·  ")+t.FormatKeyHint("n", "cancel"),
+		yes+t.StyleFaint.Render(confirmSeparator)+no,
 	)
 	return t.StyleDialog.Width(min(64, lipgloss.Width(body)+6)).Render(body)
 }
@@ -392,13 +480,28 @@ func NewPick(theme common.Theme, title string, choices []Choice, width int) *Pic
 	return &Pick{theme: theme, title: title, choices: choices, width: width}
 }
 
-// Update handles input.
+// Update handles input. Clicks are relative to the dialog box: a click on a
+// choice chooses it.
 func (d *Pick) Update(msg tea.Msg) (Dialog, tea.Cmd) {
-	k, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return d, nil
+	pressed := ""
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		pressed = msg.String()
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelDown:
+			pressed = "down"
+		case tea.MouseWheelUp:
+			pressed = "up"
+		}
+	case tea.MouseClickMsg:
+		// The choices are the last lines of content, below the title.
+		first := lipgloss.Height(d.View()) - contentTop - len(d.choices)
+		if i := msg.Y - first; i >= 0 && i < len(d.choices) {
+			d.cursor, pressed = i, "enter"
+		}
 	}
-	switch k.String() {
+	switch pressed {
 	case "j", "down":
 		d.cursor = min(d.cursor+1, len(d.choices)-1)
 	case "k", "up":

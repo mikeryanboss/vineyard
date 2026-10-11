@@ -89,6 +89,34 @@ func (m Model) CurrentFile() int {
 	return current
 }
 
+// toggle folds file i, or unfolds it when folded, keeping file anchor at the
+// top of the view as fold does.
+func (m Model) toggle(i, anchor int) Model {
+	collapsed := maps.Clone(m.collapsed)
+	path := m.files[i].Path()
+	if collapsed[path] {
+		delete(collapsed, path)
+	} else {
+		collapsed[path] = true
+	}
+	return m.fold(anchor, collapsed)
+}
+
+// click acts on rendered line y: a file's header folds or unfolds the file
+// where it is, and a file's line in the summary scrolls to the file.
+func (m Model) click(y int) Model {
+	for i, start := range m.fileStarts {
+		switch y {
+		case start + 1: // the header, between two rules
+			return m.toggle(i, -1)
+		case summaryFiles + i:
+			m.viewport.SetYOffset(start)
+			return m
+		}
+	}
+	return m
+}
+
 // fold changes which files are collapsed and keeps file anchor (an index into
 // Files) at the top of the view, since its position moves when files above it
 // shrink or grow. A negative anchor leaves the scroll position alone.
@@ -122,9 +150,11 @@ func (m Model) setContent() Model {
 	return m
 }
 
-// Update handles keys while the pane has focus.
+// Update handles keys while the pane has focus, clicks, and the wheel.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		return m.click(m.viewport.YOffset() + msg.Y), nil
 	case tea.MouseWheelMsg:
 		switch msg.Button {
 		case tea.MouseWheelUp:
@@ -154,14 +184,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.viewport.GotoBottom()
 		case key.Matches(msg, keys.Toggle):
 			if i := m.CurrentFile(); i >= 0 {
-				collapsed := maps.Clone(m.collapsed)
-				path := m.files[i].Path()
-				if collapsed[path] {
-					delete(collapsed, path)
-				} else {
-					collapsed[path] = true
-				}
-				return m.fold(i, collapsed), nil
+				return m.toggle(i, i), nil
 			}
 		case key.Matches(msg, keys.Collapse):
 			collapsed := make(map[string]bool, len(m.files))
@@ -227,6 +250,10 @@ func render(files []diff.File, collapsed map[string]bool, width int, t common.Th
 	}
 	return lines, starts
 }
+
+// summaryFiles is the summary line of the first file: a total and a blank
+// line come before it.
+const summaryFiles = 2
 
 func renderSummary(files []diff.File, width int, t common.Theme) []string {
 	added, removed := 0, 0

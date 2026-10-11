@@ -119,19 +119,29 @@ func TestList_CollapsedSubagentsAreSkipped(t *testing.T) {
 	if item, _ := m.Selected(); item.Session.ID != "tests-2" {
 		t.Errorf("down from a collapsed session selected %s, want tests-2", item.Session.ID)
 	}
-	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 2}) // the count line
-	if item, _ := m.Selected(); item.Session.ID != "login-1" {
-		t.Errorf("click on the count line selected %s, want login-1", item.Session.ID)
-	}
-	if _, ok := m.SelectedSubagent(); ok {
-		t.Error("the count line must select the session")
-	}
 	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 4}) // the next session's title line
 	if item, _ := m.Selected(); item.Session.ID != "tests-2" {
 		t.Errorf("click selected %s, want tests-2", item.Session.ID)
 	}
 	if _, ok := m.Expand(); ok {
 		t.Error("a session without subagents must not expand")
+	}
+}
+
+func TestList_ClickOnTheCountLineFoldsSubagents(t *testing.T) {
+	m := list.New(common.NewTheme(true)).SetItems(withSubagents()).SetSize(36, 20).Select("tests-2")
+	countLine := tea.MouseClickMsg{X: 4, Y: 2 + 2}
+	m, _ = m.Update(countLine)
+	view := testutil.StripANSI(m.View())
+	if item, _ := m.Selected(); item.Session.ID != "login-1" || !strings.Contains(view, "▾ 6 subagents") || !strings.Contains(view, "Running the parser tests") {
+		t.Errorf("a click on the count line should select the session and show its rows:\n%s", view)
+	}
+	if _, ok := m.SelectedSubagent(); ok {
+		t.Error("the count line must select the session")
+	}
+	m, _ = m.Update(countLine)
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "▸ 6 subagents") || strings.Contains(view, "Running the parser tests") {
+		t.Errorf("a second click should hide the rows:\n%s", view)
 	}
 }
 
@@ -206,11 +216,11 @@ func TestList_SubagentSelectionSurvivesARedraw(t *testing.T) {
 
 func TestList_ClickSelectsSubagentRow(t *testing.T) {
 	m := expanded(t, 20)
-	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 3}) // the second subagent line
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 4}) // the second subagent line
 	if sub, ok := m.SelectedSubagent(); !ok || sub != 1 {
 		t.Errorf("click selected row %d (%v), want subagent 1", sub, ok)
 	}
-	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 9 + 1}) // the next session's branch line
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 10 + 1}) // the next session's branch line
 	if item, _ := m.Selected(); item.Session.ID != "tests-2" {
 		t.Errorf("click selected %s, want tests-2", item.Session.ID)
 	}

@@ -204,6 +204,23 @@ func (m *Model) setMessage(text string, isErr bool) {
 
 // Update handles a message.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	// The mouse is ignored while a value is typed.
+	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		if m.edit == editNone {
+			return m.click(msg.X, msg.Y)
+		}
+		return m, nil
+	case tea.MouseWheelMsg:
+		switch {
+		case m.edit != editNone:
+		case msg.Button == tea.MouseWheelUp:
+			return m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+		case msg.Button == tea.MouseWheelDown:
+			return m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		}
+		return m, nil
+	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		// Cursor blinks and the like belong to the input being edited.
@@ -258,13 +275,13 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Up):
 		if m.focus == paneCategories && m.catIdx > 0 {
-			m.catIdx--
+			m.catIdx, m.fieldIdx = m.catIdx-1, 0
 		} else if m.focus == paneFields && m.fieldIdx > 0 {
 			m.fieldIdx--
 		}
 	case key.Matches(msg, keys.Down):
 		if m.focus == paneCategories && m.catIdx < len(categories)-1 {
-			m.catIdx++
+			m.catIdx, m.fieldIdx = m.catIdx+1, 0
 		} else if m.focus == paneFields && m.fieldIdx < len(m.fields())-1 {
 			m.fieldIdx++
 		}
@@ -281,6 +298,39 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		if f, ok := m.currentField(); ok && f.kind == fieldProfile {
 			m.removeProfile(f.profile)
 		}
+	}
+	return m, nil
+}
+
+// click acts on column x of line y, as the screen or the picker over it
+// draws them: it selects a category or field, edits the field already
+// selected, as enter does, and chooses a picker's option.
+func (m Model) click(x, y int) (Model, tea.Cmd) {
+	m.setMessage("", false)
+	if m.picking {
+		offset, visible := m.pickerWindow()
+		// The picker's border, padding, title, and a blank line come first.
+		if row := y - 4; row >= 0 && row < visible && offset+row < len(m.pickOptions) {
+			m.pickCursor = offset + row
+			return m.updatePicking(tea.KeyPressMsg{Code: tea.KeyEnter}), nil
+		}
+		return m, nil
+	}
+	row := y - headerLines
+	offset, visible := m.fieldWindow()
+	fields := m.fields()
+	switch {
+	case row < 0:
+	case x < catWidth && row < len(categories):
+		if row != m.catIdx {
+			m.catIdx, m.fieldIdx = row, 0
+		}
+		m.focus = paneCategories
+	case x > catWidth && row < visible && offset+row < len(fields):
+		if m.focus == paneFields && offset+row == m.fieldIdx {
+			return m.activate(fields[m.fieldIdx])
+		}
+		m.focus, m.fieldIdx = paneFields, offset+row
 	}
 	return m, nil
 }
@@ -409,14 +459,20 @@ func (m Model) updatePicking(msg tea.KeyPressMsg) Model {
 	return m
 }
 
+// pickerWindow returns the first option the picker shows and how many it
+// shows at most.
+func (m Model) pickerWindow() (offset, visible int) {
+	visible = max(3, min(len(m.pickOptions), m.height-8))
+	return max(0, m.pickCursor-visible+1), visible
+}
+
 // PickerView renders the option picker as a box for the root model to
 // overlay on the screen.
 func (m Model) PickerView() string {
 	t := m.theme
 	f, _ := m.currentField()
 	current := m.value(f)
-	visible := max(3, min(len(m.pickOptions), m.height-8))
-	offset := max(0, m.pickCursor-visible+1)
+	offset, visible := m.pickerWindow()
 
 	width := 24
 	for _, opt := range m.pickOptions {
@@ -459,6 +515,20 @@ func (m Model) Hints() [][2]string {
 	return append(hints, [2]string{"ctrl+s", "save"}, [2]string{"esc", "back"})
 }
 
+// The screen's title and a blank line come before the categories and fields,
+// and the categories take catWidth columns before the separator.
+const (
+	headerLines = 2
+	catWidth    = 16
+)
+
+// fieldWindow returns the first field the screen shows and how many it shows
+// at most, keeping the selected field in view when there are more than fit.
+func (m Model) fieldWindow() (offset, visible int) {
+	visible = max(1, m.height-headerLines-2)
+	return max(0, m.fieldIdx-visible+1), visible
+}
+
 // View renders the screen at exactly its set size.
 func (m Model) View() string {
 	if m.width <= 0 || m.height <= 0 {
@@ -466,7 +536,6 @@ func (m Model) View() string {
 	}
 	t := m.theme
 	accent := t.StyleTitle.Foreground(t.ColorAccent)
-	const catWidth = 16
 	sep := t.StyleSeparator.Render("│")
 
 	lines := []string{
@@ -493,9 +562,7 @@ func (m Model) View() string {
 	for _, f := range fields {
 		labelWidth = max(labelWidth, ansi.StringWidth(f.label))
 	}
-	// Keep the selected field in view when there are more than fit.
-	visible := max(1, m.height-len(lines)-2)
-	offset := max(0, m.fieldIdx-visible+1)
+	offset, visible := m.fieldWindow()
 	var right []string
 	for i := offset; i < len(fields) && i < offset+visible; i++ {
 		f := fields[i]

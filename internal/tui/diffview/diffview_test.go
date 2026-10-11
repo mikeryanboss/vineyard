@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/diff"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
@@ -170,5 +171,25 @@ func TestDiffView_FoldSurvivesNewDiff(t *testing.T) {
 	}
 	if !strings.Contains(view, "▾ A x.txt") {
 		t.Error("collapse all folds files present at the time only; x.txt arrived later and should be expanded")
+	}
+}
+
+func TestDiffView_ClicksFollowTheSummaryAndFoldHeaders(t *testing.T) {
+	m := newView(72, 40)
+	m, _ = m.Update(tea.MouseClickMsg{X: 3, Y: summaryFiles + 1}) // docs/auth.md in the summary
+	if m.CurrentFile() != 1 {
+		t.Fatalf("a click on the summary's second file scrolled to file %d", m.CurrentFile())
+	}
+	offset := m.viewport.YOffset()
+	m, _ = m.Update(tea.MouseClickMsg{X: 3, Y: 1}) // its header, below the rule
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "▸ A docs/auth.md") || strings.Contains(view, "# Authentication") {
+		t.Errorf("a click on the header should fold the file:\n%s", view)
+	}
+	if m.viewport.YOffset() != offset {
+		t.Errorf("folding by click moved the view from %d to %d", offset, m.viewport.YOffset())
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: 3, Y: 1})
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "# Authentication") {
+		t.Errorf("a second click should unfold the file:\n%s", view)
 	}
 }

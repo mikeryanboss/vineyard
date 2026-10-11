@@ -1,0 +1,6 @@
+title = 'Make tabs, subagents, diff headers, dialogs, and the config screen clickable'
+status = 'done'
+priority = 'medium'
+labels = ['feature', 'tui', 'mouse']
+created = 2026-10-11T16:04:00Z
+updated = 2026-10-11T16:16:00Z

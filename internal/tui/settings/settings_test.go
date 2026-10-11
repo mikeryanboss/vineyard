@@ -163,3 +163,56 @@ func TestSettings_RefusesToSaveOverAFileThatFailedToLoad(t *testing.T) {
 		t.Errorf("the screen should say why it did not save:\n%s", testutil.StripANSI(m.View()))
 	}
 }
+
+func TestSettings_ClicksSelectThenEdit(t *testing.T) {
+	m := newSettings(twoProfiles(), nil)
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 3}) // Profiles
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "+ Add profile") {
+		t.Fatalf("a click on Profiles should show its fields:\n%s", view)
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2}) // General
+	autoYes := tea.MouseClickMsg{X: 20, Y: 4}
+	m, _ = m.Update(autoYes)
+	if m.Config().AutoYes {
+		t.Fatal("the first click on a field should only select it")
+	}
+	m, _ = m.Update(autoYes)
+	if !m.Config().AutoYes {
+		t.Error("a click on the selected field should edit it, as enter does")
+	}
+
+	branchPrefix := tea.MouseClickMsg{X: 20, Y: 3}
+	m, _ = m.Update(branchPrefix)
+	m, _ = m.Update(branchPrefix)
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 3}) // Profiles, while typing
+	if view := testutil.StripANSI(m.View()); strings.Contains(view, "+ Add profile") {
+		t.Errorf("clicks while a value is typed must be ignored:\n%s", view)
+	}
+}
+
+func TestSettings_PickerTakesClicksAndTheWheel(t *testing.T) {
+	cfg := twoProfiles()
+	cfg.Profiles = append(cfg.Profiles, config.Profile{Name: "aider", Program: "aider"}, config.Profile{Name: "gemini", Program: "gemini"})
+	m, _ := press(newSettings(cfg, nil), "l", "enter")
+	// The picker's border, padding, title, and a blank line come before the
+	// options: claude, codex, aider, gemini.
+	m, _ = m.Update(tea.MouseClickMsg{X: 5, Y: 4 + 2})
+	if m.PickerActive() || m.Config().DefaultProgram != "aider" {
+		t.Errorf("a click on aider left default %q, picker open %v", m.Config().DefaultProgram, m.PickerActive())
+	}
+	m, _ = press(m, "enter")
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	m, _ = press(m, "enter")
+	if m.Config().DefaultProgram != "gemini" {
+		t.Errorf("the wheel moved the picker to %q, want gemini", m.Config().DefaultProgram)
+	}
+}
+
+// On a short screen the field list scrolls to the selected field; another
+// category must start at its first field, not scrolled to the old one's place.
+func TestSettings_AnotherCategoryStartsAtItsFirstField(t *testing.T) {
+	m, _ := press(newSettings(twoProfiles(), nil).SetSize(80, 6), "l", "j", "j", "esc", "j")
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "│  claude") {
+		t.Errorf("Profiles should show its first field, claude:\n%s", view)
+	}
+}
