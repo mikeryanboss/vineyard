@@ -1,0 +1,7 @@
+title = "Show the selected subagent's own preview, diff, issue, and recap"
+status = 'done'
+priority = 'high'
+labels = ['tui', 'subagents']
+blocked_by = [39]
+created = 2026-10-11T20:29:00Z
+updated = 2026-10-11T21:01:00Z

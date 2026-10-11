@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image/color"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -91,6 +92,9 @@ type (
 		gone       bool
 		// subagents is Claude Code's list of running subagents on the screen.
 		subagents subagent.List
+		// conversation is what Claude Code's transcripts say about them.
+		conversation    subagent.Conversation
+		conversationErr error
 	}
 	statusMsg struct {
 		results []screenStatus
@@ -112,13 +116,24 @@ type (
 	}
 	diffMsg struct {
 		selectedID string
-		hasRaw     bool // whether raw was fetched; paused sessions have no worktree to diff
-		raw        string
-		rawErr     error
-		stats      map[string]git.Stat
+		// agent is the subagent of selectedID whose diff raw is, or "".
+		agent string
+		// tree is the worktree that subagent works in, when it is not its
+		// session's.
+		tree   string
+		hasRaw bool // whether raw was fetched; paused sessions have no worktree to diff
+		raw    string
+		rawErr error
+		stats  map[string]git.Stat
 		// branches holds each polled session's checked-out branch, which
 		// the agent may have switched.
 		branches map[string]string
+	}
+	// transcriptMsg carries the condensed transcript of a session's subagent.
+	transcriptMsg struct {
+		id, agent string
+		events    []subagent.Event
+		err       error
 	}
 	startedMsg struct {
 		session session.Session
@@ -239,10 +254,14 @@ type Model struct {
 	shownID  string            // session whose screen and diff are displayed
 	// subagents are the running subagents Claude Code lists on each
 	// session's screen, as of the last status poll that is believed.
+	// Opening one needs its place there.
 	subagents map[string]subagent.List
 	// fewer marks sessions whose last poll showed fewer subagents than are
 	// shown, which the next poll must confirm (see seeSubagents).
 	fewer map[string]bool
+	// conversations are what Claude Code's transcripts said about each
+	// session's subagents at the last status poll. The rows come from them.
+	conversations map[string]subagent.Conversation
 
 	previewInFlight bool
 	statusInFlight  bool
@@ -267,6 +286,17 @@ type Model struct {
 	// recapShown is the latest recap fetched for the shown session, kept to
 	// re-render the recap tab when the pane changes size or theme.
 	recapShown recapMsg
+	// shownAgent is the subagent of shownID whose transcript, diff, issues,
+	// and recap are displayed, or "" for the session's own.
+	shownAgent string
+	// agentTree is the worktree the shown subagent works in, when it is not
+	// its session's.
+	agentTree string
+	// transcript shows the shown subagent's transcript in place of the
+	// preview. transcriptShown is the latest fetched, kept to re-render it.
+	transcript         textview.Model
+	transcriptShown    transcriptMsg
+	transcriptInFlight bool
 	// lastClick is the last click on the list or pane, to tell double clicks.
 	lastClick clickAt
 
@@ -308,9 +338,12 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		issue:    textview.New(theme),
 		recap:    textview.New(theme),
 
-		subagents:  map[string]subagent.List{},
-		fewer:      map[string]bool{},
-		startIssue: opts.Issue,
+		transcript: textview.New(theme),
+
+		subagents:     map[string]subagent.List{},
+		fewer:         map[string]bool{},
+		conversations: map[string]subagent.Conversation{},
+		startIssue:    opts.Issue,
 	}
 	if opts.ConfigErr != nil {
 		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
@@ -382,6 +415,7 @@ func (m *Model) remove(id string) {
 	delete(m.sizes, id)
 	delete(m.subagents, id)
 	delete(m.fewer, id)
+	delete(m.conversations, id)
 }
 
 // syncList rebuilds the list entries from the sessions.
@@ -393,7 +427,8 @@ func (m *Model) syncList() {
 		}
 		items[i] = list.Item{Session: s, Stat: m.stats[s.ID], Issues: m.issuesOf(s)}
 		if s.Status.Active() {
-			items[i].Subagents = m.subagents[s.ID]
+			items[i].Subagents = m.conversations[s.ID].Kept()
+			items[i].Shown = m.shownSubagent(s.ID)
 		}
 	}
 	m.list = m.list.SetItems(items)
@@ -433,6 +468,7 @@ func (m *Model) applySizes() {
 	m.diff = m.diff.SetSize(w, h)
 	m.issue = m.issue.SetSize(w, h)
 	m.recap = m.recap.SetSize(w, h)
+	m.transcript = m.transcript.SetSize(w, h)
 	m.settings = m.settings.SetSize(m.width, bodyHeight)
 }
 
@@ -442,6 +478,7 @@ func (m *Model) applyTheme() {
 	m.diff = m.diff.SetTheme(m.theme)
 	m.issue = m.issue.SetTheme(m.theme)
 	m.recap = m.recap.SetTheme(m.theme)
+	m.transcript = m.transcript.SetTheme(m.theme)
 	m.settings = m.settings.SetTheme(m.theme)
 }
 
@@ -497,14 +534,16 @@ func (m Model) diffable(s session.Session) bool {
 // fetches its screen and diff right away instead of waiting for a tick.
 func (m *Model) refreshShown() tea.Cmd {
 	s, ok := m.selected()
+	a, _ := m.list.SelectedSubagent()
 	if text := m.placeholder(s, ok); text != "" {
 		m.preview = m.preview.SetPlaceholder(text)
 	}
-	if s.ID == m.shownID {
+	if s.ID == m.shownID && a.ID == m.shownAgent {
 		return nil
 	}
-	m.shownID = s.ID
+	m.shownID, m.shownAgent, m.agentTree = s.ID, a.ID, ""
 	m.preview = m.preview.ExitScroll()
+	m.transcript = m.transcript.SetPlaceholder("Reading the transcript…")
 	m.diff = m.diff.SetDiff("")
 	m.issue = m.issue.GotoTop()
 	m.refreshIssue()
@@ -514,10 +553,15 @@ func (m *Model) refreshShown() tea.Cmd {
 		return nil
 	}
 	m.diffInFlight = true
-	if !s.Status.Active() || m.busy[s.ID] {
-		return tea.Batch(m.diffCmd(), m.recapCmd()) // no live screen to capture
+	cmds := []tea.Cmd{m.diffCmd(), m.recapCmd()}
+	switch {
+	case a.ID != "":
+		m.transcriptInFlight = true
+		cmds = append(cmds, m.transcriptCmd())
+	case s.Status.Active() && !m.busy[s.ID]: // otherwise there is no live screen to capture
+		cmds = append(cmds, m.captureCmd(s))
 	}
-	return tea.Batch(m.captureCmd(s), m.diffCmd(), m.recapCmd())
+	return tea.Batch(cmds...)
 }
 
 // writeCmd changes the saved sessions, which other Vineyards on the
@@ -581,6 +625,7 @@ func (m *Model) adopt(saved []session.Session) {
 				delete(m.hashes, s.ID)
 				delete(m.sizes, s.ID)
 				delete(m.subagents, s.ID)
+				delete(m.conversations, s.ID)
 				if s.ID == m.shownID {
 					m.shownID = ""
 				}
@@ -654,6 +699,7 @@ func (m Model) statusCmd() tea.Cmd {
 				}
 				if isClaude(s) {
 					results[i].subagents, _ = subagent.Parse(screen)
+					results[i].conversation, results[i].conversationErr = backend.Subagents(s)
 				}
 			}()
 		}
@@ -669,6 +715,7 @@ func (m Model) statusCmd() tea.Cmd {
 func (m Model) diffCmd() tea.Cmd {
 	backend := m.backend
 	selected, hasSelected := m.selected()
+	agent, ofAgent := m.list.SelectedSubagent()
 	var others []session.Session
 	for _, s := range m.sessions {
 		if s.ID != selected.ID && (s.Status.Active() || s.Status == session.StatusStopped) && !m.busy[s.ID] {
@@ -677,8 +724,16 @@ func (m Model) diffCmd() tea.Cmd {
 	}
 	showDiff := hasSelected && m.diffable(selected)
 	return func() tea.Msg {
-		msg := diffMsg{selectedID: selected.ID, hasRaw: showDiff, stats: map[string]git.Stat{}, branches: map[string]string{}}
-		if showDiff {
+		msg := diffMsg{selectedID: selected.ID, agent: agent.ID, hasRaw: showDiff, stats: map[string]git.Stat{}, branches: map[string]string{}}
+		if showDiff && ofAgent && agent.Dir != "" {
+			// A subagent working in another worktree has that one's diff.
+			if tree := backend.Worktree(agent.Dir); tree != "" && tree != selected.WorktreePath {
+				msg.tree = tree
+			}
+		}
+		if msg.tree != "" {
+			msg.raw, msg.rawErr = backend.TreeDiff(msg.tree)
+		} else if showDiff {
 			msg.raw, msg.rawErr = backend.Diff(selected)
 			if branch, err := backend.Branch(selected); err == nil {
 				msg.branches[selected.ID] = branch
@@ -699,13 +754,24 @@ func (m Model) diffCmd() tea.Cmd {
 // recapCmd reads the selected session's recaps, while the recap tab is shown.
 func (m Model) recapCmd() tea.Cmd {
 	s, ok := m.selected()
-	if m.tab != tabRecap || !ok || !isClaude(s) {
+	if m.tab != tabRecap || !ok || !isClaude(s) || m.shownAgent != "" {
 		return nil
 	}
 	backend := m.backend
 	return func() tea.Msg {
 		r, err := backend.Recap(s)
 		return recapMsg{id: s.ID, recap: r, err: err}
+	}
+}
+
+// transcriptCmd reads the transcript of the selected subagent.
+func (m Model) transcriptCmd() tea.Cmd {
+	s, _ := m.selected()
+	a, _ := m.list.SelectedSubagent()
+	backend := m.backend
+	return func() tea.Msg {
+		events, err := backend.SubagentEvents(s, a.ID)
+		return transcriptMsg{id: s.ID, agent: a.ID, events: events, err: err}
 	}
 }
 
@@ -730,14 +796,37 @@ func (m Model) promptCmd(s session.Session, prompt string) tea.Cmd {
 	}
 }
 
-// openSubagentCmd makes s show the view of its subagent i, counted from 0
-// in Claude Code's list.
-func (m Model) openSubagentCmd(s session.Session, i int) tea.Cmd {
-	backend := m.backend
-	total := m.subagents[s.ID].Len()
-	return func() tea.Msg {
-		return subagentOpenedMsg{id: s.ID, err: backend.OpenSubagent(s, i+1, total)}
+// shownSubagent returns the ID of the subagent whose view the session with
+// id shows in place of its conversation, or "" when it shows the
+// conversation or Claude Code's list cannot be read.
+func (m Model) shownSubagent(id string) string {
+	l := m.subagents[id]
+	ids, ok := subagent.Match(m.conversations[id].Agents, l, now())
+	if !ok || l.Shown <= 0 {
+		return ""
 	}
+	return ids[l.Shown-1]
+}
+
+// openSubagent makes s show the view of its subagent a, which needs a's
+// place in Claude Code's list.
+func (m Model) openSubagent(s session.Session, a subagent.Agent) (tea.Model, tea.Cmd) {
+	l := m.subagents[s.ID]
+	ids, ok := subagent.Match(m.conversations[s.ID].Agents, l, now())
+	position := slices.Index(ids, a.ID) + 1
+	switch {
+	case ok && position > 0:
+	case a.Status != subagent.Running:
+		return m, m.setStatus(a.Description+" has finished, and Claude Code no longer lists it. Ask the conversation to message it to resume it.", false)
+	default:
+		return m, m.setStatus("Claude Code's list of subagents does not match its transcripts yet. Try again, or open it in Claude Code.", false)
+	}
+	backend := m.backend
+	// Opening types into the agent at the user's request, so every Vineyard
+	// may do it, not only the one that leads.
+	return m, tea.Batch(m.setStatus("Opening the subagent…", false), func() tea.Msg {
+		return subagentOpenedMsg{id: s.ID, err: backend.OpenSubagent(s, position, l.Len())}
+	})
 }
 
 func (m Model) enterCmd(s session.Session) tea.Cmd {
@@ -757,6 +846,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.applySizes()
 		m.refreshRecap()
+		m.refreshTranscript()
 		if id := m.startIssue; id != 0 {
 			m.startIssue = 0
 			next, cmd := m.updateGrapes(msg)
@@ -769,6 +859,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.theme = common.NewTheme(msg.IsDark())
 		m.applyTheme()
 		m.refreshRecap()
+		m.refreshTranscript()
 		return m.updateGrapes(msg)
 
 	case tea.KeyPressMsg:
@@ -781,12 +872,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case previewTickMsg:
 		next := tick(previewInterval, func(time.Time) tea.Msg { return previewTickMsg{} })
+		if m.shownAgent != "" {
+			if m.transcriptInFlight {
+				return m, next
+			}
+			m.transcriptInFlight = true
+			return m, tea.Batch(next, m.transcriptCmd())
+		}
 		s, ok := m.selected()
 		if !ok || !s.Status.Active() || m.busy[s.ID] || m.previewInFlight || m.preview.Scrolling() {
 			return m, next
 		}
 		m.previewInFlight = true
 		return m, tea.Batch(next, m.captureCmd(s))
+
+	case transcriptMsg:
+		m.transcriptInFlight = false
+		if msg.id == m.shownID && msg.agent == m.shownAgent {
+			first := m.transcriptShown.id != msg.id || m.transcriptShown.agent != msg.agent
+			m.transcriptShown = msg
+			m.refreshTranscript()
+			if first {
+				m.transcript = m.transcript.GotoBottom()
+			}
+		}
+		return m, nil
 
 	case screenMsg:
 		m.previewInFlight = false
@@ -825,7 +935,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case diffMsg:
 		m.diffInFlight = false
 		shown, _ := m.selected()
-		shownIssues := m.issuesOf(shown)
+		shownIssues := m.shownIssues(shown)
 		for id, stat := range msg.stats {
 			m.stats[id] = stat
 		}
@@ -834,18 +944,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sessions[i].Branch = branch
 			}
 		}
-		if msg.selectedID == m.shownID && msg.hasRaw && msg.rawErr == nil {
+		if msg.selectedID == m.shownID && msg.agent == m.shownAgent && msg.hasRaw && msg.rawErr == nil {
 			m.diff = m.diff.SetDiff(msg.raw)
-			var stat git.Stat
-			for _, f := range m.diff.Files() {
-				stat.Added += f.Added
-				stat.Removed += f.Removed
-				stat.Paths = append(stat.Paths, f.OldPath, f.NewPath)
+			m.agentTree = msg.tree
+			if msg.tree == "" {
+				var stat git.Stat
+				for _, f := range m.diff.Files() {
+					stat.Added += f.Added
+					stat.Removed += f.Removed
+					stat.Paths = append(stat.Paths, f.OldPath, f.NewPath)
+				}
+				m.stats[msg.selectedID] = stat
 			}
-			m.stats[msg.selectedID] = stat
 		}
 		m.syncList()
-		if !slices.Equal(m.issuesOf(shown), shownIssues) {
+		if !slices.Equal(m.shownIssues(shown), shownIssues) {
 			m.refreshIssue()
 		}
 		return m, nil
@@ -880,6 +993,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.replace(msg.session)
 			delete(m.hashes, msg.session.ID)
 			delete(m.subagents, msg.session.ID)
+			delete(m.conversations, msg.session.ID)
 			cmds = append(cmds, m.replaceCmd(msg.session))
 			switch msg.verb {
 			case "pause":
@@ -1136,13 +1250,21 @@ func (m *Model) refreshIssue() {
 		return
 	}
 	width, _ := m.paneContentSize()
+	tree := s.WorktreePath
+	if m.agentTree != "" {
+		tree = m.agentTree
+	}
 	var rendered []string
-	for _, id := range m.issuesOf(s) {
-		if text, ok := m.grapes.RenderIssue(id, s.WorktreePath, width); ok {
+	for _, id := range m.shownIssues(s) {
+		if text, ok := m.grapes.RenderIssue(id, tree, width); ok {
 			rendered = append(rendered, text)
 		}
 	}
-	if len(rendered) == 0 {
+	switch {
+	case len(rendered) == 0 && m.shownAgent != "":
+		m.issue = m.issue.SetPlaceholder("This subagent has changed no issue. Press i to browse issues.")
+		return
+	case len(rendered) == 0:
 		m.issue = m.issue.SetPlaceholder("No issue linked. Press i to browse issues.")
 		return
 	}
@@ -1158,6 +1280,10 @@ func (m *Model) refreshRecap() {
 	}
 	s, ok := m.selected()
 	r := m.recapShown
+	if a, ok := m.list.SelectedSubagent(); ok {
+		m.recap = m.recap.SetContent(m.renderAgentRecap(a))
+		return
+	}
 	switch {
 	case !ok:
 		m.recap = m.recap.SetPlaceholder("Press n to start a session.")
@@ -1195,6 +1321,94 @@ func (m *Model) refreshRecap() {
 	m.recap = m.recap.SetContent(strings.TrimRight(b.String(), "\n"))
 }
 
+// refreshTranscript renders the shown subagent's transcript, as Claude Code
+// shows a conversation: its messages, and each tool call with the first
+// lines of its result. It keeps the scroll position, following new lines
+// while scrolled to the bottom.
+func (m *Model) refreshTranscript() {
+	r := m.transcriptShown
+	if r.id != m.shownID || r.agent != m.shownAgent || m.shownAgent == "" {
+		return
+	}
+	if r.err != nil {
+		m.transcript = m.transcript.SetPlaceholder("Cannot read the transcript: " + r.err.Error())
+		return
+	}
+	width, _ := m.paneContentSize()
+	t := m.theme
+	// block renders text after a marker, its later lines indented under the
+	// first.
+	block := func(marker string, style lipgloss.Style, text string) string {
+		indent := ansi.StringWidth(marker)
+		lines := strings.Split(ansi.Wrap(text, max(1, width-indent), ""), "\n")
+		for i, line := range lines {
+			lines[i] = style.Render(line)
+		}
+		return marker + strings.Join(lines, "\n"+strings.Repeat(" ", indent))
+	}
+	var parts []string
+	for i, e := range r.events {
+		switch e.Kind {
+		case subagent.Prompt:
+			parts = append(parts, block(t.StyleTitle.Render("❯ "), lipgloss.NewStyle(), e.Text))
+		case subagent.Text:
+			parts = append(parts, block(t.StyleTitle.Render("● "), lipgloss.NewStyle(), e.Text))
+		case subagent.Tool:
+			call := t.StyleTitle.Render(e.Name)
+			if e.Text != "" {
+				call += t.StyleSubtitle.Render("(" + strings.ReplaceAll(e.Text, "\n", " ") + ")")
+			}
+			parts = append(parts, lipgloss.NewStyle().Foreground(t.ColorAccent).Render("● ")+ansi.Truncate(call, max(1, width-2), "…"))
+		case subagent.Result:
+			style := t.StyleFaint
+			if e.Error {
+				style = t.StyleError
+			}
+			result := block(style.Render("  ⎿ "), style, e.Text)
+			if i > 0 && r.events[i-1].Kind == subagent.Tool {
+				parts[len(parts)-1] += "\n" + result // under its call
+			} else {
+				parts = append(parts, result)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		m.transcript = m.transcript.SetPlaceholder("The subagent has written nothing yet.")
+		return
+	}
+	following := m.transcript.AtBottom()
+	m.transcript = m.transcript.SetContent(strings.Join(parts, "\n\n"))
+	if following {
+		m.transcript = m.transcript.GotoBottom()
+	}
+}
+
+// statusNames are what the recap calls a subagent's status.
+var statusNames = map[subagent.Status]string{subagent.Running: "running", subagent.Done: "done", subagent.Failed: "failed"}
+
+// renderAgentRecap renders what a subagent was asked and what it reported.
+func (m Model) renderAgentRecap(a subagent.Agent) string {
+	width, _ := m.paneContentSize()
+	t := m.theme
+	var b strings.Builder
+	b.WriteString(t.StyleTitle.Render(ansi.Wrap(a.Description, width, "")) + "\n")
+	facts := a.Type + " · " + statusNames[a.Status] + " · started " + a.Started.Local().Format("Jan 2 15:04")
+	if a.Status != subagent.Running {
+		facts += ", ended " + a.Ended.Local().Format("15:04")
+	}
+	b.WriteString(t.StyleFaint.Render(ansi.Wrap(facts, width, "")) + "\n\n")
+	b.WriteString(t.StyleFaint.Render("Report") + "\n")
+	switch {
+	case a.Report != "":
+		b.WriteString(ansi.Wrap(a.Report, width, "") + "\n\n")
+	default:
+		b.WriteString(t.StyleSubtitle.Render("Nothing reported yet.") + "\n\n")
+	}
+	b.WriteString(t.StyleFaint.Render("Prompt") + "\n")
+	b.WriteString(ansi.Wrap(a.Prompt, width, ""))
+	return b.String()
+}
+
 // isClaude reports whether s runs Claude Code, the only agent whose recaps
 // vineyard reads.
 func isClaude(s session.Session) bool { return session.ProgramName(s.Program) == "claude" }
@@ -1210,7 +1424,37 @@ func (m Model) issuesOf(s session.Session) []int {
 	if s.Issue > 0 {
 		ids = append(ids, s.Issue)
 	}
-	for _, path := range m.stats[s.ID].Paths {
+	return issueIDs(ids, m.stats[s.ID].Paths)
+}
+
+// shownIssues returns the issues of what the pane shows for s: those of s,
+// or of its subagent shown. A subagent in a worktree of its own has the
+// issues of that worktree's diff; one in its session's, those whose files it
+// edited.
+func (m Model) shownIssues(s session.Session) []int {
+	a, ok := m.list.SelectedSubagent()
+	if !ok || a.ID != m.shownAgent {
+		return m.issuesOf(s)
+	}
+	var paths []string
+	if m.agentTree != "" {
+		for _, f := range m.diff.Files() {
+			paths = append(paths, f.OldPath, f.NewPath)
+		}
+		return issueIDs(nil, paths)
+	}
+	for _, path := range a.Edited {
+		if rel, err := filepath.Rel(s.WorktreePath, path); err == nil {
+			paths = append(paths, rel)
+		}
+	}
+	return issueIDs(nil, paths)
+}
+
+// issueIDs adds to ids the grapes issues whose files paths, relative to a
+// worktree, lie in, and sorts them.
+func issueIDs(ids []int, paths []string) []int {
+	for _, path := range paths {
 		rest, ok := strings.CutPrefix(path, ".grapes/")
 		if !ok {
 			continue
@@ -1294,7 +1538,7 @@ func (m Model) showIssues(s session.Session, ok bool) (tea.Model, tea.Cmd) {
 	}
 	var ids []int
 	if ok {
-		ids = m.issuesOf(s)
+		ids = m.shownIssues(s)
 	}
 	switch len(ids) {
 	case 0:
@@ -1354,10 +1598,15 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			m.sessions[i] = s
 			delete(m.hashes, s.ID)
 			delete(m.subagents, s.ID)
+			delete(m.conversations, s.ID)
 			changed = append(changed, s)
 			continue
 		}
 		m.seeSubagents(s.ID, r.subagents)
+		if r.conversationErr != nil {
+			cmds = append(cmds, m.setError(fmt.Errorf("reading %s's subagents: %w", s.Title, r.conversationErr)))
+		}
+		m.conversations[s.ID] = r.conversation
 		previous, seen := m.hashes[s.ID]
 		m.hashes[s.ID] = r.hash
 		// Only a screen seen twice unchanged proves the agent is waiting. The
@@ -1514,8 +1763,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.issue, cmd = m.issue.Update(msg)
 		case tabRecap:
 			m.recap, cmd = m.recap.Update(msg)
-		default:
-			m.preview, cmd = m.preview.Update(msg)
+		case tabPreview:
+			if m.shownAgent != "" {
+				m.transcript, cmd = m.transcript.Update(msg)
+			} else {
+				m.preview, cmd = m.preview.Update(msg)
+			}
 		}
 		return m, cmd
 	}
@@ -1571,8 +1824,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !m.diffable(s) {
 			return m, m.setStatus(s.Title+" has no worktree to diff. Press r to resume it.", false)
 		}
-		backend, command := m.backend, m.opts.Config.DiffCommand
+		backend, command, tree := m.backend, m.opts.Config.DiffCommand, m.agentTree
 		return m, func() tea.Msg {
+			if tree != "" { // the shown subagent's own worktree
+				cmd, err := backend.TreeDiffTool(tree, command)
+				return diffToolMsg{id: s.ID, cmd: cmd, err: err}
+			}
 			cmd, err := backend.DiffTool(s, command)
 			return diffToolMsg{id: s.ID, cmd: cmd, err: err}
 		}
@@ -1580,10 +1837,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !s.Status.Active() {
 			return m, m.setStatus(s.Title+" is not running. Press r to resume it.", false)
 		}
-		if row, ok := m.list.SelectedSubagent(); ok {
-			// Opening types into the agent at the user's request, so every
-			// Vineyard may do it, not only the one that leads.
-			return m, tea.Batch(m.setStatus("Opening the subagent…", false), m.openSubagentCmd(s, row))
+		if a, ok := m.list.SelectedSubagent(); ok {
+			return m.openSubagent(s, a)
 		}
 		id := s.ID
 		return m, tea.ExecProcess(m.backend.AttachCommand(s), func(err error) tea.Msg {
@@ -1725,8 +1980,12 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.issue, cmd = m.issue.Update(content)
 	case tabRecap:
 		m.recap, cmd = m.recap.Update(content)
-	default:
-		m.preview, cmd = m.preview.Update(content)
+	case tabPreview:
+		if m.shownAgent != "" {
+			m.transcript, cmd = m.transcript.Update(content)
+		} else {
+			m.preview, cmd = m.preview.Update(content)
+		}
 	}
 	return m, cmd
 }
@@ -1853,10 +2112,18 @@ func (m Model) tabLabels() []tabLabel {
 	diffLabel := "Diff"
 	issueLabel := "Issue"
 	if s, ok := m.selected(); ok {
-		if stat := m.stats[s.ID]; !stat.IsZero() {
+		stat := m.stats[s.ID]
+		if m.agentTree != "" { // the diff of the shown subagent's own worktree
+			stat = git.Stat{}
+			for _, f := range m.diff.Files() {
+				stat.Added += f.Added
+				stat.Removed += f.Removed
+			}
+		}
+		if !stat.IsZero() {
 			diffLabel += fmt.Sprintf(" +%d -%d", stat.Added, stat.Removed)
 		}
-		ids := m.issuesOf(s)
+		ids := m.shownIssues(s)
 		if len(ids) > 1 {
 			issueLabel = "Issues"
 		}
@@ -1915,6 +2182,9 @@ func (m Model) renderPane() string {
 	tabBar := ansi.Truncate(tabs+strings.Repeat(" ", gap)+info+" ", innerWidth, "")
 
 	content := m.preview.View()
+	if m.shownAgent != "" {
+		content = m.transcript.View()
+	}
 	switch m.tab {
 	case tabDiff:
 		content = m.diff.View()
@@ -1952,7 +2222,7 @@ func (m Model) renderStatusBar() string {
 		hints = m.settings.Hints()
 	case m.focus == focusPane && m.tab == tabDiff:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"enter", "fold"}, {"c/e", "fold all/none"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
-	case m.focus == focusPane && (m.tab == tabIssue || m.tab == tabRecap):
+	case m.focus == focusPane && (m.tab == tabIssue || m.tab == tabRecap || m.tab == tabPreview && m.shownAgent != ""):
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
 	case m.focus == focusPane:
 		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}

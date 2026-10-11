@@ -24,7 +24,7 @@ Auto Tag stops reading `main.go`. On a push to `main` that changes the program, 
 - [x] It tags an untagged HEAD with the highest `v*` tag's patch plus one, and calls `release.yml`.
 - [x] It creates no tag, and calls no release, when HEAD already has a `v*` tag.
 - [x] After a hand-pushed tag such as v0.2.0, the next automatic tag is v0.2.1.
-- [ ] Runs do not overlap, so two runs cannot compute the same tag.
+- [x] Runs do not overlap, so two runs cannot compute the same tag.
 - [x] `vineyard version` prints the GoReleaser-stamped version when stamped, the module version without its `v` for a `go install` build, and `dev` for a build in a checkout.
 - [x] The docs describe the automatic release and how to release a minor or major version.
 - [x] #36's last criterion is ticked with its verification.

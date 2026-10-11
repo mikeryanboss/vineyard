@@ -37,6 +37,19 @@ type Backend interface {
 	// OpenSubagent makes s show the view of the subagent at position in
 	// Claude Code's list, which must still hold total subagents.
 	OpenSubagent(s session.Session, position, total int) error
+	// Subagents reads what Claude Code's transcripts say about the subagents
+	// of s's conversation.
+	Subagents(s session.Session) (subagent.Conversation, error)
+	// SubagentEvents reads the condensed transcript of s's subagent id.
+	SubagentEvents(s session.Session, id string) ([]subagent.Event, error)
+	// Worktree returns the root of the git worktree holding dir, or "" when
+	// none does.
+	Worktree(dir string) string
+	// TreeDiff and TreeDiffTool are Diff and DiffTool for the worktree at
+	// root, which a subagent works in: its work begins where its branch
+	// forks from the mainline, or else at its HEAD.
+	TreeDiff(root string) (string, error)
+	TreeDiffTool(root, command string) (*exec.Cmd, error)
 	// DiffTool builds the configured diff command for s. Its error wraps
 	// exec.ErrNotFound when the command is empty or its program is missing.
 	DiffTool(s session.Session, command string) (*exec.Cmd, error)
@@ -71,6 +84,9 @@ type LiveBackend struct {
 	Tmux   *tmux.Client
 	Store  session.Store
 	Leader *session.Leader
+	// Transcripts reads Claude Code's transcripts, remembering where it left
+	// off in each.
+	Transcripts *subagent.Reader
 	// Dir is the repository's .vineyard directory, which holds config.toml.
 	Dir string
 }
@@ -118,6 +134,49 @@ func (b LiveBackend) OpenSubagent(s session.Session, position, total int) error 
 	return subagent.Open(tmuxScreen{b.Tmux, s.TmuxName}, position, total)
 }
 
+func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error) {
+	dir, err := recap.ProjectsDir()
+	if err != nil {
+		return subagent.Conversation{}, err
+	}
+	return b.Transcripts.Load(recap.Dir(dir, s.WorktreePath))
+}
+
+func (b LiveBackend) SubagentEvents(s session.Session, id string) ([]subagent.Event, error) {
+	dir, err := recap.ProjectsDir()
+	if err != nil {
+		return nil, err
+	}
+	return b.Transcripts.Events(recap.Dir(dir, s.WorktreePath), id)
+}
+
+func (b LiveBackend) Worktree(dir string) string { return git.Root(dir) }
+
+func (b LiveBackend) TreeDiff(root string) (string, error) {
+	base, err := treeBase(root)
+	if err != nil {
+		return "", err
+	}
+	return git.Diff(root, base)
+}
+
+func (b LiveBackend) TreeDiffTool(root, command string) (*exec.Cmd, error) {
+	base, err := treeBase(root)
+	if err != nil {
+		return nil, err
+	}
+	return diffTool(root, base, command)
+}
+
+// treeBase is where the work in the worktree at root begins.
+func treeBase(root string) (string, error) {
+	head, err := git.Head(root)
+	if err != nil {
+		return "", err
+	}
+	return git.Base(root, head)
+}
+
 // tmuxScreen is a session's tmux window as subagent.Open drives it.
 type tmuxScreen struct {
 	tmux *tmux.Client
@@ -132,12 +191,12 @@ func (b LiveBackend) DiffTool(s session.Session, command string) (*exec.Cmd, err
 	if err != nil {
 		return nil, err
 	}
-	return diffTool(s, base, command)
+	return diffTool(s.WorktreePath, base, command)
 }
 
-// diffTool runs command through sh in s's worktree, with {base} replaced by
-// base, once its first word is found on PATH.
-func diffTool(s session.Session, base, command string) (*exec.Cmd, error) {
+// diffTool runs command through sh in dir, with {base} replaced by base, once
+// its first word is found on PATH.
+func diffTool(dir, base, command string) (*exec.Cmd, error) {
 	words := strings.Fields(command)
 	if len(words) == 0 {
 		return nil, fmt.Errorf("no diff tool configured: %w", exec.ErrNotFound)
@@ -146,7 +205,7 @@ func diffTool(s session.Session, base, command string) (*exec.Cmd, error) {
 		return nil, err
 	}
 	cmd := exec.Command("sh", "-c", strings.ReplaceAll(command, "{base}", base))
-	cmd.Dir = s.WorktreePath
+	cmd.Dir = dir
 	return cmd, nil
 }
 

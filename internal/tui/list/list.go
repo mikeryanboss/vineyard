@@ -1,10 +1,11 @@
 // Package list renders the session list: one entry per session with its
-// status, branch, diff size, and running subagents.
+// status, branch, diff size, and subagents.
 package list
 
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -26,9 +27,12 @@ type Item struct {
 	Stat    git.Stat
 	// Issues are the grapes issues the session works on, in ascending order.
 	Issues []int
-	// Subagents are the session's running subagents, as Claude Code lists
-	// them on its screen.
-	Subagents subagent.List
+	// Subagents are the session's subagents worth showing, each followed by
+	// those it started.
+	Subagents []subagent.Agent
+	// Shown is the ID of the subagent whose view Claude Code shows in place
+	// of the conversation, or "".
+	Shown string
 }
 
 // Model is the session list.
@@ -40,11 +44,9 @@ type Model struct {
 	height   int
 	focused  bool
 	theme    common.Theme
-	// sub is the selected subagent of the selected entry, counted from 0, or
-	// -1 for its session. It may exceed the entry's subagents, so that the
-	// selection stays put while Claude Code briefly draws fewer, as it does
-	// while redrawing; the row method returns the subagent selected.
-	sub int
+	// sub is the ID of the selected subagent of the selected entry, or "" for
+	// its session. A subagent that is no longer shown selects its session.
+	sub string
 	// expanded holds the IDs of the sessions whose subagent rows are shown.
 	// The others show one line counting their subagents.
 	expanded map[string]bool
@@ -52,11 +54,11 @@ type Model struct {
 
 // New returns an empty list.
 func New(theme common.Theme) Model {
-	return Model{theme: theme, focused: true, sub: -1, expanded: map[string]bool{}}
+	return Model{theme: theme, focused: true, expanded: map[string]bool{}}
 }
 
 // SetItems replaces the entries, keeping the selection on the same session,
-// and on the same place in its subagents, when the session still exists.
+// and on the same subagent, when they still exist.
 func (m Model) SetItems(items []Item) Model {
 	selectedID := ""
 	if item, ok := m.Selected(); ok {
@@ -69,7 +71,7 @@ func (m Model) SetItems(items []Item) Model {
 			return m.clamp()
 		}
 	}
-	m.sub = -1
+	m.sub = ""
 	return m.clamp()
 }
 
@@ -77,7 +79,7 @@ func (m Model) SetItems(items []Item) Model {
 func (m Model) Select(id string) Model {
 	for i, item := range m.items {
 		if item.Session.ID == id {
-			m.selected, m.sub = i, -1
+			m.selected, m.sub = i, ""
 		}
 	}
 	return m.clamp()
@@ -99,7 +101,7 @@ func (m Model) Collapse() Model {
 	if !ok {
 		return m
 	}
-	m.sub = -1
+	m.sub = ""
 	return m.setExpanded(item.Session.ID, false)
 }
 
@@ -118,7 +120,7 @@ func (m Model) setExpanded(id string, expanded bool) Model {
 // are hidden.
 func (m Model) Expandable() bool {
 	item, ok := m.Selected()
-	return ok && item.Subagents.Len() > 0 && !m.expanded[item.Session.ID]
+	return ok && len(item.Subagents) > 0 && !m.expanded[item.Session.ID]
 }
 
 // Collapsible reports whether the selected session shows subagent rows.
@@ -154,37 +156,52 @@ func (m Model) Selected() (Item, bool) {
 	return m.items[m.selected], true
 }
 
-// SelectedSubagent returns the selected subagent of the selected entry,
-// counted from 0 in Claude Code's list, if a subagent row is selected.
-func (m Model) SelectedSubagent() (int, bool) {
+// SelectedSubagent returns the selected subagent of the selected entry, if
+// a subagent row is selected.
+func (m Model) SelectedSubagent() (subagent.Agent, bool) {
 	if row := m.row(); row >= 0 {
-		return row, true
+		return m.items[m.selected].Subagents[row], true
 	}
-	return 0, false
+	return subagent.Agent{}, false
 }
 
 // row returns the selected row of the selected entry: a subagent, counted
 // from 0, or -1 for the session.
 func (m Model) row() int {
-	if m.selected >= len(m.items) {
+	if m.sub == "" || m.selected >= len(m.items) {
 		return -1
 	}
-	return min(m.sub, m.rows(m.items[m.selected])-1)
+	item := m.items[m.selected]
+	for i, a := range item.Subagents[:m.rows(item)] {
+		if a.ID == m.sub {
+			return i
+		}
+	}
+	return -1
 }
 
 // rows is the number of subagent rows item shows: none while collapsed.
 func (m Model) rows(item Item) int {
 	if m.expanded[item.Session.ID] {
-		return item.Subagents.Len()
+		return len(item.Subagents)
 	}
 	return 0
+}
+
+// selectRow selects row of the selected entry: a subagent, counted from 0,
+// or the session for -1.
+func (m *Model) selectRow(row int) {
+	m.sub = ""
+	if row >= 0 {
+		m.sub = m.items[m.selected].Subagents[row].ID
+	}
 }
 
 // entryHeight is the number of lines item occupies: its title and branch
 // lines, the line counting its subagents and their rows, and a blank line.
 func (m Model) entryHeight(item Item) int {
 	height := 3 + m.rows(item)
-	if item.Subagents.Len() > 0 {
+	if len(item.Subagents) > 0 {
 		height++ // the line counting them
 	}
 	return height
@@ -199,16 +216,16 @@ func (m Model) move(delta int) Model {
 	if len(m.items) == 0 {
 		return m
 	}
-	m.sub = m.row() + delta
+	row := m.row() + delta
 	switch {
-	case m.sub < -1 && m.selected > 0:
+	case row < -1 && m.selected > 0:
 		m.selected--
-		m.sub = m.rows(m.items[m.selected]) - 1
-	case m.sub >= m.rows(m.items[m.selected]) && m.selected < len(m.items)-1:
+		row = m.rows(m.items[m.selected]) - 1
+	case row >= m.rows(m.items[m.selected]) && m.selected < len(m.items)-1:
 		m.selected++
-		m.sub = -1
+		row = -1
 	}
-	m.sub = max(-1, min(m.sub, m.rows(m.items[m.selected])-1))
+	m.selectRow(max(-1, min(row, m.rows(m.items[m.selected])-1)))
 	return m.clamp()
 }
 
@@ -298,7 +315,7 @@ func (m Model) LineAt(y int) Line {
 	switch {
 	case !ok:
 		return LineNone
-	case line == 2 && m.items[i].Subagents.Len() > 0:
+	case line == 2 && len(m.items[i].Subagents) > 0:
 		return LineCount
 	case line >= 3 && line-3 < m.rows(m.items[i]):
 		return LineSubagent
@@ -315,12 +332,12 @@ func (m Model) click(y int) Model {
 		return m
 	}
 	id := m.items[i].Session.ID
-	m.selected, m.sub = i, -1
+	m.selected, m.sub = i, ""
 	switch m.LineAt(y) {
 	case LineCount:
 		return m.setExpanded(id, !m.expanded[id])
 	case LineSubagent:
-		m.sub = line - 3
+		m.selectRow(line - 3)
 	}
 	return m.clamp()
 }
@@ -399,72 +416,87 @@ func (m Model) renderItem(item Item, sub int) []string {
 		pad(titleLine, m.width, style(lipgloss.NewStyle())),
 		padBetween(branchLine, stat, m.width, style(lipgloss.NewStyle())),
 	}
-	if n := item.Subagents.Len(); n > 0 {
-		count := fmt.Sprintf("%d subagents", n)
-		if n == 1 {
-			count = "1 subagent"
-		}
+	if len(item.Subagents) > 0 {
 		toggle := "▸ "
 		if m.expanded[s.ID] {
 			toggle = "▾ "
 		}
 		countLine := marker + style(lipgloss.NewStyle()).Render("  ") +
-			style(t.StyleFaint).Render(ansi.Truncate(toggle+count, max(0, m.width-4), "…"))
+			style(t.StyleFaint).Render(ansi.Truncate(toggle+count(item.Subagents), max(0, m.width-4), "…"))
 		lines = append(lines, pad(countLine, m.width, style(lipgloss.NewStyle())))
 	}
 	for i := range m.rows(item) {
-		lines = append(lines, m.renderSubagent(item.Subagents, i, i == sub))
+		lines = append(lines, m.renderSubagent(item, i, i == sub))
 	}
 	return append(lines, "")
 }
 
-// renderSubagent renders the row of subagent i, counted from 0, as a branch
-// of the session's tree; a subagent another started is indented under it, or
-// counted after it, (+2), as Claude Code does. Claude Code draws only some of
-// its subagents; the others have no label, only their place in its list. The
-// subagent whose view Claude Code shows in place of the main conversation is
-// highlighted.
-func (m Model) renderSubagent(l subagent.List, i int, selected bool) string {
-	t := m.theme
-	style := m.rowStyle(selected)
-	text := fmt.Sprintf("subagent %d", i+1)
-	if drawn := i - l.Above; drawn >= 0 && drawn < len(l.Rows) {
-		text = l.Rows[drawn].Label
-		if n := l.Rows[drawn].Hidden; n > 0 {
-			text += fmt.Sprintf(" (+%d)", n)
+// count describes subagents by status: "3 subagents: 2 running, 1 done", or
+// "2 subagents running" when they share one.
+func count(agents []subagent.Agent) string {
+	noun := "subagents"
+	if len(agents) == 1 {
+		noun = "subagent"
+	}
+	var parts []string
+	for _, status := range []subagent.Status{subagent.Running, subagent.Done, subagent.Failed} {
+		if n := len(slices.DeleteFunc(slices.Clone(agents), func(a subagent.Agent) bool { return a.Status != status })); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, statusWords[status]))
 		}
 	}
+	if len(parts) == 1 {
+		return fmt.Sprintf("%d %s %s", len(agents), noun, statusWords[agents[0].Status])
+	}
+	return fmt.Sprintf("%d %s: %s", len(agents), noun, strings.Join(parts, ", "))
+}
+
+var statusWords = map[subagent.Status]string{subagent.Running: "running", subagent.Done: "done", subagent.Failed: "failed"}
+
+// sessionStatus is the session status whose icon and colour a subagent's
+// status shares: done is ready for review.
+var sessionStatus = map[subagent.Status]session.Status{
+	subagent.Running: session.StatusRunning,
+	subagent.Done:    session.StatusReady,
+	subagent.Failed:  session.StatusStopped,
+}
+
+// renderSubagent renders the row of item's subagent i, counted from 0, as a
+// branch of the session's tree, with its status and description; a subagent
+// another started is indented under it. The subagent whose view Claude Code
+// shows in place of the main conversation is highlighted.
+func (m Model) renderSubagent(item Item, i int, selected bool) string {
+	t := m.theme
+	style := m.rowStyle(selected)
+	a := item.Subagents[i]
+	text := a.Description
+	if text == "" {
+		text = a.Type
+	}
 	branch := "├ "
-	if lastSibling(l, i) {
+	if lastSibling(item.Subagents, i) {
 		branch = "└ "
 	}
-	branch = strings.Repeat("  ", depth(l, i)) + branch
+	branch = strings.Repeat("  ", a.Depth) + branch
 	label, tree := t.StyleFaint, t.StyleFaint
-	if i+1 == l.Shown {
+	if a.ID == item.Shown {
 		tree = lipgloss.NewStyle().Foreground(t.ColorAccent)
 	}
-	if i+1 == l.Shown || selected {
+	if a.ID == item.Shown || selected {
 		label = lipgloss.NewStyle()
 	}
-	line := m.marker(selected) + style(lipgloss.NewStyle()).Render("  ") + style(tree).Render(branch) +
-		style(label).Render(ansi.Truncate(text, max(0, m.width-4-ansi.StringWidth(branch)), "…"))
+	status := sessionStatus[a.Status]
+	icon := style(lipgloss.NewStyle().Foreground(t.StatusColor(status))).Render(common.StatusIcon(status))
+	line := m.marker(selected) + style(lipgloss.NewStyle()).Render("  ") + style(tree).Render(branch) + icon +
+		style(lipgloss.NewStyle()).Render(" ") +
+		style(label).Render(ansi.Truncate(text, max(0, m.width-6-ansi.StringWidth(branch)), "…"))
 	return pad(line, m.width, style(lipgloss.NewStyle()))
 }
 
-// depth returns how deep subagent i is nested; one Claude Code does not draw
-// counts as not nested.
-func depth(l subagent.List, i int) int {
-	if drawn := i - l.Above; drawn >= 0 && drawn < len(l.Rows) {
-		return l.Rows[drawn].Depth
-	}
-	return 0
-}
-
 // lastSibling reports whether no later subagent shares subagent i's parent.
-func lastSibling(l subagent.List, i int) bool {
-	for j := i + 1; j < l.Len(); j++ {
-		if d := depth(l, j); d <= depth(l, i) {
-			return d < depth(l, i)
+func lastSibling(agents []subagent.Agent, i int) bool {
+	for _, a := range agents[i+1:] {
+		if a.Depth <= agents[i].Depth {
+			return a.Depth < agents[i].Depth
 		}
 	}
 	return true

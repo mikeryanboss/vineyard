@@ -126,37 +126,78 @@ session, and on each diff tick. The latest result is kept in `recapShown`, so
 
 Claude Code runs subagents inside its own process, so they have no terminal
 of their own. It lists the running ones below its prompt, and opens one's
-view in place of the main conversation from that list. `internal/subagent`
-reads the list off a captured screen (`Parse`) and drives Claude Code's keys
-(`Open`). The format and keys are undocumented and were read off Claude Code
-2.1.296; `internal/subagent/testdata` holds screens it drew.
+view in place of the main conversation from that list. It also keeps a
+transcript of each: `<projects>/<dir>/<conversation>/subagents/agent-<id>.jsonl`,
+next to `agent-<id>.meta.json` with its type and description, where `<dir>` is
+named after the working directory (`recap.Dir`) and `<conversation>.jsonl` is
+the conversation's own transcript. None of this is documented; it was read
+off Claude Code 2.1.296. `internal/subagent/testdata` holds screens it drew.
 
-The status poll parses the screen of every session whose program is `claude`.
-A session's subagents start collapsed into one line counting them,
-`▸ 3 subagents`: the poll finds them up to a second after they start, and a
-collapsed entry then grows by one line instead of one per subagent. Expanded,
-the line reads `▾ 3 subagents` above the rows, and a click on it expands or
-collapses the session. The count
-is all the status there is to show. Claude Code drops a subagent from its list
-when it finishes, except the one whose view is open, which it draws like a
-running one. `→` (`l`) expands the selected session into a row per subagent,
-and `←` (`h`) collapses it. A session stays expanded until collapsed, also
-through polls that see no subagents. Where there is nothing to expand, `→`
-gives the pane focus for scrolling, as `l` always did.
+The rows come from the transcripts. On each status poll, `subagent.Reader`
+reads what was appended to the transcripts of each Claude session's current
+conversation, the one written to last, picking up where the last poll
+stopped: a conversation's transcript grows to tens of megabytes. From them it
+knows each subagent's description, prompt, report, the files it edited, the
+subagents it started, and its status:
 
-Claude Code draws at most five subagents; the others get a row without a
-label, `subagent 6`. Subagents that a subagent started are rows indented under
-it while Claude Code shows that subagent's view; otherwise Claude Code only
-counts them, and the row says `(+2)`.
+- **Done** or **failed** once a task notification for it, which Claude Code
+  queues in the conversation when a subagent stops, is newer than its
+  transcript's last message. `completed` is done; anything else, such as a
+  subagent the user stopped, failed.
+- **Running** otherwise, also again after its caller resumed it with a
+  message, which appends to the same transcript.
+
+Claude Code drops a finished subagent from its list at once. Vineyard keeps
+it, marked done, until the user sends the conversation a new prompt (a
+transcript line from a `human` origin): `Conversation.Kept`. A row shows the
+subagent's status icon (◑ running, ● done, × failed) and description, under
+the subagent that started it.
+
+A session's subagents start collapsed into one line counting them by status,
+`▸ 3 subagents: 2 running, 1 done`, so that rows appearing as subagents start
+do not push the list down. Expanded, the line reads `▾` above the rows, and a
+click on it expands or collapses the session. `→` (`l`) expands the selected
+session into a row per subagent, and `←` (`h`) collapses it. A session stays
+expanded until collapsed. Where there is nothing to expand, `→` gives the
+pane focus for scrolling, as `l` always did. The selection follows the
+subagent by ID as rows come and go.
+
+The status poll still parses the screen of every Claude session
+(`subagent.Parse`), because opening a subagent needs its position in Claude
+Code's list. `subagent.Match` reads that list in terms of the transcripts:
+Claude Code lists the running subagents the conversation started, and those
+that failed in the last 30 seconds, in the order they started; the one whose
+view it shows even when that one finished, titling the view with its
+description; and under that one, the subagents it started that run. Vineyard
+highlights the subagent in view, and opens one only when exactly one reading
+fits the list. A finished subagent that Claude Code no longer lists cannot be
+opened: its caller can resume it with a message.
 
 Claude Code draws its agent list last, so a poll that catches it redrawing,
 as right after every detach, sees fewer subagents than there are, often none.
-`seeSubagents` believes a poll showing fewer subagents only when the next poll
-agrees; until then the session keeps the list it shows. More subagents show at
-once, and a finished one leaves the list about a poll later. Pausing or
-resuming a session restarts Claude Code and forgets its subagents at once. The
-selection keeps its place in a session's subagents through a list that
-shrinks.
+`seeSubagents` believes a screen showing fewer only when the next poll
+agrees, so the subagent in view keeps its highlight and stays openable
+through a redraw; the rows, read from the transcripts, do not depend on it.
+Pausing or resuming a session restarts Claude Code and forgets its list at
+once.
+
+Selecting a subagent's row shows the subagent in every tab, as selecting a
+session shows the session (`shownAgent` next to `shownID`):
+
+- **Preview:** its transcript (`Reader.Events`), condensed the way Claude
+  Code shows a conversation: messages, each tool call with a one-line summary,
+  and the first three lines of its result. It follows new lines while
+  scrolled to the bottom. A subagent has no screen of its own, and showing its
+  view would mean typing into the session.
+- **Diff:** the diff of the git worktree holding the directory it last worked
+  in (`Agent.Dir`: where it last edited a file, else where it last `cd`-ed
+  to, else its working directory), from where that worktree's branch forks
+  from the mainline (`git.Base`). In its session's worktree, the session's
+  diff. `enter` runs the diff tool in that worktree.
+- **Issue:** for a subagent in a worktree of its own, the issues of that
+  diff, as for sessions; in its session's worktree, the issues whose files it
+  edited (`shownIssues`).
+- **Recap:** its description, type, status, report, and prompt.
 
 Selecting a row types nothing. `enter` on the preview tab, or `o`, runs `Open`
 and then attaches:
@@ -168,6 +209,8 @@ and then attaches:
    ↓ first moves the cursor down a line, which does not show on screen, so
    each press waits up to half a second.
 3. Move the selection to the subagent, press Enter, and wait for `●` on it.
+   When the subagent shown before had finished, Claude Code drops it, and
+   those after it move up a place.
 4. Press Esc so the prompt has focus: typing then messages the subagent.
 
 Each step checks the screen before the next, and a failure is shown instead of

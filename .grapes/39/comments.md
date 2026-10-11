@@ -1,0 +1,14 @@
+### 2026-10-11T22:05
+[FINDINGS] Measured in tmux with `claude --model haiku` (2.1.296): Vineyard shows new subagents about 0.3 s after Claude Code lists them, and 0.03 s after the session row on startup. The 1 s gap the user saw is a poll catching Claude Code mid-redraw after a detach (#38). Transcripts appear as Claude Code lists the subagents. Claude Code's list keeps launch order, drops a finished subagent at once except the one in view, titles the view with the shown subagent's description, and a resumed subagent (SendMessage) reappears and appends to the same transcript. ← on an empty prompt moves the conversation to the agent view, and Esc back continued it under a new transcript.
+
+### 2026-10-11T22:05
+[DECISION] The user chose: keep finished subagents, marked done, until the next prompt; a subagent's preview is its transcript (#40). Rows come from the transcripts; the screen list remains only to find a subagent's position for opening (`subagent.Match`).
+
+### 2026-10-11T22:50
+[VERIFY] From the worktree root: `gofmt -l .` printed nothing; `go vet ./...` passed; `go test -count=1 ./...` passed in 6.3 s. Real terminal (140×36 tmux, dev build, haiku demo): a done subagent from before a new prompt left the list when the prompt was sent; three new subagents showed `▾ 3 subagents running`, then `2 running, 1 done`, `1 running, 2 done`, `3 subagents done`, each row turning ◑ → ●. Opening a running subagent while Claude Code kept a finished one in view first failed ("does not match"), because any finished subagent could be the one in view; with the view title it opened (`claude view title: mike`). Opening then failed again because Claude Code drops the finished view and moves the target up; `subagent.Open` now accepts that (TestOpen_PastAFinishedSubagentInView), and the rerun attached to mike. PASS.
+
+### 2026-10-11T22:50
+[DONE] `internal/subagent/transcript.go`: `Reader` (incremental), `Conversation`, `Kept`, `Events`, `Match`. `subagent.go`: `List.View`, and `Open` past a dropped finished view. `internal/tui/list`: rows from agents with status icons, the count by status, selection by subagent ID. `internal/tui/app.go`: `conversations`, `shownSubagent`, `openSubagent`. `backend.go`/`main.go`: `Subagents`, `Transcripts`. `recap.Dir`. Docs: architecture Subagents, README, docs/README.
+
+### 2026-10-11T23:20
+[PROGRESS] Merged main after #29 and #30 merged. #30's `seeSubagents` now guards only the screen list that opening a subagent and its highlight use; the rows come from the transcripts. Its test became `TestApp_SubagentsSurviveAPollCatchingARedraw`: a poll without the list keeps the count and still opens the subagent; two such polls do not. Pause, resume, and adopt also forget a session's transcript rows until the next poll. `gofmt -l .` printed nothing, `go vet ./...` passed, `go test -count=1 ./...` passed in 6.1 s. PASS.

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
 	"os/exec"
 	"slices"
@@ -41,6 +42,13 @@ type fakeBackend struct {
 	tools    []*exec.Cmd // diff tools built
 	opened   [][2]int    // position and total of each subagent opened
 	openErr  error
+	// conversation is what every Claude session's transcripts say, and
+	// events each subagent's transcript, by ID.
+	conversation subagent.Conversation
+	events       map[string][]subagent.Event
+	// trees maps a directory to the worktree holding it, and treeDiffs a
+	// worktree to its diff.
+	trees, treeDiffs map[string]string
 	// templates are the template files; Templates adds the inline ones.
 	templates []config.Template
 }
@@ -89,7 +97,7 @@ func (f *fakeBackend) AttachCommand(s session.Session) *exec.Cmd {
 }
 
 func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
-	cmd, err := diffTool(s, s.BaseCommit, command)
+	cmd, err := diffTool(s.WorktreePath, s.BaseCommit, command)
 	if err == nil {
 		f.mu.Lock()
 		f.tools = append(f.tools, cmd)
@@ -105,6 +113,27 @@ func (f *fakeBackend) OpenSubagent(s session.Session, position, total int) error
 	defer f.mu.Unlock()
 	f.opened = append(f.opened, [2]int{position, total})
 	return f.openErr
+}
+func (f *fakeBackend) Subagents(s session.Session) (subagent.Conversation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.conversation, nil
+}
+func (f *fakeBackend) SubagentEvents(s session.Session, id string) ([]subagent.Event, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.events[id], nil
+}
+func (f *fakeBackend) Worktree(dir string) string           { return f.trees[dir] }
+func (f *fakeBackend) TreeDiff(root string) (string, error) { return f.treeDiffs[root], nil }
+func (f *fakeBackend) TreeDiffTool(root, command string) (*exec.Cmd, error) {
+	cmd, err := diffTool(root, "base", command)
+	if err == nil {
+		f.mu.Lock()
+		f.tools = append(f.tools, cmd)
+		f.mu.Unlock()
+	}
+	return cmd, err
 }
 func (f *fakeBackend) Diff(s session.Session) (string, error)       { return f.diff, nil }
 func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error) { return git.Stat{Added: 3}, nil }
@@ -843,6 +872,24 @@ func TestTheme_LightUntilTerminalReportsDark(t *testing.T) {
 	}
 }
 
+// running is a conversation whose subagents all run, with descriptions, in
+// the order they started.
+func running(descriptions ...string) subagent.Conversation {
+	var c subagent.Conversation
+	for i, d := range descriptions {
+		c.Agents = append(c.Agents, subagent.Agent{
+			ID: fmt.Sprintf("a%d", i+1), Type: "general-purpose", Description: d, Started: time.Unix(int64(i), 0),
+		})
+	}
+	return c
+}
+
+// listing is Claude Code's list of n subagents, all drawn, with the
+// conversation shown.
+func listing(n int) subagent.List {
+	return subagent.List{Rows: slices.Repeat([]subagent.Row{{Type: "general-purpose"}}, n), Shown: 0, Focus: -1}
+}
+
 // agentScreen is a Claude Code screen listing two subagents, with one more
 // out of sight.
 const agentScreen = `❯ 
@@ -858,51 +905,45 @@ func TestApp_StatusPollListsClaudeSubagents(t *testing.T) {
 		{ID: "a1", Title: "Aider session", Program: "aider", Status: session.StatusRunning},
 	})
 	backend.screen = agentScreen
+	backend.conversation = running("parser tests", "find the redirect", "update the docs")
 	m = send(m, statusTickMsg{})
 	view := screen(m)
-	claude, count, aider := indexOf(view, "Claude session"), indexOf(view, "▸ 3 subagents"), indexOf(view, "Aider session")
-	if !(claude < count && count < aider) || strings.Count(view, "▸") != 1 || contains(view, "Running the parser tests") {
+	claude, count, aider := indexOf(view, "Claude session"), indexOf(view, "▸ 3 subagents running"), indexOf(view, "Aider session")
+	if !(claude < count && count < aider) || strings.Count(view, "▸") != 1 || contains(view, "parser tests") {
 		t.Errorf("want three subagents counted, not listed, under the Claude session only:\n%s", view)
 	}
 	view = screen(keys(m, "right"))
-	claude, rows, aider := indexOf(view, "Claude session"), indexOf(view, "├ Running the parser tests"), indexOf(view, "Aider session")
-	if !(claude < rows && rows < aider) || strings.Count(view, "├")+strings.Count(view, "└") != 3 || !contains(view, "└ subagent 3") {
-		t.Errorf("→ should list the three subagents, one out of Claude Code's sight, under the Claude session:\n%s", view)
+	claude, rows, aider := indexOf(view, "Claude session"), indexOf(view, "├ ◑ parser tests"), indexOf(view, "Aider session")
+	if !(claude < rows && rows < aider) || strings.Count(view, "├")+strings.Count(view, "└") != 3 || !contains(view, "└ ◑ update the docs") {
+		t.Errorf("→ should list the three subagents the transcripts record under the Claude session:\n%s", view)
 	}
 }
 
 // Claude Code draws its agent list last, so a poll can catch it redrawing,
-// as right after a detach, with fewer subagents or none. One such poll must
-// not change the count; two in a row mean the subagents finished.
-func TestApp_SubagentCountSurvivesAPollCatchingARedraw(t *testing.T) {
-	m, _ := newTestModel(t, testutil.Sessions())
-	row := subagent.Row{Type: "general-purpose", Label: "one"}
-	poll := func(m Model, rows ...subagent.Row) Model {
-		listed := subagent.List{Rows: rows, Shown: 0, Focus: -1}
-		return send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+// as right after a detach, with fewer subagents or none. The rows come from
+// the transcripts and keep their count. The list on screen, which opening a
+// subagent needs, is believed to shrink only when the next poll agrees.
+func TestApp_SubagentsSurviveAPollCatchingARedraw(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	conv := running("one", "two", "three")
+	poll := func(m Model, listed subagent.List) Model {
+		return send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed, conversation: conv}}})
 	}
-	m = poll(m, row, row, row)
-	if m = poll(m); !contains(screen(m), "▸ 3 subagents") {
-		t.Errorf("one poll without the list should keep the count:\n%s", screen(m))
+	m = poll(m, listing(3))
+	if m = poll(m, subagent.List{}); !contains(screen(m), "▸ 3 subagents running") {
+		t.Errorf("a poll without the list should keep the count:\n%s", screen(m))
 	}
-	if m = poll(m, row, row, row); !contains(screen(m), "▸ 3 subagents") {
-		t.Errorf("the list back should keep the count:\n%s", screen(m))
+	m = keys(m, "l", "j", "o")
+	if !slices.Equal(backend.opened, [][2]int{{1, 3}}) {
+		t.Errorf("opened %v; one poll without the list should still open the subagent at 1 of 3", backend.opened)
 	}
-	if m = poll(m, row); !contains(screen(m), "▸ 3 subagents") {
-		t.Errorf("one poll with fewer subagents should keep the count:\n%s", screen(m))
-	}
-	if m = poll(m, row); !contains(screen(m), "▸ 1 subagent") {
-		t.Errorf("a second poll with fewer subagents should show them:\n%s", screen(m))
-	}
-	if m = poll(m, row, row); !contains(screen(m), "▸ 2 subagents") {
-		t.Errorf("more subagents should show at once:\n%s", screen(m))
-	}
-	if m = poll(poll(m)); contains(screen(m), "subagent") {
-		t.Errorf("two polls without the list should drop the count:\n%s", screen(m))
+	m = keys(poll(m, subagent.List{}), "o")
+	if len(backend.opened) != 1 || !contains(m.status, "does not match") {
+		t.Errorf("opened %v, status %q; two polls without the list mean Claude Code no longer lists them", backend.opened, m.status)
 	}
 
 	// Pausing or resuming restarts Claude Code, which forgets its subagents.
-	m = poll(m, row, row)
+	m = poll(m, listing(3))
 	paused := testutil.Sessions()[0]
 	paused.Status = session.StatusPaused
 	m = send(m, lifecycleMsg{session: paused, verb: "pause"})
@@ -916,17 +957,16 @@ func TestApp_SubagentCountSurvivesAPollCatchingARedraw(t *testing.T) {
 // there is nothing to show.
 func TestApp_ArrowsFoldSubagentsBeforeThePane(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
-	listed := subagent.List{Rows: []subagent.Row{{Type: "general-purpose", Label: "one"}}, Shown: 0, Focus: -1}
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}}})
 	if !contains(screen(m), "→ show subagents") {
 		t.Errorf("the status bar should offer to show the subagents:\n%s", screen(m))
 	}
 	m = keys(m, "l")
-	if m.focus != focusList || !contains(screen(m), "└ one") {
+	if m.focus != focusList || !contains(screen(m), "└ ◑ one") {
 		t.Fatalf("l should show the subagent rows and keep the list focused; focus=%d\n%s", m.focus, screen(m))
 	}
 	m = keys(m, "j", "left")
-	if _, ok := m.list.SelectedSubagent(); ok || contains(screen(m), "└ one") || selectedID(m) != "login-1" {
+	if _, ok := m.list.SelectedSubagent(); ok || contains(screen(m), "└ ◑ one") || selectedID(m) != "login-1" {
 		t.Errorf("← on a subagent row should hide the rows and select the session:\n%s", screen(m))
 	}
 	m = keys(m, "right", "right")
@@ -942,10 +982,11 @@ func TestApp_ArrowsFoldSubagentsBeforeThePane(t *testing.T) {
 func TestApp_EnterOnASubagentRowOpensItThenAttaches(t *testing.T) {
 	m, backend := newTestModel(t, testutil.Sessions())
 	listed := subagent.List{
-		Rows:  []subagent.Row{{Type: "general-purpose", Label: "one"}, {Type: "general-purpose", Label: "two"}},
+		Rows:  []subagent.Row{{Type: "general-purpose", Label: "two"}, {Type: "general-purpose", Label: "three"}},
 		Above: 1, Below: 1, Shown: 0, Focus: -1,
 	}
-	m = send(m, statusMsg{lead: false, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	conv := running("one", "two", "three", "four")
+	m = send(m, statusMsg{lead: false, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed, conversation: conv}}})
 	m = keys(m, "l", "j", "j", "j") // the third subagent, the second Claude Code draws
 	if len(backend.opened) != 0 || len(backend.enters) != 0 || backend.attaches != 0 {
 		t.Fatal("selecting a subagent row must not type into the agent")
@@ -960,11 +1001,105 @@ func TestApp_EnterOnASubagentRowOpensItThenAttaches(t *testing.T) {
 	}
 }
 
+// A finished subagent stays, marked done, until the user's next prompt.
+func TestApp_SubagentsShowTheirStatusUntilTheNextPrompt(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	conv := running("review the parser", "write the tests")
+	conv.Agents[0].Status, conv.Agents[0].Ended = subagent.Done, time.Unix(100, 0)
+	conv.Prompted = time.Unix(50, 0)
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: conv}}})
+	m = keys(m, "l")
+	view := screen(m)
+	if !contains(view, "▾ 2 subagents: 1 running") || !contains(view, "├ ● review the parser") || !contains(view, "└ ◑ write the tests") {
+		t.Errorf("want the finished subagent kept and marked done, the other running:\n%s", view)
+	}
+	conv.Prompted = time.Unix(150, 0)
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 2, subagents: listing(1), conversation: conv}}})
+	if view := screen(m); contains(view, "review the parser") || !contains(view, "▾ 1 subagent running") {
+		t.Errorf("a prompt after it finished should drop the finished subagent:\n%s", view)
+	}
+}
+
+// Claude Code no longer lists a finished subagent, except the one it shows,
+// which still takes a place in its list.
+func TestApp_OpenFindsTheSubagentInClaudeCodesList(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	conv := running("shown, finished", "running", "finished")
+	conv.Agents[0].Status, conv.Agents[0].Ended = subagent.Done, time.Unix(100, 0)
+	conv.Agents[2].Status, conv.Agents[2].Ended = subagent.Done, time.Unix(100, 0)
+	listed := listing(2)
+	listed.Shown = 1
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed, conversation: conv}}})
+	m = keys(m, "l", "j", "j", "o")
+	if !slices.Equal(backend.opened, [][2]int{{2, 2}}) {
+		t.Fatalf("opened %v, want the running subagent at position 2 of 2, after the finished one in view", backend.opened)
+	}
+	m = keys(m, "j", "o")
+	if len(backend.opened) != 1 || !contains(m.status, "has finished") {
+		t.Errorf("opened %v, status %q; a finished subagent out of Claude Code's list must not be opened", backend.opened, m.status)
+	}
+}
+
+// A subagent row shows the subagent in every tab: its transcript in place of
+// the screen, its own worktree's diff and issue, and what it reported.
+func TestApp_ASubagentRowShowsTheSubagent(t *testing.T) {
+	sessions := testutil.Sessions()
+	sessions[0].WorktreePath = "/src/shop/.vineyard/worktrees/login"
+	m, backend := newTestModel(t, sessions)
+	conv := running("write the tests", "update the docs")
+	conv.Agents[0].Dir = "/src/shop/.claude/worktrees/tests/internal"
+	conv.Agents[0].Status, conv.Agents[0].Ended = subagent.Done, time.Unix(100, 0)
+	conv.Agents[0].Prompt, conv.Agents[0].Report = "Write the parser tests.", "All 12 tests pass."
+	conv.Agents[1].Edited = []string{"/src/shop/.vineyard/worktrees/login/.grapes/3/comments.md"}
+	backend.conversation = conv
+	backend.events = map[string][]subagent.Event{"a1": {
+		{Kind: subagent.Prompt, Text: "Write the parser tests."},
+		{Kind: subagent.Tool, Name: "Bash", Text: "go test ./..."},
+		{Kind: subagent.Result, Text: "ok  shop/parser"},
+		{Kind: subagent.Text, Text: "All 12 tests pass."},
+	}}
+	backend.trees = map[string]string{"/src/shop/.claude/worktrees/tests/internal": "/src/shop/.claude/worktrees/tests"}
+	backend.treeDiffs = map[string]string{"/src/shop/.claude/worktrees/tests": strings.ReplaceAll(sampleDiff, "auth.go", "parser_test.go") +
+		"diff --git a/.grapes/7/meta.toml b/.grapes/7/meta.toml\n--- a/.grapes/7/meta.toml\n+++ b/.grapes/7/meta.toml\n@@ -1 +1 @@\n-status = 'todo'\n+status = 'done'\n"}
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: conv}}})
+	m = keys(m, "l", "j")
+
+	view := screen(m)
+	for _, want := range []string{"❯ Write the parser tests.", "● Bash(go test ./...)", "⎿ ok  shop/parser", "● All 12 tests pass."} {
+		if !contains(view, want) {
+			t.Errorf("the preview should show the subagent's transcript, with %q:\n%s", want, view)
+		}
+	}
+	if contains(view, "fix the redirect") {
+		t.Errorf("the preview still shows the session's screen:\n%s", view)
+	}
+	m = send(m, diffTickMsg{})
+	if view := screen(keys(m, "tab")); !contains(view, "parser_test.go") || contains(view, "auth.go") {
+		t.Errorf("the diff should be the subagent's own worktree's:\n%s", view)
+	}
+	s, _ := m.selected()
+	if ids := m.shownIssues(s); !slices.Equal(ids, []int{7}) {
+		t.Errorf("issues = %v, want 7, from its worktree's diff", ids)
+	}
+	if view := screen(keys(m, "tab", "tab", "tab")); !contains(view, "write the tests") || !contains(view, "done") || !contains(view, "All 12 tests pass.") || !contains(view, "Write the parser tests.") {
+		t.Errorf("the recap should show the subagent's description, status, report, and prompt:\n%s", view)
+	}
+
+	m = keys(m, "j") // the subagent in the session's worktree, on the preview tab
+	m = send(m, diffTickMsg{})
+	if s, _ := m.selected(); !slices.Equal(m.shownIssues(s), []int{3}) || m.agentTree != "" {
+		t.Errorf("issues = %v, tree %q; want 3, whose file it edited, in the session's worktree", m.shownIssues(s), m.agentTree)
+	}
+	m = keys(m, "k", "k")
+	if view := screen(m); !contains(view, "fix the redirect") {
+		t.Errorf("the session row should show the session's screen again:\n%s", view)
+	}
+}
+
 func TestApp_FailedSubagentOpenDoesNotAttach(t *testing.T) {
 	m, backend := newTestModel(t, testutil.Sessions())
 	backend.openErr = subagent.ErrChanged
-	listed := subagent.List{Rows: []subagent.Row{{Type: "general-purpose", Label: "one"}}, Shown: 0, Focus: -1}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}}})
 	m = keys(m, "l", "j", "enter")
 	if backend.attaches != 0 {
 		t.Error("a subagent that did not open must not be attached to")
@@ -1100,15 +1235,14 @@ func TestApp_DoubleClickOnASessionIsEnter(t *testing.T) {
 func TestApp_DoubleClickOnASubagentOpensIt(t *testing.T) {
 	c := clock(t)
 	m, backend := newTestModel(t, testutil.Sessions())
-	listed := subagent.List{Rows: []subagent.Row{{Type: "general-purpose", Label: "one"}}, Shown: 0, Focus: -1}
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}}})
 	m = doubleClickOn(t, m, c, "1 subagent", 0)
 	if !contains(screen(m), "▾ 1 subagent") || backend.attaches != 0 {
 		t.Fatalf("a double click on the count line should expand it once and attach nothing; attached %d\n%s", backend.attaches, screen(m))
 	}
 	m = clickOn(t, m, "Diff", headerHeight+1)
 	*c = c.Add(time.Second)
-	doubleClickOn(t, m, c, "└ one", 0)
+	doubleClickOn(t, m, c, "└ ◑ one", 0)
 	if !slices.Equal(backend.opened, [][2]int{{1, 1}}) || backend.attaches != 1 {
 		t.Errorf("a double click on a subagent on the diff tab opened %v and attached %d times", backend.opened, backend.attaches)
 	}

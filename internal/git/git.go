@@ -195,6 +195,16 @@ func IsWorktree(path string) bool {
 	return filepath.Clean(strings.TrimSpace(out)) == filepath.Clean(path)
 }
 
+// Root returns the top of the git checkout holding dir, or "" when none
+// does.
+func Root(dir string) string {
+	out, err := run(dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return ""
+	}
+	return filepath.Clean(strings.TrimSpace(out))
+}
+
 // BranchExists reports whether a local branch exists.
 func BranchExists(repoRoot, branch string) bool {
 	_, err := run(repoRoot, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)

@@ -58,6 +58,10 @@ type List struct {
 	// Focus is the position of the selected row while the list has focus,
 	// or -1.
 	Focus int
+	// View is the title on the rule above the prompt: the description of
+	// the subagent shown, or the conversation's name. It may be cut short
+	// with "…".
+	View string
 }
 
 // Len returns the number of subagents.
@@ -70,6 +74,7 @@ var (
 	mainRow  = regexp.MustCompile(`^(❯| ) ([●◯]) main(?:\s+↑ (\d+) more)?\s*$`)
 	agentRow = regexp.MustCompile(`^(❯| ) ((?:[│├└] |  )*)([●◯]) (\S+)(?: \(\+(\d+)\))?  +(.*)$`)
 	moreRow  = regexp.MustCompile(`^  ↓ (\d+) more\s*$`)
+	titled   = regexp.MustCompile(`^─+ (.+) ─\s*$`)
 	// columns separates a row's label from its statistics.
 	columns = regexp.MustCompile(`\s{2,}`)
 )
@@ -88,6 +93,11 @@ func Parse(screen string) (List, bool) {
 		return List{}, false
 	}
 	l := List{Shown: -1, Focus: -1}
+	for _, line := range lines[:start] {
+		if m := titled.FindStringSubmatch(line); m != nil {
+			l.View = m[1]
+		}
+	}
 	m := mainRow.FindStringSubmatch(lines[start])
 	l.mark(0, m[1], m[2])
 	if m[3] != "" {
@@ -209,7 +219,16 @@ func choose(s Screen, l List, position, total int) error {
 	if err := s.SendKeys("Enter"); err != nil {
 		return err
 	}
-	if _, err := waitFor(s, viewWait, func(l List) bool { return l.Shown == position }); err != nil {
+	// Claude Code drops the subagent it showed when that one has finished,
+	// which moves those after it up a place.
+	moved := position
+	if l.Shown > 0 && l.Shown < position {
+		moved--
+	}
+	opened := func(after List) bool {
+		return after.Shown == position || after.Len() == total-1 && l.Shown > 0 && after.Shown == moved
+	}
+	if _, err := waitFor(s, viewWait, opened); err != nil {
 		return fmt.Errorf("opening the subagent: %w", err)
 	}
 	return nil
