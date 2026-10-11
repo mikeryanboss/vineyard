@@ -871,6 +871,47 @@ func TestApp_StatusPollListsClaudeSubagents(t *testing.T) {
 	}
 }
 
+// Claude Code draws its agent list last, so a poll can catch it redrawing,
+// as right after a detach, with fewer subagents or none. One such poll must
+// not change the count; two in a row mean the subagents finished.
+func TestApp_SubagentCountSurvivesAPollCatchingARedraw(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	row := subagent.Row{Type: "general-purpose", Label: "one"}
+	poll := func(m Model, rows ...subagent.Row) Model {
+		listed := subagent.List{Rows: rows, Shown: 0, Focus: -1}
+		return send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	}
+	m = poll(m, row, row, row)
+	if m = poll(m); !contains(screen(m), "▸ 3 subagents") {
+		t.Errorf("one poll without the list should keep the count:\n%s", screen(m))
+	}
+	if m = poll(m, row, row, row); !contains(screen(m), "▸ 3 subagents") {
+		t.Errorf("the list back should keep the count:\n%s", screen(m))
+	}
+	if m = poll(m, row); !contains(screen(m), "▸ 3 subagents") {
+		t.Errorf("one poll with fewer subagents should keep the count:\n%s", screen(m))
+	}
+	if m = poll(m, row); !contains(screen(m), "▸ 1 subagent") {
+		t.Errorf("a second poll with fewer subagents should show them:\n%s", screen(m))
+	}
+	if m = poll(m, row, row); !contains(screen(m), "▸ 2 subagents") {
+		t.Errorf("more subagents should show at once:\n%s", screen(m))
+	}
+	if m = poll(poll(m)); contains(screen(m), "subagent") {
+		t.Errorf("two polls without the list should drop the count:\n%s", screen(m))
+	}
+
+	// Pausing or resuming restarts Claude Code, which forgets its subagents.
+	m = poll(m, row, row)
+	paused := testutil.Sessions()[0]
+	paused.Status = session.StatusPaused
+	m = send(m, lifecycleMsg{session: paused, verb: "pause"})
+	paused.Status = session.StatusRunning
+	if m = send(m, lifecycleMsg{session: paused, verb: "resume"}); contains(screen(m), "subagent") {
+		t.Errorf("a resumed session should show no subagents before a poll finds them:\n%s", screen(m))
+	}
+}
+
 // → and ← fold a session's subagent rows, and → gives the pane focus where
 // there is nothing to show.
 func TestApp_ArrowsFoldSubagentsBeforeThePane(t *testing.T) {
