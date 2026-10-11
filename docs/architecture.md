@@ -122,6 +122,43 @@ sessions whose program is `claude`: on switching to the tab, on selecting a
 session, and on each diff tick. The latest result is kept in `recapShown`, so
 `refreshRecap` can re-render it on resize and theme changes.
 
+## Subagents
+
+Claude Code runs subagents inside its own process, so they have no terminal
+of their own. It lists the running ones below its prompt, and opens one's
+view in place of the main conversation from that list. `internal/subagent`
+reads the list off a captured screen (`Parse`) and drives Claude Code's keys
+(`Open`). The format and keys are undocumented and were read off Claude Code
+2.1.296; `internal/subagent/testdata` holds screens it drew.
+
+The status poll parses the screen of every session whose program is `claude`,
+and the list shows a row per subagent under its session. Claude Code draws at
+most five; the others get a row without a label, `subagent 6`. Subagents that
+a subagent started are rows indented under it while Claude Code shows that
+subagent's view; otherwise Claude Code only counts them, and the row says
+`(+2)`. A subagent leaves the list when it finishes, except the one whose view
+is open. The selection keeps its place in a session's subagents through a poll
+that sees fewer rows, since Claude Code draws fewer for a moment while it
+redraws, as after a detach.
+
+Selecting a row types nothing. `enter` on the preview tab, or `o`, runs `Open`
+and then attaches:
+
+1. Refuse when the screen shows a permission or trust question, or a list of
+   a different length than the one shown, which means subagents finished or
+   started.
+2. Press ↓ until the list has focus (`❯` on a row). In a multi-line draft each
+   ↓ first moves the cursor down a line, which does not show on screen, so
+   each press waits up to half a second.
+3. Move the selection to the subagent, press Enter, and wait for `●` on it.
+4. Press Esc so the prompt has focus: typing then messages the subagent.
+
+Each step checks the screen before the next, and a failure is shown instead of
+attaching. Esc is pressed only while the screen shows the list focused:
+anywhere else it interrupts Claude Code, and leaving the list focused would let
+a typed `x` stop a subagent. Claude Code shares the prompt's draft between the
+views, so a draft survives opening a subagent.
+
 ## Storage
 
 ```text
@@ -158,9 +195,11 @@ terminal window. Three rules keep them consistent:
   issued while it ran, so it never undoes this process's own change, such as a
   cleared pending prompt.
 - **One process leads.** Every process polls every screen, so only the holder
-  of `lock` (`session.Leader`) types into agents: it delivers pending prompts
-  and answers auto-yes prompts. The others try to take the lock on every
-  status poll, so one of them leads within a second of the leader exiting.
+  of `lock` (`session.Leader`) types into agents on its own: it delivers
+  pending prompts and answers auto-yes prompts. The others try to take the lock
+  on every status poll, so one of them leads within a second of the leader
+  exiting. Opening a subagent is typing the user asks for, so every process
+  does it.
 
 Known limits: two processes showing the same session at different pane sizes
 each resize its tmux window when their own size changes, so the other's
@@ -286,8 +325,9 @@ never pile up.
 
 ```text
 main -> config, git, session, tmux, tui, grapes/embedded
-tui -> session, git, config, diff (via diffview), tui/*, grapes/embedded
+tui -> session, subagent, git, config, diff (via diffview), tui/*, grapes/embedded
 tui/* -> tui/common, and data packages
+subagent -> session
 session -> git
 git, tmux, diff, config -> standard library and format libraries
 ```

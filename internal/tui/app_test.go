@@ -15,6 +15,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
+	"github.com/mikeryanboss/vineyard/internal/subagent"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/testutil"
 )
@@ -37,6 +38,8 @@ type fakeBackend struct {
 	recaps   map[string]recap.Recap // by session ID
 	attaches int
 	tools    []*exec.Cmd // diff tools built
+	opened   [][2]int    // position and total of each subagent opened
+	openErr  error
 	// templates are the template files; Templates adds the inline ones.
 	templates []config.Template
 }
@@ -95,8 +98,15 @@ func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, er
 }
 
 func (f *fakeBackend) ShellAttachCommand(s session.Session) *exec.Cmd { return exec.Command("true") }
-func (f *fakeBackend) Diff(s session.Session) (string, error)         { return f.diff, nil }
-func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error)   { return git.Stat{Added: 3}, nil }
+
+func (f *fakeBackend) OpenSubagent(s session.Session, position, total int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.opened = append(f.opened, [2]int{position, total})
+	return f.openErr
+}
+func (f *fakeBackend) Diff(s session.Session) (string, error)       { return f.diff, nil }
+func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error) { return git.Stat{Added: 3}, nil }
 
 func (f *fakeBackend) Branch(s session.Session) (string, error) {
 	f.mu.Lock()
@@ -829,5 +839,63 @@ func TestTheme_LightUntilTerminalReportsDark(t *testing.T) {
 	m = update(m, tea.BackgroundColorMsg{Color: color.Black})
 	if !m.theme.IsDark {
 		t.Error("a terminal reporting a dark background should switch to the dark theme")
+	}
+}
+
+// agentScreen is a Claude Code screen listing two subagents, with one more
+// out of sight.
+const agentScreen = `❯ 
+  ● main
+  ◯ general-purpose  Running the parser tests        5s · ↓ 19.4k tokens
+  ◯ Explore  Finding the redirect                    5s · ↓ 19.4k tokens
+  ↓ 1 more
+`
+
+func TestApp_StatusPollListsClaudeSubagents(t *testing.T) {
+	m, backend := newTestModel(t, []session.Session{
+		{ID: "c1", Title: "Claude session", Program: "claude --model opus", Status: session.StatusRunning},
+		{ID: "a1", Title: "Aider session", Program: "aider", Status: session.StatusRunning},
+	})
+	backend.screen = agentScreen
+	m = send(m, statusTickMsg{})
+	view := screen(m)
+	claude, rows, aider := indexOf(view, "Claude session"), indexOf(view, "├ Running the parser tests"), indexOf(view, "Aider session")
+	if !(claude < rows && rows < aider) || strings.Count(view, "├")+strings.Count(view, "└") != 3 || !contains(view, "└ subagent 3") {
+		t.Errorf("want three subagents, one out of Claude Code's sight, under the Claude session only:\n%s", view)
+	}
+}
+
+func TestApp_EnterOnASubagentRowOpensItThenAttaches(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	listed := subagent.List{
+		Rows:  []subagent.Row{{Type: "general-purpose", Label: "one"}, {Type: "general-purpose", Label: "two"}},
+		Above: 1, Below: 1, Shown: 0, Focus: -1,
+	}
+	m = send(m, statusMsg{lead: false, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	m = keys(m, "j", "j", "j") // the third subagent, the second Claude Code draws
+	if len(backend.opened) != 0 || len(backend.enters) != 0 || backend.attaches != 0 {
+		t.Fatal("selecting a subagent row must not type into the agent")
+	}
+	m = keys(m, "enter")
+	if !slices.Equal(backend.opened, [][2]int{{3, 4}}) || backend.attaches != 1 {
+		t.Fatalf("opened %v and attached %d times; want position 3 of 4, then attach", backend.opened, backend.attaches)
+	}
+	keys(m, "tab", "o")
+	if len(backend.opened) != 2 || backend.attaches != 2 {
+		t.Errorf("o on the diff tab opened %v and attached %d times", backend.opened, backend.attaches)
+	}
+}
+
+func TestApp_FailedSubagentOpenDoesNotAttach(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	backend.openErr = subagent.ErrChanged
+	listed := subagent.List{Rows: []subagent.Row{{Type: "general-purpose", Label: "one"}}, Shown: 0, Focus: -1}
+	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed}}})
+	m = keys(m, "j", "enter")
+	if backend.attaches != 0 {
+		t.Error("a subagent that did not open must not be attached to")
+	}
+	if !m.statusIsErr || !contains(m.status, subagent.ErrChanged.Error()) {
+		t.Errorf("status = %q, want the error", m.status)
 	}
 }

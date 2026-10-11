@@ -46,6 +46,7 @@ func TestCommands_TargetSessionsExactly(t *testing.T) {
 	c := NewWithRunner("test", r.run)
 	_, _ = c.Capture("s1")
 	_ = c.SendEnter("s1")
+	_ = c.SendKeys("s1", "Down")
 	_ = c.Exists("s1")
 	for _, call := range r.calls {
 		joined := strings.Join(call, " ")

@@ -8,9 +8,10 @@ links only as far as the task requires.
 A Go terminal application that runs coding agents in parallel. A session is one
 agent program in a detached tmux session, working in its own git worktree and
 branch. The TUI lists sessions, mirrors the selected agent's screen, shows its
-diff, its issue, and Claude Code's recaps of it, and hands the terminal to tmux when the user attaches. Its issues screen is
-the [grapes](https://github.com/Mibokess/grapes) issue tracker, embedded, and
-links each issue to the sessions working on it.
+diff, its issue, and Claude Code's recaps of it, lists Claude Code's running
+subagents under it, and hands the terminal to tmux when the user attaches. Its
+issues screen is the [grapes](https://github.com/Mibokess/grapes) issue
+tracker, embedded, and links each issue to the sessions working on it.
 
 ## Runtime Mental Model
 
@@ -50,6 +51,7 @@ main.go
 | Issue tab | `refreshIssue` in `internal/tui/app.go` | `internal/tui/textview/` |
 | Prompt of a session started from an issue | `internal/prompt/`, `promptData` in `internal/tui/app.go` | templates in `internal/config/templates.go`, `ForIssue` in `internal/tui/dialog/` |
 | Recap tab | `refreshRecap` in `internal/tui/app.go` | `internal/recap/`, Recaps in `architecture.md` |
+| Subagent rows, opening a subagent | `internal/subagent/` | `openSubagentCmd` in `internal/tui/app.go`, Subagents in `architecture.md` |
 | Release a version | `var version` in `main.go` | Releases in `development.md` |
 | Re-record the README demo | `doc/vhs/demo.tape` | README Demo in `development.md` |
 
@@ -63,6 +65,7 @@ internal/tmux/             tmux client on Vineyard's private socket
 internal/session/          session model, lifecycle manager, store, screen detection
 internal/diff/             unified diff parser
 internal/recap/            Claude Code transcripts: a session's recaps, title, last prompt
+internal/subagent/         Claude Code's subagent list: read off the screen, opened by its keys
 internal/prompt/           rendering an issue session's prompt from a template
 internal/tui/app.go        root Bubble Tea model
 internal/tui/backend.go    the root model's seam to tmux, git, and storage
@@ -99,7 +102,11 @@ doc/                       README demo GIF and its VHS tape
   model, shown or not; its file watching and reloads depend on it.
 - Several Vineyards may share a repository. Change saved sessions one at a
   time through `Backend.Add`, `Replace`, or `Remove`, never by writing the
-  whole list, and type into agents only when this process leads.
+  whole list. Type into agents on Vineyard's own initiative only when this
+  process leads; typing the user asks for, such as opening a subagent, works
+  in every Vineyard.
+- Never press Esc in Claude Code unless the screen shows its agent list
+  focused: anywhere else Esc interrupts the agent.
 - Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_TMUX_SOCKET`), so
   its key bindings never reach the user's own tmux server.
 

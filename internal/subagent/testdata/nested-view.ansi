@@ -1,0 +1,30 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;241mv2.1.296[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;241mHaiku 5.5 · Claude Max[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;241m~/…/subagents-2b00c6/.grapes/31/tmp/demo/.vineyard/worktrees/parser-tests-d762d[39m
+
+
+[38;5;241m[48;5;255m❯ [38;5;16mRun the Bash command [38;5;105msleep 8[38;5;16m eight times. Make each call in the foreground, one call at a [39m
+  [38;5;16mtime, waiting for each to finish before starting the next. Do not run anything else. When all[39m
+  [38;5;16meight calls have finished, reply with exactly: done[39m
+
+[38;5;241m[49m [39m Running [1m5[0m shell commands[38;5;241m · 3s[39m…
+[38;5;241m  ⎿  $ sleep 8 (3s)[39m
+
+
+
+
+[38;5;174m✽[39m [38;5;180mMeandering…[38;5;174m [38;5;241m(42s · ↓[39m [38;5;241m22.0k tokens)[39m
+[38;5;241m  ⎿  Tip: Use /btw to ask a quick side question without interrupting Claude's current work[39m
+
+[38;5;37m────────────────────────────────────────────────────────────────────────────[38;5;231m[48;5;37m alpha: sleep 8 x8 [38;5;37m[49m─
+[39m❯ [2mMessage @general-purpose…[0m
+[38;5;37m────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [1m[34m~/src/shop/demo/.vineyard…[0m
+  [38;5;241m↑/↓ to select · ctrl+x ctrl+k to stop all agents[39m
+
+[38;5;241m  ◯ main[39m
+[38;5;241m  ◯ general-purpose[39m    [38;5;241mPausing for 8-second sleep[39m                      [38;5;241m2m 51s · ↓ 25.8k tokens[39m
+[1m❯ [0m├ [1m● general-purpose[0m  [1mRunning third of eight sleeps[0m                      [1m42s · ↓ 22.0k tokens[0m
+[38;5;241m  ├ ◯ general-purpose[39m  [38;5;241mRunning sleep 8 (3 of 8)[39m                           [38;5;241m42s · ↓ 22.0k tokens[39m
+[38;5;241m  └ ◯ general-purpose[39m  [38;5;241mRunning sleep 8 (3 of 8)[39m                           [38;5;241m42s · ↓ 22.0k tokens[39m
