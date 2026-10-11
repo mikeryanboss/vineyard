@@ -1026,12 +1026,13 @@ func clock(t *testing.T) *time.Time {
 	return &c
 }
 
-// doubleClickOn clicks text twice, 100 ms apart.
+// doubleClickOn clicks the cell text starts on twice, 100 ms apart.
 func doubleClickOn(t *testing.T, m Model, c *time.Time, text string, from int) Model {
 	t.Helper()
-	m = clickOn(t, m, text, from)
+	at := find(t, m, text, from)
+	m = send(m, at)
 	*c = c.Add(100 * time.Millisecond)
-	return clickOn(t, m, text, from)
+	return send(m, at)
 }
 
 func TestApp_DoubleClickOnASessionIsEnter(t *testing.T) {
@@ -1084,8 +1085,13 @@ func TestApp_DoubleClickInThePane(t *testing.T) {
 	m = keys(m, "tab") // the diff
 	m = send(m, diffTickMsg{})
 	m = doubleClickOn(t, m, c, "auth.go", headerHeight+2) // in the summary
-	if backend.attaches != 1 || len(backend.tools) != 0 || m.diff.CurrentFile() != 0 {
-		t.Errorf("a double click on the diff summary should only jump to the file: attached %d, tools %d, file %d", backend.attaches, len(backend.tools), m.diff.CurrentFile())
+	if backend.attaches != 1 || m.zoomed || m.diff.CurrentFile() != 0 || !contains(screen(m), "▾ M auth.go") {
+		t.Fatalf("a double click on the diff summary should only jump to the file: attached %d, zoomed %v, file %d\n%s", backend.attaches, m.zoomed, m.diff.CurrentFile(), screen(m))
+	}
+	*c = c.Add(time.Second)
+	m = doubleClickOn(t, m, c, "timeout = 60", headerHeight+2)
+	if !m.zoomed || m.tab != tabDiff {
+		t.Errorf("a double click on the diff's code should open the full diff, here zoomed without a diff tool; zoomed %v, tab %d", m.zoomed, m.tab)
 	}
 }
 

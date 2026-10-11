@@ -1626,6 +1626,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
 	_, click := msg.(tea.MouseClickMsg)
+	var first clickAt // the first click of a double click
 	double := false
 	switch {
 	case !click:
@@ -1633,7 +1634,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// The click that closes a dialog must not pair with the next one.
 		m.lastClick = clickAt{}
 	default:
-		double = m.doubleClick(mouse.X, mouse.Y)
+		first, double = m.doubleClick(mouse.X, mouse.Y)
 	}
 	listWidth, _, bodyHeight := m.layout()
 	var cmd tea.Cmd
@@ -1686,15 +1687,16 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.setZoom(false)
 		return m, m.showTab(t)
 	}
+	content := moved(msg, -listWidth-1, -headerHeight-2)
 	switch {
-	case double && m.tab == tabDiff:
+	case double && first.acted:
 		return m, nil // the first click folded a file or jumped to one
 	case double:
 		return m.enter()
 	case click:
 		m.setFocus(focusPane)
+		m.lastClick.acted = m.tab == tabDiff && m.diff.Clickable(content.Mouse().Y)
 	}
-	content := moved(msg, -listWidth-1, -headerHeight-2)
 	switch m.tab {
 	case tabDiff:
 		m.diff, cmd = m.diff.Update(content)
@@ -1712,19 +1714,22 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 type clickAt struct {
 	x, y int
 	at   time.Time
+	// acted marks a click that did something itself, such as folding a file
+	// in the diff, so that a double click it starts does nothing more.
+	acted bool
 }
 
 // doubleClick records a click at x, y and reports whether it makes a double
-// click with the one before: on the same line, within a column, and soon
-// enough. The click after a double click starts over.
-func (m *Model) doubleClick(x, y int) bool {
+// click with the one before, returned as first: on the same line, within a
+// column, and soon enough. The click after a double click starts over.
+func (m *Model) doubleClick(x, y int) (first clickAt, double bool) {
 	at, last := now(), m.lastClick
-	double := y == last.y && x >= last.x-1 && x <= last.x+1 && at.Sub(last.at) <= doubleClickTime
+	double = y == last.y && x >= last.x-1 && x <= last.x+1 && at.Sub(last.at) <= doubleClickTime
 	m.lastClick = clickAt{x: x, y: y, at: at}
 	if double {
 		m.lastClick = clickAt{}
 	}
-	return double
+	return last, double
 }
 
 // enter does what the enter key does in the list, for a double click.

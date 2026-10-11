@@ -336,8 +336,9 @@ or pane with the one before it when both land within a column on the same line
 within 500 ms (`lastClick`; tests replace `now`). The first click of a pair
 acts as a single click; the second runs `enter` through `handleKey`, or `o` on
 a subagent row, so a double click opens a subagent on every tab. Where the
-first click already acted, on a subagent count line or in the diff, the second
-is dropped. Clicks on a dialog, the issues screen, or the config screen clear
+first click already acted, the second is dropped: on a subagent count line, and
+on a diff file's header or summary line (`clickAt.acted`, from
+`diffview.Clickable`), since a jump scrolls another line under the pointer. Clicks on a dialog, the issues screen, or the config screen clear
 `lastClick`, so the click that closes a dialog never pairs with a click on the
 screen beneath.
 

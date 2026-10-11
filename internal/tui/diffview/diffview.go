@@ -105,16 +105,35 @@ func (m Model) toggle(i, anchor int) Model {
 // click acts on rendered line y: a file's header folds or unfolds the file
 // where it is, and a file's line in the summary scrolls to the file.
 func (m Model) click(y int) Model {
+	i, header, ok := m.fileAt(y)
+	switch {
+	case ok && header:
+		return m.toggle(i, -1)
+	case ok:
+		m.viewport.SetYOffset(m.fileStarts[i])
+	}
+	return m
+}
+
+// fileAt returns the file whose header, or line in the summary, is rendered
+// line y, and whether it is the header.
+func (m Model) fileAt(y int) (file int, header, ok bool) {
 	for i, start := range m.fileStarts {
 		switch y {
 		case start + 1: // the header, between two rules
-			return m.toggle(i, -1)
+			return i, true, true
 		case summaryFiles + i:
-			m.viewport.SetYOffset(start)
-			return m
+			return i, false, true
 		}
 	}
-	return m
+	return 0, false, false
+}
+
+// Clickable reports whether a click on line y of the view acts: on a file's
+// header it folds the file, on its line in the summary it jumps to it.
+func (m Model) Clickable(y int) bool {
+	_, _, ok := m.fileAt(m.viewport.YOffset() + y)
+	return ok
 }
 
 // fold changes which files are collapsed and keeps file anchor (an index into

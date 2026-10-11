@@ -25,9 +25,9 @@ Planned:
 
 ## Acceptance Criteria
 
-- [ ] A double click on a diff code line opens the full diff, as `enter` from the list does.
-- [ ] A double click on a file header folds it once; on a summary line it jumps once; neither opens the full diff.
-- [ ] Tests cover both.
+- [x] A double click on a diff code line opens the full diff, as `enter` from the list does.
+- [x] A double click on a file header folds it once; on a summary line it jumps once; neither opens the full diff.
+- [x] Tests cover both.
 
 ## Verify
 
