@@ -6,7 +6,7 @@ Nobody has to remember to release: every merge to `main` that changes the progra
 
 A release needs someone to bump `var version` in `main.go`, and that was forgotten twice: after grapes #29 (fixed by #30) and after #31–#35 (fixed by #36, v0.1.4). The user chose automatic releases over a PR check or a written rule.
 
-Auto Tag stops reading `main.go`. On a push to `main` that changes the program, it tags the pushed commit with the highest `v*` tag's patch plus one, then calls `release.yml` as #36 set up. The binary takes its version from that tag: GoReleaser stamps it into `main.version`, and builds without GoReleaser use the module version Go stamps in.
+Auto Tag stops reading `main.go`. On a push to `main` that changes the program, it tags the pushed commit with the highest `v*` tag's patch plus one, then calls `release.yml` as #36 set up. The binary takes its version from that tag: GoReleaser stamps it into `main.version`, and a `go install` build uses the module version Go stamps in. A build in a checkout shows `dev`, because Go stamps it with the commit of the nearest `.git` directory: for a worktree inside the main checkout, which is how this repository's worktrees are laid out, that is the main checkout's commit (seen: a build at `739fef4` was stamped `v0.1.4+dirty`, `vcs.revision=ce9add4`).
 
 ## Context
 
@@ -25,7 +25,7 @@ Auto Tag stops reading `main.go`. On a push to `main` that changes the program, 
 - [x] It creates no tag, and calls no release, when HEAD already has a `v*` tag.
 - [x] After a hand-pushed tag such as v0.2.0, the next automatic tag is v0.2.1.
 - [ ] Runs do not overlap, so two runs cannot compute the same tag.
-- [x] `vineyard version` prints the GoReleaser-stamped version when stamped, and the module version Go stamped in otherwise, without the leading `v`.
+- [x] `vineyard version` prints the GoReleaser-stamped version when stamped, the module version without its `v` for a `go install` build, and `dev` for a build in a checkout.
 - [x] The docs describe the automatic release and how to release a minor or major version.
 - [x] #36's last criterion is ticked with its verification.
 
@@ -46,4 +46,4 @@ After merge: the merge's Auto Tag run tags v0.1.5 and publishes its release, and
 
 ## Pass Criteria
 
-`gofmt` and actionlint print nothing; vet and tests pass. The unstamped build prints a pseudo-version of the form `0.1.5-0.<timestamp>-<commit>[+dirty]`; the stamped build prints `0.1.5`. The scratch runs create v0.1.5, nothing, and v0.2.1, and write `created=true`, `created=false`, `created=true`.
+`gofmt` and actionlint print nothing; vet and tests pass. The unstamped build prints `dev`; the stamped build prints `0.1.5`. `TestModuleVersion_OnlyForGoInstall` passes and fails without the checkout rule. The scratch runs create v0.1.5, nothing, and v0.2.1, and write `created=true`, `created=false`, `created=true`.

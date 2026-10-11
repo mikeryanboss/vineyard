@@ -28,17 +28,27 @@ import (
 // it from init.
 var version string
 
-// init fills in version for builds without GoReleaser, from the module
-// version Go stamps into the binary: the tag for go install, a pseudo-version
-// for go build in a checkout.
 func init() {
-	if version != "" {
-		return
+	if version == "" {
+		info, _ := debug.ReadBuildInfo()
+		version = moduleVersion(info)
 	}
-	version = "dev"
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		version = strings.TrimPrefix(info.Main.Version, "v")
+}
+
+// moduleVersion is the version of a build without GoReleaser: the module
+// version for go install, and "dev" for a build in a checkout. Go stamps a
+// checkout build with the commit of the nearest .git directory, which for a
+// worktree inside the main checkout is the main checkout's.
+func moduleVersion(info *debug.BuildInfo) string {
+	if info == nil || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
 	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs" {
+			return "dev"
+		}
+	}
+	return strings.TrimPrefix(info.Main.Version, "v")
 }
 
 func main() {

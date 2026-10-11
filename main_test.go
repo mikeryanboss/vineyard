@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -35,6 +36,29 @@ func TestRun_CommandsAndUsageErrors(t *testing.T) {
 				t.Errorf("stdout %q / stderr %q missing %q / %q", stdout.String(), stderr.String(), c.inStdout, c.inStderr)
 			}
 		})
+	}
+}
+
+// Only go install builds take their version from Go: a checkout build may be
+// stamped with another worktree's commit.
+func TestModuleVersion_OnlyForGoInstall(t *testing.T) {
+	cases := []struct {
+		name string
+		info *debug.BuildInfo
+		want string
+	}{
+		{"go install", &debug.BuildInfo{Main: debug.Module{Version: "v0.1.5"}}, "0.1.5"},
+		{"checkout", &debug.BuildInfo{
+			Main:     debug.Module{Version: "v0.1.4+dirty"},
+			Settings: []debug.BuildSetting{{Key: "vcs", Value: "git"}},
+		}, "dev"},
+		{"go run", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, "dev"},
+		{"no build info", nil, "dev"},
+	}
+	for _, c := range cases {
+		if got := moduleVersion(c.info); got != c.want {
+			t.Errorf("%s: moduleVersion = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 
