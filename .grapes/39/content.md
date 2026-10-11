@@ -22,13 +22,13 @@ User decisions (2026-10-11): keep finished subagents until the next prompt, mark
 
 ## Acceptance Criteria
 
-- [ ] A session's subagent rows come from its current conversation's transcripts: each subagent followed by those it started, in launch order, labelled with its description.
-- [ ] A subagent is done when a notification for it is newer than its transcript's last line; failed when that notification's status is not `completed`; running otherwise, also again after a resume.
-- [ ] Rows show the status with an icon, and the count line counts by status (`▸ 3 subagents: 2 running, 1 done`).
-- [ ] A finished subagent stays listed until a prompt from the user newer than its end; a running one always shows.
-- [ ] Transcripts are read incrementally: a poll reads only the lines appended since the last one.
-- [ ] `enter`/`o` on a running subagent opens it at its position in Claude Code's list, also when Claude Code keeps a finished subagent's view open in that list; when the list cannot be matched, or the subagent has finished, Vineyard says so instead of pressing keys.
-- [ ] Docs (`docs/architecture.md` Subagents, README keys/mouse text if affected) describe the transcript source.
+- [x] A session's subagent rows come from its current conversation's transcripts: each subagent followed by those it started, in launch order, labelled with its description.
+- [x] A subagent is done when a notification for it is newer than its transcript's last line; failed when that notification's status is not `completed`; running otherwise, also again after a resume.
+- [x] Rows show the status with an icon, and the count line counts by status (`▸ 3 subagents: 2 running, 1 done`).
+- [x] A finished subagent stays listed until a prompt from the user newer than its end; a running one always shows.
+- [x] Transcripts are read incrementally: a poll reads only the lines appended since the last one.
+- [x] `enter`/`o` on a running subagent opens it at its position in Claude Code's list, also when Claude Code keeps a finished subagent's view open in that list; when the list cannot be matched, or the subagent has finished, Vineyard says so instead of pressing keys.
+- [x] Docs (`docs/architecture.md` Subagents, README keys/mouse text if affected) describe the transcript source.
 
 ## Verify
 

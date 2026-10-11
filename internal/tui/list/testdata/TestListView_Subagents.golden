@@ -2,13 +2,13 @@
                                     
  ◑ Fix login redirect               
    ⑂ mboss/fix-login-redirect       
-   ▾ 6 subagents                    
-▌  ├ Running the parser tests       
-   ├ Finding where redirects are b… 
-     └ Reading the router           
-   ├ Reviewing the diff (+2)        
-   ├ subagent 5                     
-   └ subagent 6                     
+   ▾ 6 subagents: 4 running, 1 don… 
+▌  ├ ◑ parser tests                 
+   ├ ◑ find where redirects are bu… 
+     └ ◑ read the router            
+   ├ ● review the diff              
+   ├ × update the docs              
+   └ ◑ write the changelog          
                                     
  ● Add unit tests for the par… auto 
    ⑂ mboss/add-unit-tests-…  +10 -1 

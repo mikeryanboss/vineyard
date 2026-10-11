@@ -91,6 +91,9 @@ type (
 		gone       bool
 		// subagents is Claude Code's list of running subagents on the screen.
 		subagents subagent.List
+		// conversation is what Claude Code's transcripts say about them.
+		conversation    subagent.Conversation
+		conversationErr error
 	}
 	statusMsg struct {
 		results []screenStatus
@@ -238,8 +241,12 @@ type Model struct {
 	sizes    map[string][2]int // tmux window size last applied per session
 	shownID  string            // session whose screen and diff are displayed
 	// subagents are the running subagents Claude Code lists on each
-	// session's screen, as of the last status poll.
+	// session's screen, as of the last status poll. Opening one needs its
+	// place there.
 	subagents map[string]subagent.List
+	// conversations are what Claude Code's transcripts said about each
+	// session's subagents at the last status poll. The rows come from them.
+	conversations map[string]subagent.Conversation
 
 	previewInFlight bool
 	statusInFlight  bool
@@ -305,8 +312,9 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		issue:    textview.New(theme),
 		recap:    textview.New(theme),
 
-		subagents:  map[string]subagent.List{},
-		startIssue: opts.Issue,
+		subagents:     map[string]subagent.List{},
+		conversations: map[string]subagent.Conversation{},
+		startIssue:    opts.Issue,
 	}
 	if opts.ConfigErr != nil {
 		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
@@ -377,6 +385,7 @@ func (m *Model) remove(id string) {
 	delete(m.busy, id)
 	delete(m.sizes, id)
 	delete(m.subagents, id)
+	delete(m.conversations, id)
 }
 
 // syncList rebuilds the list entries from the sessions.
@@ -388,7 +397,8 @@ func (m *Model) syncList() {
 		}
 		items[i] = list.Item{Session: s, Stat: m.stats[s.ID], Issues: m.issuesOf(s)}
 		if s.Status.Active() {
-			items[i].Subagents = m.subagents[s.ID]
+			items[i].Subagents = m.conversations[s.ID].Kept()
+			items[i].Shown = m.shownSubagent(s.ID)
 		}
 	}
 	m.list = m.list.SetItems(items)
@@ -648,6 +658,7 @@ func (m Model) statusCmd() tea.Cmd {
 				}
 				if isClaude(s) {
 					results[i].subagents, _ = subagent.Parse(screen)
+					results[i].conversation, results[i].conversationErr = backend.Subagents(s)
 				}
 			}()
 		}
@@ -724,14 +735,37 @@ func (m Model) promptCmd(s session.Session, prompt string) tea.Cmd {
 	}
 }
 
-// openSubagentCmd makes s show the view of its subagent i, counted from 0
-// in Claude Code's list.
-func (m Model) openSubagentCmd(s session.Session, i int) tea.Cmd {
-	backend := m.backend
-	total := m.subagents[s.ID].Len()
-	return func() tea.Msg {
-		return subagentOpenedMsg{id: s.ID, err: backend.OpenSubagent(s, i+1, total)}
+// shownSubagent returns the ID of the subagent whose view the session with
+// id shows in place of its conversation, or "" when it shows the
+// conversation or Claude Code's list cannot be read.
+func (m Model) shownSubagent(id string) string {
+	l := m.subagents[id]
+	ids, ok := subagent.Match(m.conversations[id].Agents, l, now())
+	if !ok || l.Shown <= 0 {
+		return ""
 	}
+	return ids[l.Shown-1]
+}
+
+// openSubagent makes s show the view of its subagent a, which needs a's
+// place in Claude Code's list.
+func (m Model) openSubagent(s session.Session, a subagent.Agent) (tea.Model, tea.Cmd) {
+	l := m.subagents[s.ID]
+	ids, ok := subagent.Match(m.conversations[s.ID].Agents, l, now())
+	position := slices.Index(ids, a.ID) + 1
+	switch {
+	case ok && position > 0:
+	case a.Status != subagent.Running:
+		return m, m.setStatus(a.Description+" has finished, and Claude Code no longer lists it. Ask the conversation to message it to resume it.", false)
+	default:
+		return m, m.setStatus("Claude Code's list of subagents does not match its transcripts yet. Try again, or open it in Claude Code.", false)
+	}
+	backend := m.backend
+	// Opening types into the agent at the user's request, so every Vineyard
+	// may do it, not only the one that leads.
+	return m, tea.Batch(m.setStatus("Opening the subagent…", false), func() tea.Msg {
+		return subagentOpenedMsg{id: s.ID, err: backend.OpenSubagent(s, position, l.Len())}
+	})
 }
 
 func (m Model) enterCmd(s session.Session) tea.Cmd {
@@ -1333,10 +1367,15 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			m.sessions[i] = s
 			delete(m.hashes, s.ID)
 			delete(m.subagents, s.ID)
+			delete(m.conversations, s.ID)
 			changed = append(changed, s)
 			continue
 		}
 		m.subagents[s.ID] = r.subagents
+		if r.conversationErr != nil {
+			cmds = append(cmds, m.setError(fmt.Errorf("reading %s's subagents: %w", s.Title, r.conversationErr)))
+		}
+		m.conversations[s.ID] = r.conversation
 		previous, seen := m.hashes[s.ID]
 		m.hashes[s.ID] = r.hash
 		// Only a screen seen twice unchanged proves the agent is waiting. The
@@ -1559,10 +1598,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !s.Status.Active() {
 			return m, m.setStatus(s.Title+" is not running. Press r to resume it.", false)
 		}
-		if row, ok := m.list.SelectedSubagent(); ok {
-			// Opening types into the agent at the user's request, so every
-			// Vineyard may do it, not only the one that leads.
-			return m, tea.Batch(m.setStatus("Opening the subagent…", false), m.openSubagentCmd(s, row))
+		if a, ok := m.list.SelectedSubagent(); ok {
+			return m.openSubagent(s, a)
 		}
 		id := s.ID
 		return m, tea.ExecProcess(m.backend.AttachCommand(s), func(err error) tea.Msg {

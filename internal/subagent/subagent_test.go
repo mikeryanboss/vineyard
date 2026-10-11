@@ -42,15 +42,15 @@ func TestParse_ClaudeCodeScreens(t *testing.T) {
 			row("Running sleep 8 (run 3 of 10)"), sleeping, row("Running third sleep 8 call"), sleeping, sleeping,
 		}, Above: 1, Shown: 0, Focus: 6}, true},
 		{"inline", List{Rows: []Row{row("inline one"), row("inline two")}, Shown: 0, Focus: -1}, true},
-		{"inline-view", List{Rows: []Row{row("inline one"), row("inline two")}, Shown: 1, Focus: 1}, true},
+		{"inline-view", List{Rows: []Row{row("inline one"), row("inline two")}, Shown: 1, Focus: 1, View: "inline one"}, true},
 		{"nested", List{Rows: []Row{
 			row("Pausing for 8-second sleep"), nested("Running third of eight sleeps"),
 			nested("Running sleep 8 (3 of 8)"), nested("Running sleep 8 (3 of 8)"),
-		}, Shown: 1, Focus: 0}, true},
+		}, Shown: 1, Focus: 0, View: "check error messages"}, true},
 		{"nested-view", List{Rows: []Row{
 			row("Pausing for 8-second sleep"), nested("Running third of eight sleeps"),
 			nested("Running sleep 8 (3 of 8)"), nested("Running sleep 8 (3 of 8)"),
-		}, Shown: 2, Focus: 2}, true},
+		}, Shown: 2, Focus: 2, View: "alpha: sleep 8 x8"}, true},
 		{"none", List{}, false},
 	}
 	for _, tt := range tests {
@@ -95,9 +95,12 @@ type fakeClaude struct {
 	// ignoreEnter makes opening a view fail; finishOnEnter makes every
 	// subagent finish instead.
 	ignoreEnter, finishOnEnter bool
-	question                   bool // shows a permission prompt
-	keys                       []string
-	cancelled                  bool // Esc reached the prompt
+	// shownFinished marks the subagent shown as finished: Claude Code drops
+	// it from the list once another view replaces its own.
+	shownFinished bool
+	question      bool // shows a permission prompt
+	keys          []string
+	cancelled     bool // Esc reached the prompt
 }
 
 const drawn = 5
@@ -148,6 +151,13 @@ func (f *fakeClaude) SendKeys(keys ...string) error {
 		case k == "Enter" && f.finishOnEnter:
 			f.labels, f.focus, f.shown = nil, -1, 0
 		case k == "Enter" && f.focus >= 0 && !f.ignoreEnter:
+			if f.shownFinished && f.shown > 0 && f.focus != f.shown {
+				f.labels = slices.Delete(f.labels, f.shown-1, f.shown)
+				if f.focus > f.shown {
+					f.focus--
+				}
+				f.shownFinished = false
+			}
 			f.shown = f.focus
 		case k == "Escape" && f.focus >= 0:
 			f.focus = -1
@@ -226,6 +236,18 @@ func TestOpen_FromAnotherSubagentsView(t *testing.T) {
 	}
 	if f.shown != 1 || f.focus != -1 {
 		t.Errorf("shown = %d, focus = %d", f.shown, f.focus)
+	}
+}
+
+func TestOpen_PastAFinishedSubagentInView(t *testing.T) {
+	fastWaits(t)
+	f := newFake(3)
+	f.shown, f.shownFinished = 1, true
+	if err := Open(f, 3, 3); err != nil {
+		t.Fatal(err)
+	}
+	if f.shown != 2 || !slices.Equal(f.labels, []string{"worker 2", "worker 3"}) {
+		t.Errorf("shown = %d of %q; want worker 3, moved up past the finished one Claude Code dropped", f.shown, f.labels)
 	}
 }
 

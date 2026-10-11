@@ -53,8 +53,11 @@ func ProjectsDir() (string, error) {
 
 var nonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
-// dirName is the name of the transcript directory for working directory cwd.
-func dirName(cwd string) string { return nonAlphanumeric.ReplaceAllString(cwd, "-") }
+// Dir is where Claude Code keeps the transcripts of conversations it had in
+// working directory cwd.
+func Dir(projectsDir, cwd string) string {
+	return filepath.Join(projectsDir, nonAlphanumeric.ReplaceAllString(cwd, "-"))
+}
 
 // hint is the suffix Claude Code appends to every recap.
 const hint = " (disable recaps in /config)"
@@ -75,7 +78,7 @@ var markers = [][]byte{[]byte(`"away_summary"`), []byte(`"ai-title"`), []byte(`"
 
 // Load reads the transcripts Claude Code wrote while working in cwd.
 func Load(projectsDir, cwd string) (Recap, error) {
-	paths, err := filepath.Glob(filepath.Join(projectsDir, dirName(cwd), "*.jsonl"))
+	paths, err := filepath.Glob(filepath.Join(Dir(projectsDir, cwd), "*.jsonl"))
 	if err != nil {
 		return Recap{}, err
 	}

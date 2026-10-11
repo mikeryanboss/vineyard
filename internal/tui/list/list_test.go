@@ -75,20 +75,29 @@ func TestList_ClickSelectsEntry(t *testing.T) {
 	}
 }
 
-// withSubagents gives the first session six subagents: four drawn, the
-// second of them shown and running one of its own, and two more out of sight.
+// withSubagents gives the first session six subagents: the second shown in
+// Claude Code's view and running one of its own, one done, one failed.
 func withSubagents() []list.Item {
 	items := sampleItems()
-	items[0].Subagents = subagent.List{
-		Rows: []subagent.Row{
-			{Type: "general-purpose", Label: "Running the parser tests"},
-			{Type: "Explore", Label: "Finding where redirects are built"},
-			{Type: "general-purpose", Label: "Reading the router", Depth: 1},
-			{Type: "general-purpose", Label: "Reviewing the diff", Hidden: 2},
-		},
-		Below: 2, Shown: 2, Focus: -1,
+	agent := func(id, description string, depth int, status subagent.Status) subagent.Agent {
+		return subagent.Agent{ID: id, Type: "general-purpose", Description: description, Depth: depth, Status: status}
 	}
+	items[0].Subagents = []subagent.Agent{
+		agent("a1", "parser tests", 0, subagent.Running),
+		agent("a2", "find where redirects are built", 0, subagent.Running),
+		agent("a3", "read the router", 1, subagent.Running),
+		agent("a4", "review the diff", 0, subagent.Done),
+		agent("a5", "update the docs", 0, subagent.Failed),
+		agent("a6", "write the changelog", 0, subagent.Running),
+	}
+	items[0].Shown = "a2"
 	return items
+}
+
+// selectedSub returns the ID of the selected subagent, or "" for none.
+func selectedSub(m list.Model) string {
+	a, _ := m.SelectedSubagent()
+	return a.ID
 }
 
 // expanded returns a list of withSubagents with the first session's
@@ -133,14 +142,14 @@ func TestList_ClickOnTheCountLineFoldsSubagents(t *testing.T) {
 	countLine := tea.MouseClickMsg{X: 4, Y: 2 + 2}
 	m, _ = m.Update(countLine)
 	view := testutil.StripANSI(m.View())
-	if item, _ := m.Selected(); item.Session.ID != "login-1" || !strings.Contains(view, "▾ 6 subagents") || !strings.Contains(view, "Running the parser tests") {
+	if item, _ := m.Selected(); item.Session.ID != "login-1" || !strings.Contains(view, "▾ 6 subagents: 4 running, 1 don…") || !strings.Contains(view, "parser tests") {
 		t.Errorf("a click on the count line should select the session and show its rows:\n%s", view)
 	}
 	if _, ok := m.SelectedSubagent(); ok {
 		t.Error("the count line must select the session")
 	}
 	m, _ = m.Update(countLine)
-	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "▸ 6 subagents") || strings.Contains(view, "Running the parser tests") {
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "▸ 6 subagents") || strings.Contains(view, "parser tests") {
 		t.Errorf("a second click should hide the rows:\n%s", view)
 	}
 }
@@ -159,7 +168,7 @@ func TestList_CollapseSelectsTheSession(t *testing.T) {
 	if _, ok := m.SelectedSubagent(); ok {
 		t.Error("collapse must select the session")
 	}
-	if view := testutil.StripANSI(m.View()); strings.Contains(view, "Running the parser tests") || !strings.Contains(view, "▸ 6 subagents") {
+	if view := testutil.StripANSI(m.View()); strings.Contains(view, "parser tests") || !strings.Contains(view, "▸ 6 subagents") {
 		t.Errorf("collapsed session shows its rows:\n%s", view)
 	}
 	if _, ok := m.Expand(); !ok {
@@ -169,56 +178,46 @@ func TestList_CollapseSelectsTheSession(t *testing.T) {
 
 func TestList_NavigationVisitsSubagentRows(t *testing.T) {
 	m := expanded(t, 20)
-	want := []struct {
-		id  string
-		sub int // -1 for the session row
-	}{{"login-1", 0}, {"login-1", 1}, {"login-1", 2}, {"login-1", 3}, {"login-1", 4}, {"login-1", 5}, {"tests-2", -1}}
+	want := []struct{ id, sub string }{
+		{"login-1", "a1"}, {"login-1", "a2"}, {"login-1", "a3"}, {"login-1", "a4"}, {"login-1", "a5"}, {"login-1", "a6"}, {"tests-2", ""},
+	}
 	for _, w := range want {
 		m, _ = m.Update(testutil.Key("j"))
-		item, _ := m.Selected()
-		sub, ok := m.SelectedSubagent()
-		if !ok {
-			sub = -1
-		}
-		if item.Session.ID != w.id || sub != w.sub {
-			t.Fatalf("selected %s row %d, want %s row %d", item.Session.ID, sub, w.id, w.sub)
+		if item, _ := m.Selected(); item.Session.ID != w.id || selectedSub(m) != w.sub {
+			t.Fatalf("selected %s row %q, want %s row %q", item.Session.ID, selectedSub(m), w.id, w.sub)
 		}
 	}
 	m, _ = m.Update(testutil.Key("k"))
-	if sub, ok := m.SelectedSubagent(); !ok || sub != 5 {
-		t.Errorf("up from the next session selected row %d (%v), want the last subagent", sub, ok)
+	if sub := selectedSub(m); sub != "a6" {
+		t.Errorf("up from the next session selected row %q, want the last subagent", sub)
 	}
 }
 
-// Claude Code draws fewer rows for a moment while it redraws, as after a
-// detach. The session must stay expanded, and the selection come back to
-// the subagent the user chose.
-func TestList_SubagentSelectionSurvivesARedraw(t *testing.T) {
+// The selection follows the subagent as others start before it and stop
+// being shown; once it is gone, the session is selected.
+func TestList_SubagentSelectionFollowsTheSubagent(t *testing.T) {
 	m := expanded(t, 20)
-	for range 3 {
-		m, _ = m.Update(testutil.Key("j")) // the third subagent
+	for range 4 {
+		m, _ = m.Update(testutil.Key("j")) // a4, review the diff
 	}
 	items := withSubagents()
-	items[0].Subagents = subagent.List{Rows: items[0].Subagents.Rows[:1], Shown: 0, Focus: -1}
+	items[0].Subagents = items[0].Subagents[3:]
 	m = m.SetItems(items)
-	if sub, ok := m.SelectedSubagent(); !ok || sub != 0 {
-		t.Errorf("selected subagent %d (%v), want the one left", sub, ok)
+	if sub := selectedSub(m); sub != "a4" {
+		t.Errorf("selected subagent %q, want a4 where it now is", sub)
 	}
-	m = m.SetItems(sampleItems())
-	if _, ok := m.SelectedSubagent(); ok {
-		t.Error("with no subagents, the session must be selected")
-	}
-	m = m.SetItems(withSubagents())
-	if sub, ok := m.SelectedSubagent(); !ok || sub != 2 {
-		t.Errorf("selected subagent %d (%v) after the redraw, want 2", sub, ok)
+	items[0].Subagents = items[0].Subagents[1:]
+	m = m.SetItems(items)
+	if item, _ := m.Selected(); selectedSub(m) != "" || item.Session.ID != "login-1" {
+		t.Errorf("selected %s row %q, want the session once its subagent is gone", item.Session.ID, selectedSub(m))
 	}
 }
 
 func TestList_ClickSelectsSubagentRow(t *testing.T) {
 	m := expanded(t, 20)
 	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 4}) // the second subagent line
-	if sub, ok := m.SelectedSubagent(); !ok || sub != 1 {
-		t.Errorf("click selected row %d (%v), want subagent 1", sub, ok)
+	if sub := selectedSub(m); sub != "a2" {
+		t.Errorf("click selected row %q, want the second subagent", sub)
 	}
 	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 10 + 1}) // the next session's branch line
 	if item, _ := m.Selected(); item.Session.ID != "tests-2" {

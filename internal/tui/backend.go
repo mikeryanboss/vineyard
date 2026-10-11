@@ -37,6 +37,9 @@ type Backend interface {
 	// OpenSubagent makes s show the view of the subagent at position in
 	// Claude Code's list, which must still hold total subagents.
 	OpenSubagent(s session.Session, position, total int) error
+	// Subagents reads what Claude Code's transcripts say about the subagents
+	// of s's conversation.
+	Subagents(s session.Session) (subagent.Conversation, error)
 	// DiffTool builds the configured diff command for s. Its error wraps
 	// exec.ErrNotFound when the command is empty or its program is missing.
 	DiffTool(s session.Session, command string) (*exec.Cmd, error)
@@ -71,6 +74,9 @@ type LiveBackend struct {
 	Tmux   *tmux.Client
 	Store  session.Store
 	Leader *session.Leader
+	// Transcripts reads Claude Code's transcripts, remembering where it left
+	// off in each.
+	Transcripts *subagent.Reader
 	// Dir is the repository's .vineyard directory, which holds config.toml.
 	Dir string
 }
@@ -116,6 +122,14 @@ func (b LiveBackend) ShellAttachCommand(s session.Session) *exec.Cmd {
 
 func (b LiveBackend) OpenSubagent(s session.Session, position, total int) error {
 	return subagent.Open(tmuxScreen{b.Tmux, s.TmuxName}, position, total)
+}
+
+func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error) {
+	dir, err := recap.ProjectsDir()
+	if err != nil {
+		return subagent.Conversation{}, err
+	}
+	return b.Transcripts.Load(recap.Dir(dir, s.WorktreePath))
 }
 
 // tmuxScreen is a session's tmux window as subagent.Open drives it.
