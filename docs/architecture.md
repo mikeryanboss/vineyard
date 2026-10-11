@@ -134,7 +134,9 @@ reads the list off a captured screen (`Parse`) and drives Claude Code's keys
 The status poll parses the screen of every session whose program is `claude`.
 A session's subagents start collapsed into one line counting them,
 `▸ 3 subagents`: the poll finds them up to a second after they start, and a
-collapsed entry then grows by one line instead of one per subagent. The count
+collapsed entry then grows by one line instead of one per subagent. Expanded,
+the line reads `▾ 3 subagents` above the rows, and a click on it expands or
+collapses the session. The count
 is all the status there is to show. Claude Code drops a subagent from its list
 when it finishes, except the one whose view is open, which it draws like a
 running one. `→` (`l`) expands the selected session into a row per subagent,
@@ -319,6 +321,20 @@ key/mouse/tick
   -> result message (startedMsg, lifecycleMsg, screenMsg, diffMsg, ...)
   -> root updates sessions, saves, refreshes views
 ```
+
+`handleMouse` routes clicks and the wheel by where they land. A dialog or the
+config screen's picker gets them relative to its box, which `centerOffset`
+places where `overlayCenter` draws it; the config screen, the list, and the
+pane's content get them relative to their own top-left corner; the header and
+the status bar get none. Each child maps a position to what its `View` draws:
+the list's entry heights, the tab labels (`tabLabels`), the diff's
+`fileStarts`, a dialog's content lines. Mouse release and motion events are
+not handled, and reach grapes like any other message the root leaves alone.
+
+The preview's scroll mode shows tmux's scrollback. A program on the alternate
+screen, such as Claude Code with `"tui": "fullscreen"`, has none; when the
+history is no longer than the screen, the preview stays live and the status
+bar says so.
 
 The root model owns sessions, side effects, focus, and layout. Child views own
 rendering and local navigation; they import `tui/common` and plain data types

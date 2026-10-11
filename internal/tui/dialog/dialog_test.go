@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/prompt"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
@@ -178,5 +179,84 @@ func TestConfirm(t *testing.T) {
 	}
 	if _, msg := press(d, "n"); msg != (common.DialogCancelledMsg{}) {
 		t.Errorf("n produced %#v", msg)
+	}
+}
+
+// click clicks the first cell of text in d's view and returns the message
+// its command produces, if any.
+func click(t *testing.T, d dialog.Dialog, text string) (dialog.Dialog, tea.Msg) {
+	t.Helper()
+	view := testutil.StripANSI(d.View())
+	for y, line := range strings.Split(view, "\n") {
+		if i := strings.Index(line, text); i >= 0 {
+			d, cmd := d.Update(tea.MouseClickMsg{X: ansi.StringWidth(line[:i]), Y: y})
+			if cmd == nil {
+				return d, nil
+			}
+			return d, cmd()
+		}
+	}
+	t.Fatalf("%q is not in the dialog:\n%s", text, view)
+	return d, nil
+}
+
+func TestNewSession_ClicksFocusFieldsAndStepTheAgent(t *testing.T) {
+	var d dialog.Dialog
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, false, 60)
+	d, _ = click(t, d, "›")
+	if !strings.Contains(testutil.StripANSI(d.View()), "‹ codex ›") {
+		t.Errorf("a click on › should show the next agent:\n%s", testutil.StripANSI(d.View()))
+	}
+	d, _ = click(t, d, "Title")
+	d = typeText(d, "Fix login")
+	_, msg := press(d, "enter")
+	if got, ok := msg.(common.NewSessionMsg); !ok || got.Title != "Fix login" || got.Profile.Name != "codex" {
+		t.Errorf("after clicking the title and typing, enter produced %#v", msg)
+	}
+}
+
+func TestNewSession_OffersTheAgentKeysOnItsFieldOnly(t *testing.T) {
+	var d dialog.Dialog
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, false, 60)
+	offers := func() bool {
+		for _, h := range d.Hints() {
+			if h == [2]string{"←/→", "agent"} {
+				return true
+			}
+		}
+		return false
+	}
+	if offers() {
+		t.Error("on the title, ←/→ move the cursor; the hints must not offer them for the agent")
+	}
+	d, _ = press(d, "tab")
+	if !offers() {
+		t.Error("on the agent field, the hints should offer ←/→")
+	}
+}
+
+func TestConfirm_ClicksAnswer(t *testing.T) {
+	d := dialog.NewConfirm(common.NewTheme(true), "Kill session?", common.ActionKill, "s1")
+	if _, msg := click(t, d, "Kill session?"); msg != nil {
+		t.Errorf("a click on the question produced %#v", msg)
+	}
+	if _, msg := click(t, d, "confirm"); msg != (common.ConfirmedMsg{Action: common.ActionKill, SessionID: "s1"}) {
+		t.Errorf("a click on confirm produced %#v", msg)
+	}
+	if _, msg := click(t, d, "n cancel"); msg != (common.DialogCancelledMsg{}) {
+		t.Errorf("a click on cancel produced %#v", msg)
+	}
+}
+
+func TestPick_ClickChoosesAndWheelMoves(t *testing.T) {
+	choices := []dialog.Choice{{Label: "one", Msg: "1"}, {Label: "two", Msg: "2"}, {Label: "three", Msg: "3"}}
+	var d dialog.Dialog = dialog.NewPick(common.NewTheme(true), "Pick one", choices, 40)
+	if _, msg := click(t, d, "two"); msg != "2" {
+		t.Errorf("a click on two chose %#v", msg)
+	}
+	d, _ = d.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	d, _ = d.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if _, msg := press(d, "enter"); msg != "3" {
+		t.Errorf("two wheel steps down chose %#v, want three", msg)
 	}
 }

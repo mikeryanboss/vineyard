@@ -66,8 +66,13 @@ func (m Model) SetPlaceholder(text string) Model {
 
 // SetScrollback enters scroll mode showing history, scrolled to the bottom
 // and then up by one step, since a scroll request is what asked for it.
+// History no longer than the screen has nothing above it, as for a program
+// drawing on the alternate screen, so the preview stays live.
 func (m Model) SetScrollback(history string) Model {
 	lines := strings.Split(strings.TrimRight(history, "\n"), "\n")
+	if len(lines) <= len(strings.Split(strings.TrimRight(m.screen, "\n"), "\n")) {
+		return m
+	}
 	for i, line := range lines {
 		lines[i] = line + reset
 	}

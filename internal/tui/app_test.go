@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/recap"
@@ -929,5 +930,82 @@ func TestApp_FailedSubagentOpenDoesNotAttach(t *testing.T) {
 	}
 	if !m.statusIsErr || !contains(m.status, subagent.ErrChanged.Error()) {
 		t.Errorf("status = %q, want the error", m.status)
+	}
+}
+
+// clickOn clicks the first cell of the first text on the screen, from line
+// from down.
+func clickOn(t *testing.T, m Model, text string, from int) Model {
+	t.Helper()
+	lines := strings.Split(screen(m), "\n")
+	for y := from; y < len(lines); y++ {
+		if i := strings.Index(lines[y], text); i >= 0 {
+			return send(m, tea.MouseClickMsg{X: ansi.StringWidth(lines[y][:i]), Y: y})
+		}
+	}
+	t.Fatalf("%q is not on the screen:\n%s", text, screen(m))
+	return m
+}
+
+func TestApp_ClickingATabShowsIt(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	tabBar := headerHeight + 1
+	m = clickOn(t, m, "Diff", tabBar)
+	if m.tab != tabDiff || m.focus != focusList {
+		t.Fatalf("a click on Diff left tab %d, focus %d; want the diff, focus unchanged", m.tab, m.focus)
+	}
+	m = clickOn(t, m, "Recap", tabBar)
+	m = keys(m, "enter") // zoom the recap
+	if !m.zoomed {
+		t.Fatal("enter on the recap tab should zoom")
+	}
+	m = clickOn(t, m, "Preview", tabBar)
+	if m.tab != tabPreview || m.zoomed {
+		t.Errorf("a click on Preview in a zoomed pane left tab %d, zoomed %v", m.tab, m.zoomed)
+	}
+}
+
+func TestApp_ClicksOnTheHeaderAndStatusBarDoNothing(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	m = keys(m, "j")
+	selected := selectedID(m)
+	for _, y := range []int{0, 1, m.height - 1} {
+		for _, x := range []int{2, m.width - 2} {
+			m = send(m, tea.MouseClickMsg{X: x, Y: y})
+			if selectedID(m) != selected || m.focus != focusList {
+				t.Errorf("a click at %d,%d selected %s, focus %d", x, y, selectedID(m), m.focus)
+			}
+		}
+	}
+}
+
+// An agent drawing on the alternate screen, as Claude Code does with
+// "tui": "fullscreen", has no scrollback; the fake returns only the screen.
+func TestApp_PreviewWithoutScrollbackStaysLive(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	m = send(m, previewTickMsg{}) // capture the screen
+	m = keys(m, "l", "k")
+	if m.preview.Scrolling() || !contains(m.status, "No scrollback") {
+		t.Errorf("scrolling %v, status %q; want the live preview and a message", m.preview.Scrolling(), m.status)
+	}
+}
+
+func TestApp_DialogsAndConfigTakeClicks(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = keys(m, "D")
+	m = clickOn(t, m, "n cancel", 0)
+	if m.dialog != nil || len(backend.killed) != 0 {
+		t.Fatalf("a click on cancel left dialog %v, killed %v", m.dialog != nil, backend.killed)
+	}
+	m = keys(m, "D")
+	m = clickOn(t, m, "y confirm", 0)
+	if m.dialog != nil || len(backend.killed) != 1 {
+		t.Errorf("a click on confirm left dialog %v, killed %v", m.dialog != nil, backend.killed)
+	}
+
+	m = keys(m, "C")
+	m = clickOn(t, m, "Profiles", headerHeight)
+	if !contains(screen(m), "+ Add profile") {
+		t.Errorf("a click on Profiles should show its fields:\n%s", screen(m))
 	}
 }

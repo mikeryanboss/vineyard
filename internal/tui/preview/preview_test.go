@@ -65,6 +65,15 @@ func TestPreview_ScrollbackReturnsToLiveAtBottom(t *testing.T) {
 	}
 }
 
+// A program on the alternate screen, such as Claude Code drawing fullscreen,
+// has no scrollback: tmux returns only the screen.
+func TestPreview_ScrollbackOfOnlyTheScreenStaysLive(t *testing.T) {
+	screen := "one\ntwo\nthree\n"
+	if newPreview().SetScreen(screen).SetScrollback(screen).Scrolling() {
+		t.Error("history no longer than the screen must leave the preview live")
+	}
+}
+
 func TestPreview_BackLeavesPane(t *testing.T) {
 	m := newPreview().SetScrollback("a\nb\nc\nd\ne\nf\ng\nh")
 	m, cmd := m.Update(testutil.Key("esc"))

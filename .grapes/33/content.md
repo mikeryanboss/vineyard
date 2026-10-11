@@ -28,20 +28,20 @@ Audit of `origin/main` at 1e2321c (verified):
 - Preview: when the scrollback holds no more than the screen, Vineyard stays live and says so in the status bar instead of freezing.
 - Dialogs: clicking a `Pick` choice chooses it, and the wheel moves through the choices; clicking `y confirm` or `n cancel` in a `Confirm` does that; in `NewSession`, clicking a field focuses it, `‹` and `›` step through templates or agents, and the sub-issues box toggles.
 - Config screen: clicking a category or field selects it, and clicking the selected field edits it, as `enter` does; the wheel moves the selection; clicking an option in the picker chooses it. Clicks are ignored while a value is being typed.
-- Keyboard: `NewSession` offers `←/→ agent` only while the agent field has focus.
+- Keyboard: `NewSession` offers `←/→ agent` only while the agent field has focus. On the config screen, moving to another category starts its fields at the first one; before, the old field's place could leave a short screen scrolled down the new category's fields.
 
 ## Acceptance Criteria
 
-- [ ] Clicking each tab shows it, focus unchanged; in a zoomed pane it also unzooms.
-- [ ] Clicking a session's subagent count line expands or collapses it and selects the session; expanded sessions show `▾ N subagents` above their rows.
-- [ ] Clicking a diff file header folds or unfolds that file without moving the view; clicking a summary line scrolls to its file.
-- [ ] Clicks on the header rows, the status bar, or a too-small window change nothing.
-- [ ] Scrolling up in the preview of an agent without scrollback keeps the preview live and shows a status message.
-- [ ] `Pick`, `Confirm`, and `NewSession` respond to clicks as listed; the wheel moves `Pick`'s choice.
-- [ ] The config screen and its picker respond to clicks and the wheel as listed, and ignore clicks while a value is typed.
-- [ ] `NewSession` offers `←/→ agent` only on the agent field.
-- [ ] Tests cover each of the above.
-- [ ] `README.md` and `docs/` describe the mouse.
+- [x] Clicking each tab shows it, focus unchanged; in a zoomed pane it also unzooms.
+- [x] Clicking a session's subagent count line expands or collapses it and selects the session; expanded sessions show `▾ N subagents` above their rows.
+- [x] Clicking a diff file header folds or unfolds that file without moving the view; clicking a summary line scrolls to its file.
+- [x] Clicks on the header rows, the status bar, or a too-small window change nothing.
+- [x] Scrolling up in the preview of an agent without scrollback keeps the preview live and shows a status message.
+- [x] `Pick`, `Confirm`, and `NewSession` respond to clicks as listed; the wheel moves `Pick`'s choice.
+- [x] The config screen and its picker respond to clicks and the wheel as listed, and ignore clicks while a value is typed.
+- [x] `NewSession` offers `←/→ agent` only on the agent field; a new category on the config screen starts at its first field.
+- [x] Tests cover each of the above.
+- [x] `README.md` and `docs/` describe the mouse.
 
 ## Verify
 

@@ -42,6 +42,7 @@ main.go
 | Diff parsing, changed-word ranges | `internal/diff/diff.go` | |
 | Diff rendering | `internal/tui/diffview/` | `spans.go` for highlighting and wrapping |
 | Root model, keys, polling, layout | `internal/tui/app.go` | `internal/tui/backend.go` |
+| Mouse | `handleMouse` in `internal/tui/app.go` | TUI Message Flow in `architecture.md` |
 | Session list | `internal/tui/list/` | |
 | Live preview and scrollback | `internal/tui/preview/` | |
 | Dialogs | `internal/tui/dialog/` | |

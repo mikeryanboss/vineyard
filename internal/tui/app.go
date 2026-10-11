@@ -760,7 +760,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
-	case tea.MouseClickMsg, tea.MouseWheelMsg:
+	case tea.MouseClickMsg:
+		return m.handleMouse(msg)
+	case tea.MouseWheelMsg:
 		return m.handleMouse(msg)
 
 	case previewTickMsg:
@@ -961,8 +963,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, m.setError(msg.err)
 		}
-		if msg.id == m.shownID {
-			m.preview = m.preview.SetScrollback(msg.history)
+		if msg.id != m.shownID {
+			return m, nil
+		}
+		if m.preview = m.preview.SetScrollback(msg.history); !m.preview.Scrolling() {
+			return m, m.setStatus("No scrollback: tmux keeps none for an agent that draws fullscreen. Attach to scroll in the agent.", false)
 		}
 		return m, nil
 
@@ -1372,14 +1377,18 @@ func (m Model) nextTab() tab { return (m.tab + 1) % tab(len(tabNames)) }
 // prevTab is the tab that shift+tab switches to.
 func (m Model) prevTab() tab { return (m.tab + tab(len(tabNames)) - 1) % tab(len(tabNames)) }
 
-// switchTab shows the next tab, or the previous one if back, and fetches the
-// recap if it is the recap tab.
+// switchTab shows the next tab, or the previous one if back.
 func (m *Model) switchTab(back bool) tea.Cmd {
 	if back {
-		m.tab = m.prevTab()
-	} else {
-		m.tab = m.nextTab()
+		return m.showTab(m.prevTab())
 	}
+	return m.showTab(m.nextTab())
+}
+
+// showTab shows tab t in the pane, and fetches the recap if it is the recap
+// tab.
+func (m *Model) showTab(t tab) tea.Cmd {
+	m.tab = t
 	m.preview = m.preview.ExitScroll()
 	m.refreshIssue()
 	m.refreshRecap()
@@ -1604,49 +1613,76 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.dialog != nil || m.configOpen {
+// handleMouse handles clicks and the wheel.
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	mouse := msg.Mouse()
+	_, click := msg.(tea.MouseClickMsg)
+	listWidth, _, bodyHeight := m.layout()
+	var cmd tea.Cmd
+	switch {
+	case m.width < minWidth || m.height < minHeight:
 		return m, nil
-	}
-	if m.issuesOpen {
-		var cmd tea.Cmd
+	case m.dialog != nil:
+		area := headerHeight + bodyHeight
+		if m.issuesOpen {
+			area = m.height
+		}
+		left, top := centerOffset(m.dialog.View(), m.width, area)
+		m.dialog, cmd = m.dialog.Update(moved(msg, -left, -top))
+		return m, cmd
+	case m.issuesOpen:
 		m.grapes, cmd = m.grapes.Update(msg)
 		return m, cmd
-	}
-	var mouse tea.Mouse
-	switch msg := msg.(type) {
-	case tea.MouseClickMsg:
-		mouse = tea.Mouse(msg)
-	case tea.MouseWheelMsg:
-		mouse = tea.Mouse(msg)
-	}
-	listWidth, _, _ := m.layout()
-	if mouse.X < listWidth {
-		mouse.Y -= headerHeight
-		var local tea.Msg = tea.MouseWheelMsg(mouse)
-		if _, ok := msg.(tea.MouseClickMsg); ok {
-			local = tea.MouseClickMsg(mouse)
+	case mouse.Y < headerHeight || mouse.Y >= headerHeight+bodyHeight:
+		return m, nil // the header or the status bar
+	case m.configOpen && m.settings.PickerActive():
+		left, top := centerOffset(m.settings.PickerView(), m.width, headerHeight+bodyHeight)
+		m.settings, cmd = m.settings.Update(moved(msg, -left, -top))
+		return m, cmd
+	case m.configOpen:
+		m.settings, cmd = m.settings.Update(moved(msg, 0, -headerHeight))
+		return m, cmd
+	case mouse.X < listWidth:
+		if click {
 			m.setFocus(focusList)
 		}
-		m.list, _ = m.list.Update(local)
+		m.list, _ = m.list.Update(moved(msg, 0, -headerHeight))
 		return m, m.refreshShown()
 	}
-	if _, ok := msg.(tea.MouseClickMsg); ok {
-		m.setFocus(focusPane)
-		return m, nil
+
+	// The pane: its border, then the tab bar, then the content.
+	x, y := mouse.X-listWidth-1, mouse.Y-headerHeight-1
+	if t, ok := m.tabAt(x); click && ok && y == 0 {
+		m.setZoom(false)
+		return m, m.showTab(t)
 	}
-	var cmd tea.Cmd
+	if click {
+		m.setFocus(focusPane)
+	}
+	content := moved(msg, -listWidth-1, -headerHeight-2)
 	switch m.tab {
 	case tabDiff:
-		m.diff, cmd = m.diff.Update(msg)
+		m.diff, cmd = m.diff.Update(content)
 	case tabIssue:
-		m.issue, cmd = m.issue.Update(msg)
+		m.issue, cmd = m.issue.Update(content)
 	case tabRecap:
-		m.recap, cmd = m.recap.Update(msg)
+		m.recap, cmd = m.recap.Update(content)
 	default:
-		m.preview, cmd = m.preview.Update(msg)
+		m.preview, cmd = m.preview.Update(content)
 	}
 	return m, cmd
+}
+
+// moved returns the click or wheel event msg moved by dx and dy, to make its
+// position relative to the part of the screen that receives it.
+func moved(msg tea.MouseMsg, dx, dy int) tea.MouseMsg {
+	mouse := msg.Mouse()
+	mouse.X += dx
+	mouse.Y += dy
+	if _, ok := msg.(tea.MouseClickMsg); ok {
+		return tea.MouseClickMsg(mouse)
+	}
+	return tea.MouseWheelMsg(mouse)
 }
 
 // --- View ---
@@ -1718,25 +1754,22 @@ func (m Model) renderHeader() string {
 	return row + "\n" + t.StyleSeparator.Render(strings.Repeat("━", m.width))
 }
 
-func (m Model) renderPane() string {
-	t := m.theme
-	_, paneWidth, bodyHeight := m.layout()
-	innerWidth, _ := m.paneContentSize()
+// tabLabel is a tab as the tab bar draws it.
+type tabLabel struct {
+	tab  tab
+	text string
+}
 
-	tabLabel := func(label string, which tab) string {
-		if m.tab == which {
-			return t.StyleTabActive.Render(label)
-		}
-		return t.StyleTabInactive.Render(label)
-	}
+// tabLabels returns the pane's tabs in order, each rendered for the tab bar,
+// where one space separates them.
+func (m Model) tabLabels() []tabLabel {
+	t := m.theme
 	diffLabel := "Diff"
+	issueLabel := "Issue"
 	if s, ok := m.selected(); ok {
 		if stat := m.stats[s.ID]; !stat.IsZero() {
 			diffLabel += fmt.Sprintf(" +%d -%d", stat.Added, stat.Removed)
 		}
-	}
-	issueLabel := "Issue"
-	if s, ok := m.selected(); ok {
 		ids := m.issuesOf(s)
 		if len(ids) > 1 {
 			issueLabel = "Issues"
@@ -1745,7 +1778,40 @@ func (m Model) renderPane() string {
 			issueLabel += fmt.Sprintf(" #%d", id)
 		}
 	}
-	tabs := tabLabel("Preview", tabPreview) + " " + tabLabel(diffLabel, tabDiff) + " " + tabLabel(issueLabel, tabIssue) + " " + tabLabel("Recap", tabRecap)
+	texts := map[tab]string{tabPreview: "Preview", tabDiff: diffLabel, tabIssue: issueLabel, tabRecap: "Recap"}
+	var labels []tabLabel
+	for which := range tab(len(texts)) {
+		style := t.StyleTabInactive
+		if which == m.tab {
+			style = t.StyleTabActive
+		}
+		labels = append(labels, tabLabel{which, style.Render(texts[which])})
+	}
+	return labels
+}
+
+// tabAt returns the tab drawn at column x of the tab bar.
+func (m Model) tabAt(x int) (tab, bool) {
+	for _, l := range m.tabLabels() {
+		width := ansi.StringWidth(l.text)
+		if x < width {
+			return l.tab, x >= 0
+		}
+		x -= width + 1
+	}
+	return 0, false
+}
+
+func (m Model) renderPane() string {
+	t := m.theme
+	_, paneWidth, bodyHeight := m.layout()
+	innerWidth, _ := m.paneContentSize()
+
+	var labels []string
+	for _, l := range m.tabLabels() {
+		labels = append(labels, l.text)
+	}
+	tabs := strings.Join(labels, " ")
 
 	info := ""
 	switch {
@@ -1852,6 +1918,11 @@ func (m Model) renderStatusBar() string {
 	return t.StyleStatusBar.Width(m.width).Render(b.String())
 }
 
+// centerOffset returns where overlayCenter draws fg's top-left corner.
+func centerOffset(fg string, width, height int) (left, top int) {
+	return max(0, (width-lipgloss.Width(fg))/2), max(0, (height-lipgloss.Height(fg))/2)
+}
+
 // overlayCenter draws fg centred over bg, keeping the background visible on
 // either side of it. Adapted from grapes.
 func overlayCenter(bg, fg string, width, height int) string {
@@ -1860,12 +1931,8 @@ func overlayCenter(bg, fg string, width, height int) string {
 	for len(bgLines) < height {
 		bgLines = append(bgLines, "")
 	}
-	fgWidth := 0
-	for _, line := range fgLines {
-		fgWidth = max(fgWidth, ansi.StringWidth(line))
-	}
-	top := max(0, (height-len(fgLines))/2)
-	left := max(0, (width-fgWidth)/2)
+	fgWidth := lipgloss.Width(fg)
+	left, top := centerOffset(fg, width, height)
 	for i, fgLine := range fgLines {
 		y := top + i
 		if y >= len(bgLines) {
