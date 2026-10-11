@@ -919,6 +919,40 @@ func TestApp_StatusPollListsClaudeSubagents(t *testing.T) {
 	}
 }
 
+// Claude Code draws its agent list last, so a poll can catch it redrawing,
+// as right after a detach, with fewer subagents or none. The rows come from
+// the transcripts and keep their count. The list on screen, which opening a
+// subagent needs, is believed to shrink only when the next poll agrees.
+func TestApp_SubagentsSurviveAPollCatchingARedraw(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	conv := running("one", "two", "three")
+	poll := func(m Model, listed subagent.List) Model {
+		return send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed, conversation: conv}}})
+	}
+	m = poll(m, listing(3))
+	if m = poll(m, subagent.List{}); !contains(screen(m), "▸ 3 subagents running") {
+		t.Errorf("a poll without the list should keep the count:\n%s", screen(m))
+	}
+	m = keys(m, "l", "j", "o")
+	if !slices.Equal(backend.opened, [][2]int{{1, 3}}) {
+		t.Errorf("opened %v; one poll without the list should still open the subagent at 1 of 3", backend.opened)
+	}
+	m = keys(poll(m, subagent.List{}), "o")
+	if len(backend.opened) != 1 || !contains(m.status, "does not match") {
+		t.Errorf("opened %v, status %q; two polls without the list mean Claude Code no longer lists them", backend.opened, m.status)
+	}
+
+	// Pausing or resuming restarts Claude Code, which forgets its subagents.
+	m = poll(m, listing(3))
+	paused := testutil.Sessions()[0]
+	paused.Status = session.StatusPaused
+	m = send(m, lifecycleMsg{session: paused, verb: "pause"})
+	paused.Status = session.StatusRunning
+	if m = send(m, lifecycleMsg{session: paused, verb: "resume"}); contains(screen(m), "subagent") {
+		t.Errorf("a resumed session should show no subagents before a poll finds them:\n%s", screen(m))
+	}
+}
+
 // → and ← fold a session's subagent rows, and → gives the pane focus where
 // there is nothing to show.
 func TestApp_ArrowsFoldSubagentsBeforeThePane(t *testing.T) {

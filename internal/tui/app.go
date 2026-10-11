@@ -253,9 +253,12 @@ type Model struct {
 	sizes    map[string][2]int // tmux window size last applied per session
 	shownID  string            // session whose screen and diff are displayed
 	// subagents are the running subagents Claude Code lists on each
-	// session's screen, as of the last status poll. Opening one needs its
-	// place there.
+	// session's screen, as of the last status poll that is believed.
+	// Opening one needs its place there.
 	subagents map[string]subagent.List
+	// fewer marks sessions whose last poll showed fewer subagents than are
+	// shown, which the next poll must confirm (see seeSubagents).
+	fewer map[string]bool
 	// conversations are what Claude Code's transcripts said about each
 	// session's subagents at the last status poll. The rows come from them.
 	conversations map[string]subagent.Conversation
@@ -338,6 +341,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		transcript: textview.New(theme),
 
 		subagents:     map[string]subagent.List{},
+		fewer:         map[string]bool{},
 		conversations: map[string]subagent.Conversation{},
 		startIssue:    opts.Issue,
 	}
@@ -410,6 +414,7 @@ func (m *Model) remove(id string) {
 	delete(m.busy, id)
 	delete(m.sizes, id)
 	delete(m.subagents, id)
+	delete(m.fewer, id)
 	delete(m.conversations, id)
 }
 
@@ -619,6 +624,8 @@ func (m *Model) adopt(saved []session.Session) {
 				// this process's own lifecycle operations.
 				delete(m.hashes, s.ID)
 				delete(m.sizes, s.ID)
+				delete(m.subagents, s.ID)
+				delete(m.conversations, s.ID)
 				if s.ID == m.shownID {
 					m.shownID = ""
 				}
@@ -985,6 +992,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.replace(msg.session)
 			delete(m.hashes, msg.session.ID)
+			delete(m.subagents, msg.session.ID)
+			delete(m.conversations, msg.session.ID)
 			cmds = append(cmds, m.replaceCmd(msg.session))
 			switch msg.verb {
 			case "pause":
@@ -1555,6 +1564,20 @@ func (m Model) openIssue(id int) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// seeSubagents records the subagents a status poll found on a session's
+// screen. Claude Code draws its agent list last, so a poll that catches it
+// redrawing, as right after a detach, sees fewer subagents than there are,
+// often none. A poll showing fewer is believed only when the next one
+// agrees; until then the shown list stays.
+func (m *Model) seeSubagents(id string, seen subagent.List) {
+	if seen.Len() < m.subagents[id].Len() && !m.fewer[id] {
+		m.fewer[id] = true
+		return
+	}
+	m.subagents[id] = seen
+	delete(m.fewer, id)
+}
+
 // applyStatus updates running/ready states from fresh screen fingerprints.
 // If this process leads, it also answers prompts for auto-yes sessions and
 // delivers pending prompts.
@@ -1579,7 +1602,7 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			changed = append(changed, s)
 			continue
 		}
-		m.subagents[s.ID] = r.subagents
+		m.seeSubagents(s.ID, r.subagents)
 		if r.conversationErr != nil {
 			cmds = append(cmds, m.setError(fmt.Errorf("reading %s's subagents: %w", s.Title, r.conversationErr)))
 		}

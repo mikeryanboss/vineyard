@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -23,7 +24,33 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/tui"
 )
 
-var version = "0.1.4"
+// version is the release version. GoReleaser stamps it in with -X, which sets
+// only a string variable without a computed initial value; other builds get
+// it from init.
+var version string
+
+func init() {
+	if version == "" {
+		info, _ := debug.ReadBuildInfo()
+		version = moduleVersion(info)
+	}
+}
+
+// moduleVersion is the version of a build without GoReleaser: the module
+// version for go install, and "dev" for a build in a checkout. Go stamps a
+// checkout build with the commit of the nearest .git directory, which for a
+// worktree inside the main checkout is the main checkout's.
+func moduleVersion(info *debug.BuildInfo) string {
+	if info == nil || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs" {
+			return "dev"
+		}
+	}
+	return strings.TrimPrefix(info.Main.Version, "v")
+}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))

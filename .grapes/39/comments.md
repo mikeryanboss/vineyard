@@ -9,3 +9,6 @@
 
 ### 2026-10-11T22:50
 [DONE] `internal/subagent/transcript.go`: `Reader` (incremental), `Conversation`, `Kept`, `Events`, `Match`. `subagent.go`: `List.View`, and `Open` past a dropped finished view. `internal/tui/list`: rows from agents with status icons, the count by status, selection by subagent ID. `internal/tui/app.go`: `conversations`, `shownSubagent`, `openSubagent`. `backend.go`/`main.go`: `Subagents`, `Transcripts`. `recap.Dir`. Docs: architecture Subagents, README, docs/README.
+
+### 2026-10-11T23:20
+[PROGRESS] Merged main after #29 and #30 merged. #30's `seeSubagents` now guards only the screen list that opening a subagent and its highlight use; the rows come from the transcripts. Its test became `TestApp_SubagentsSurviveAPollCatchingARedraw`: a poll without the list keeps the count and still opens the subagent; two such polls do not. Pause, resume, and adopt also forget a session's transcript rows until the next poll. `gofmt -l .` printed nothing, `go vet ./...` passed, `go test -count=1 ./...` passed in 6.1 s. PASS.

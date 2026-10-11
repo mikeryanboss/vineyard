@@ -173,6 +173,14 @@ highlights the subagent in view, and opens one only when exactly one reading
 fits the list. A finished subagent that Claude Code no longer lists cannot be
 opened: its caller can resume it with a message.
 
+Claude Code draws its agent list last, so a poll that catches it redrawing,
+as right after every detach, sees fewer subagents than there are, often none.
+`seeSubagents` believes a screen showing fewer only when the next poll
+agrees, so the subagent in view keeps its highlight and stays openable
+through a redraw; the rows, read from the transcripts, do not depend on it.
+Pausing or resuming a session restarts Claude Code and forgets its list at
+once.
+
 Selecting a subagent's row shows the subagent in every tab, as selecting a
 session shows the session (`shownAgent` next to `shownID`):
 

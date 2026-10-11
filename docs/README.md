@@ -54,7 +54,7 @@ main.go
 | Recap tab | `refreshRecap` in `internal/tui/app.go` | `internal/recap/`, Recaps in `architecture.md` |
 | Subagent rows, their status, opening a subagent | `internal/subagent/` (`transcript.go` reads the transcripts, `subagent.go` the screen) | `openSubagent` in `internal/tui/app.go`, Subagents in `architecture.md` |
 | A selected subagent's tabs | `refreshShown`, `refreshTranscript`, `shownIssues`, `renderAgentRecap` in `internal/tui/app.go` | `TreeDiff` in `internal/tui/backend.go`, Subagents in `architecture.md` |
-| Release a version | `var version` in `main.go` | Releases in `development.md` |
+| Releases | `.github/workflows/auto-tag.yml`, automatic on merge | Releases in `development.md` |
 | Re-record the README demo | `doc/vhs/demo.tape` | README Demo in `development.md` |
 
 ## Repository Map
@@ -81,7 +81,7 @@ internal/tui/common/       theme, keys, messages
 internal/tui/testutil/     golden-file helpers and fixtures
 .grapes/                   this repository's own issues
 doc/                       README demo GIF and its VHS tape
-.github/workflows/         tag on version bump, release with GoReleaser
+.github/workflows/         tag each program change, release with GoReleaser
 ```
 
 ## Invariants Worth Knowing
