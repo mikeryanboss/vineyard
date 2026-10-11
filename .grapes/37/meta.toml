@@ -1,0 +1,6 @@
+title = 'Release every merge that changes the program'
+status = 'done'
+priority = 'high'
+labels = ['release', 'ci']
+created = 2026-10-11T19:57:00Z
+updated = 2026-10-11T20:01:00Z

@@ -1,45 +1,52 @@
 name: Auto Tag
 
+# A push to main that changes what goes into the binary releases the next
+# patch version.
 on:
   push:
     branches:
       - main
     paths:
-      - main.go
+      - "**.go"
+      - "!**_test.go"
+      - "!**/testdata/**"
+      - go.mod
+      - go.sum
+      - internal/config/templates/**
 
 permissions:
   contents: write
+
+# One run at a time, so each numbers its tag after the one before.
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
 
 jobs:
   tag:
     runs-on: ubuntu-latest
     outputs:
-      created: ${{ steps.check.outputs.exists == 'false' }}
+      created: ${{ steps.tag.outputs.created }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Extract version from main.go
-        id: version
+      - name: Tag the next patch version
+        id: tag
         run: |
-          version=$(grep -oP 'var version = "\K[^"]+' main.go)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Check if tag exists
-        id: check
-        run: |
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          tagged=$(git tag --points-at HEAD --list 'v*')
+          if [ -n "$tagged" ]; then
+            echo "HEAD is already tagged $tagged"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-
-      - name: Create tag
-        if: steps.check.outputs.exists == 'false'
-        run: |
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
+          latest=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          IFS=. read -r major minor patch <<< "${latest#v}"
+          next="v$major.$minor.$((patch + 1))"
+          git tag "$next"
+          git push origin "$next"
+          echo "created=true" >> "$GITHUB_OUTPUT"
 
   # A tag pushed with GITHUB_TOKEN starts no workflow, so call the release here.
   release:
