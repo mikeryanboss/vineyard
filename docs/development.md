@@ -110,15 +110,27 @@ vhs doc/vhs/demo.tape
 
 ## Releases
 
-`var version` in `main.go` is the release version. A push to `main` that changes
-`main.go` runs `.github/workflows/auto-tag.yml`, which creates `v<version>` if it
-does not exist, then calls `.github/workflows/release.yml`: a tag pushed with a
-workflow's `GITHUB_TOKEN` starts no workflow by itself. A tag pushed by hand runs
-`release.yml` directly. GoReleaser (`.goreleaser.yaml`) publishes static Linux and macOS archives for amd64 and
-arm64, with the tag stamped into `main.version`. There is no Windows build:
-sessions run in tmux, and WSL uses the Linux archive.
+Every merge to `main` that changes the program is released; nobody bumps a
+version. `.github/workflows/auto-tag.yml` runs on pushes to `main` that change Go
+files other than tests and `testdata`, `go.mod`, `go.sum`, or the templates
+embedded from `internal/config/templates/`. It tags the pushed commit with the
+next patch version after the highest `v*` tag, v0.1.4 to v0.1.5, unless the
+commit already has a `v*` tag. Then it calls `.github/workflows/release.yml`: a
+tag pushed with a workflow's `GITHUB_TOKEN` starts no workflow by itself. Runs
+take turns, so two cannot pick the same tag. When several merges wait, GitHub
+keeps only the newest waiting run, and its release includes them all.
 
-To release, bump `version` in a PR; merging it releases. Check the release
+GoReleaser (`.goreleaser.yaml`) publishes static Linux and macOS archives for
+amd64 and arm64, with the tag stamped into `main.version`. There is no Windows
+build: sessions run in tmux, and WSL uses the Linux archive. `go install …@latest`
+shows the module version Go stamps into the binary, which is the tag. Builds in
+a checkout show `dev`: Go stamps them with the commit of the nearest `.git`
+directory, which for a worktree inside the main checkout is the main
+checkout's.
+
+For a minor or major version, push its tag by hand, for example
+`git tag v0.2.0 origin/main && git push origin v0.2.0`. The tag runs
+`release.yml` directly, and the next automatic tag is v0.2.1. Check the release
 configuration locally without publishing:
 
 ```sh
