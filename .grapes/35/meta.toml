@@ -1,0 +1,6 @@
+title = 'Double-click in the diff opens the full diff'
+status = 'done'
+priority = 'medium'
+labels = ['bug', 'tui', 'mouse']
+created = 2026-10-11T16:30:00Z
+updated = 2026-10-11T16:33:00Z

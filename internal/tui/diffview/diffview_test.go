@@ -192,4 +192,7 @@ func TestDiffView_ClicksFollowTheSummaryAndFoldHeaders(t *testing.T) {
 	if view := ansi.Strip(m.View()); !strings.Contains(view, "# Authentication") {
 		t.Errorf("a second click should unfold the file:\n%s", view)
 	}
+	if !m.Clickable(1) || m.Clickable(0) || m.Clickable(4) {
+		t.Errorf("only the header, line 1 of the view, folds: Clickable(0, 1, 4) = %v, %v, %v", m.Clickable(0), m.Clickable(1), m.Clickable(4))
+	}
 }
