@@ -1,0 +1,6 @@
+title = "Show a stacked subagent branch's own work, not its session's"
+status = 'done'
+priority = 'high'
+labels = ['bug', 'subagents']
+created = 2026-10-12T20:45:00Z
+updated = 2026-10-12T20:50:00Z

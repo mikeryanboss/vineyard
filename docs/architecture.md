@@ -210,8 +210,13 @@ session shows the session (`shownAgent` next to `shownID`):
 - **Diff:** the diff of the git worktree holding the directory it last worked
   in (`Agent.Dir`: where it last edited a file, else where it last `cd`-ed
   to, else its working directory), from where that worktree's branch forks
-  from the mainline (`git.Base`). In its session's worktree, the session's
-  diff. `enter` runs the diff tool in that worktree.
+  from the session's branch or from the mainline, whichever is later
+  (`git.StackedBase`). Subagents often create their branches from the
+  session's, which holds commits they did not make, such as the issues the
+  session opened for them. Against the session's branch, a merge commit takes
+  the subagent's branch in as one on the mainline does (Diffs). In its
+  session's worktree, the session's diff. `enter` runs the diff tool in that
+  worktree.
 - **Issue:** for a subagent in a worktree of its own, the issues of that
   diff, as for sessions; in its session's worktree, the issues whose files it
   edited (`shownIssues`).

@@ -128,9 +128,11 @@ func (f *fakeBackend) SubagentEvents(s session.Session, id string) ([]subagent.E
 	defer f.mu.Unlock()
 	return f.events[id], nil
 }
-func (f *fakeBackend) Worktree(dir string) string           { return f.trees[dir] }
-func (f *fakeBackend) TreeDiff(root string) (string, error) { return f.treeDiffs[root], nil }
-func (f *fakeBackend) TreeDiffTool(root, command string) (*exec.Cmd, error) {
+func (f *fakeBackend) Worktree(dir string) string { return f.trees[dir] }
+func (f *fakeBackend) TreeDiff(root string, s session.Session) (string, error) {
+	return f.treeDiffs[root], nil
+}
+func (f *fakeBackend) TreeDiffTool(root string, s session.Session, command string) (*exec.Cmd, error) {
 	cmd, err := diffTool(root, "base", command)
 	if err == nil {
 		f.mu.Lock()
