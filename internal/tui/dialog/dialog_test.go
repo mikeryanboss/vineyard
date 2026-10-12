@@ -182,6 +182,16 @@ func TestConfirm(t *testing.T) {
 	}
 }
 
+func TestConfirm_LinesAreCutToFit(t *testing.T) {
+	d := dialog.NewConfirm(common.NewTheme(true), "Kill session anyway?", common.ActionKillDiscardingCommits, "s1",
+		"1f08838 Short subject", "9ab12cd "+strings.Repeat("A long subject that goes on ", 4))
+	testutil.RequireGolden(t, d.View())
+
+	if _, msg := click(t, d, "confirm"); msg != (common.ConfirmedMsg{Action: common.ActionKillDiscardingCommits, SessionID: "s1"}) {
+		t.Errorf("a click on confirm produced %#v", msg)
+	}
+}
+
 // click clicks the first cell of text in d's view and returns the message
 // its command produces, if any.
 func click(t *testing.T, d dialog.Dialog, text string) (dialog.Dialog, tea.Msg) {

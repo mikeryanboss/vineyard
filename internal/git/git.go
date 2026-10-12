@@ -177,15 +177,16 @@ func CurrentBranch(dir string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-// UnreferencedCommits counts the commits reachable from HEAD in dir that no
-// branch, remote-tracking branch, or tag contains. Removing a worktree with a
-// detached HEAD loses exactly these.
-func UnreferencedCommits(dir string) (int, error) {
-	out, err := run(dir, "rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags")
-	if err != nil {
-		return 0, err
+// UnreferencedCommits lists the commits reachable from HEAD in dir that no
+// branch, remote-tracking branch, or tag contains, newest first, each as
+// "<short hash> <subject>". Removing a worktree with a detached HEAD loses
+// exactly these.
+func UnreferencedCommits(dir string) ([]string, error) {
+	out, err := run(dir, "log", "--format=%h %s", "HEAD", "--not", "--branches", "--remotes", "--tags")
+	if err != nil || out == "" {
+		return nil, err
 	}
-	return strconv.Atoi(strings.TrimSpace(out))
+	return strings.Split(strings.TrimSuffix(out, "\n"), "\n"), nil
 }
 
 // RemoveWorktree deletes the worktree at path, discarding uncommitted changes,

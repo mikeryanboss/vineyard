@@ -1011,6 +1011,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			delete(m.busy, msg.session.ID)
 			m.syncList()
+			var lost *session.LostCommitsError
+			if errors.As(msg.err, &lost) {
+				lines := lost.Commits
+				if len(lines) > 5 {
+					lines = append(lines[:5:5], fmt.Sprintf("… and %d more", len(lost.Commits)-5))
+				}
+				m.dialog = dialog.NewConfirm(m.theme,
+					fmt.Sprintf("Kill %q anyway? The commits below exist only on its detached HEAD and are lost with its worktree. To keep them, cancel, press t, and run git switch -c <branch>.", msg.session.Title),
+					common.ActionKillDiscardingCommits, msg.session.ID, lines...)
+				return m, nil
+			}
 			return m, m.setError(msg.err)
 		}
 		m.remove(msg.session.ID)
@@ -1716,9 +1727,10 @@ func (m Model) runConfirmed(msg common.ConfirmedMsg) (tea.Model, tea.Cmd) {
 	backend := m.backend
 	var cmd tea.Cmd
 	switch msg.Action {
-	case common.ActionKill:
+	case common.ActionKill, common.ActionKillDiscardingCommits:
+		discard := msg.Action == common.ActionKillDiscardingCommits
 		cmd = func() tea.Msg {
-			result, err := backend.Kill(s)
+			result, err := backend.Kill(s, discard)
 			return killedMsg{session: s, result: result, err: err}
 		}
 	case common.ActionPause:

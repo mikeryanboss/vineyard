@@ -10,6 +10,9 @@ type Action int
 
 const (
 	ActionKill Action = iota
+	// ActionKillDiscardingCommits kills a session although its detached HEAD
+	// has commits that are lost with the worktree.
+	ActionKillDiscardingCommits
 	ActionPause
 	ActionPush
 )

@@ -177,18 +177,33 @@ type KillResult struct {
 	KeptBranch string
 }
 
+// LostCommitsError is Kill refusing a detached HEAD with commits that no
+// branch, remote-tracking branch, or tag contains: removing the worktree would
+// lose them.
+type LostCommitsError struct {
+	Title string
+	// Commits are the commits that would be lost, newest first, each as
+	// "<short hash> <subject>".
+	Commits []string
+}
+
+func (e *LostCommitsError) Error() string {
+	return fmt.Sprintf("session %q has commits only on its detached HEAD; check out a branch first", e.Title)
+}
+
 // Kill stops the agent and removes the worktree, discarding uncommitted
 // changes. The checked-out branch is deleted only if it has no commits of its
-// own. A detached HEAD has no branch to delete, so no branch is touched; Kill
-// refuses it only if it holds commits that nothing else contains.
-func (m *Manager) Kill(s Session) (KillResult, error) {
+// own. A detached HEAD has no branch to delete, so no branch is touched. When
+// a detached HEAD holds commits that nothing else contains, Kill refuses with
+// a *LostCommitsError unless discardCommits is set.
+func (m *Manager) Kill(s Session, discardCommits bool) (KillResult, error) {
 	if git.IsWorktree(s.WorktreePath) {
 		branch, err := git.CurrentBranch(s.WorktreePath)
 		if errors.Is(err, git.ErrDetachedHead) {
-			var n int
-			n, err = git.UnreferencedCommits(s.WorktreePath)
-			if err == nil && n > 0 {
-				err = fmt.Errorf("session %q has commits only on its detached HEAD; check out a branch first", s.Title)
+			var commits []string
+			commits, err = git.UnreferencedCommits(s.WorktreePath)
+			if err == nil && len(commits) > 0 && !discardCommits {
+				err = &LostCommitsError{Title: s.Title, Commits: commits}
 			}
 		}
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -321,7 +322,7 @@ func TestShell_StartsInWorktreeAndStopsWithSession(t *testing.T) {
 func TestKill_DeletesBranchWithoutCommits(t *testing.T) {
 	m, _ := newTestManager(t)
 	s := startSession(t, m, "scratch")
-	result, err := m.Kill(s)
+	result, err := m.Kill(s, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +338,7 @@ func TestKill_KeepsBranchWithCommits(t *testing.T) {
 	runGit(t, s.WorktreePath, "add", "-A")
 	runGit(t, s.WorktreePath, "commit", "-q", "-m", "agent work")
 
-	result, err := m.Kill(s)
+	result, err := m.Kill(s, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +440,7 @@ func TestPushAndKill_UseTheCheckedOutBranch(t *testing.T) {
 	}
 	runGit(t, remote, "rev-parse", "--verify", "refs/heads/19/real-work")
 
-	result, err := m.Kill(s)
+	result, err := m.Kill(s, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +482,7 @@ func TestKill_RemovesDetachedHeadMergedUpstream(t *testing.T) {
 	runGit(t, s.WorktreePath, "switch", "-q", "--detach", "origin/main")
 	runGit(t, s.WorktreePath, "branch", "-q", "-D", "44/work")
 
-	result, err := m.Kill(s)
+	result, err := m.Kill(s, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,19 +494,29 @@ func TestKill_RemovesDetachedHeadMergedUpstream(t *testing.T) {
 	}
 }
 
-func TestKill_RefusesDetachedHeadWithUnreferencedCommits(t *testing.T) {
+func TestKill_DetachedHeadWithUnreferencedCommits(t *testing.T) {
 	m, term := newTestManager(t)
 	s := startSession(t, m, "adrift")
 	runGit(t, s.WorktreePath, "switch", "-q", "--detach")
 	writeFile(t, s.WorktreePath, "work.txt", "x\n")
 	runGit(t, s.WorktreePath, "add", "-A")
 	runGit(t, s.WorktreePath, "commit", "-q", "-m", "only on the detached HEAD")
+	commit := runGit(t, s.WorktreePath, "log", "-1", "--format=%h %s")
 
-	if _, err := m.Kill(s); err == nil || !strings.Contains(err.Error(), "detached HEAD") {
-		t.Errorf("kill err = %v, want a detached HEAD error", err)
+	_, err := m.Kill(s, false)
+	var lost *LostCommitsError
+	if !errors.As(err, &lost) || !slices.Equal(lost.Commits, []string{commit}) {
+		t.Fatalf("kill err = %v, want the lost commit %q", err, commit)
 	}
 	if !git.IsWorktree(s.WorktreePath) || !term.Exists(s.TmuxName) {
-		t.Error("a refused kill must leave the worktree, its commit, and the agent in place")
+		t.Fatal("a refused kill must leave the worktree, its commit, and the agent in place")
+	}
+
+	if _, err := m.Kill(s, true); err != nil {
+		t.Fatal(err)
+	}
+	if git.IsWorktree(s.WorktreePath) || term.Exists(s.TmuxName) {
+		t.Error("discarding the commits should remove the worktree and stop the agent")
 	}
 }
 
