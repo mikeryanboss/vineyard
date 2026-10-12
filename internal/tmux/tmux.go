@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DefaultSocket is the tmux socket name Vineyard's sessions live on.
@@ -121,6 +122,20 @@ func (c *Client) configureServer() error {
 func (c *Client) Exists(name string) bool {
 	_, err := c.command("has-session", "-t", exact(name))
 	return err == nil
+}
+
+// Created returns when the named session was created, to the second. The
+// session runs its program from then on.
+func (c *Client) Created(name string) (time.Time, error) {
+	out, err := c.command("display-message", "-p", "-t", exact(name)+":", "#{session_created}")
+	if err != nil {
+		return time.Time{}, err
+	}
+	seconds, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("session_created %q: %w", strings.TrimSpace(out), err)
+	}
+	return time.Unix(seconds, 0), nil
 }
 
 // Capture returns the visible screen of the session's active pane, with

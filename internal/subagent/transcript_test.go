@@ -116,9 +116,10 @@ func (c transcripts) agent(id, description, toolUseID string, lines ...string) {
 	c.appendTo(path+".jsonl", lines...)
 }
 
-func load(t *testing.T, r *Reader, dir string) Conversation {
+// load reads dir for a Claude Code that started at started.
+func load(t *testing.T, r *Reader, dir string, started time.Time) Conversation {
 	t.Helper()
-	c, err := r.Load(dir)
+	c, err := r.Load(dir, started)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +153,7 @@ func TestLoad_ReadsSubagentsFromTheTranscripts(t *testing.T) {
 		called(t, 6, "toolu_cd2", "Bash", map[string]any{"command": `cd "/trees/docs" && make`}))
 	c.agent("help4", "helper", "toolu_4", asked(t, 6, "/repo", "", "Help."))
 
-	conv := load(t, NewReader(), c.dir)
+	conv := load(t, NewReader(), c.dir, time.Time{})
 	var order []string
 	for _, a := range conv.Agents {
 		order = append(order, strings.Repeat("  ", a.Depth)+a.ID)
@@ -172,7 +173,7 @@ func TestLoad_ReadsSubagentsFromTheTranscripts(t *testing.T) {
 	}{
 		{"done1", Done, at(30), "/repo"},
 		{"busy2", Running, time.Time{}, "/trees/tests"},
-		{"gone3", Failed, at(40), "/trees/docs"},
+		{"gone3", Stopped, at(40), "/trees/docs"},
 		{"help4", Running, time.Time{}, "/repo"},
 	}
 	for _, tt := range tests {
@@ -194,7 +195,7 @@ func TestLoad_ReadsOnlyWhatWasAppended(t *testing.T) {
 	c.main(human(t, 0, "Go"), stopped(t, 20, "a1", "completed"))
 	c.agent("a1", "one", "toolu_1", asked(t, 1, "/repo", "", "Do it."), said(t, 19, "Done."))
 	r := NewReader()
-	if a := load(t, r, c.dir).Agents[0]; a.Status != Done {
+	if a := load(t, r, c.dir, time.Time{}).Agents[0]; a.Status != Done {
 		t.Fatalf("status = %d, want done", a.Status)
 	}
 
@@ -202,12 +203,12 @@ func TestLoad_ReadsOnlyWhatWasAppended(t *testing.T) {
 	c.agent("a1", "one", "toolu_1", asked(t, 25, "/repo", "coordinator", "One more thing."))
 	partial := human(t, 26, "Next")
 	c.main(partial[:20])
-	conv := load(t, r, c.dir)
+	conv := load(t, r, c.dir, time.Time{})
 	if conv.Agents[0].Status != Running || !conv.Prompted.Equal(at(0)) {
 		t.Errorf("status %d, prompted %v; want a resumed subagent running, and a half-written line left for later", conv.Agents[0].Status, conv.Prompted)
 	}
 	c.main(partial[20:])
-	if conv := load(t, r, c.dir); !conv.Prompted.Equal(at(26)) {
+	if conv := load(t, r, c.dir, time.Time{}); !conv.Prompted.Equal(at(26)) {
 		t.Errorf("prompted %v, want the line once complete, at %v", conv.Prompted, at(26))
 	}
 
@@ -220,14 +221,14 @@ func TestLoad_ReadsOnlyWhatWasAppended(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strings.Repeat("x", len(data)-1)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Load(c.dir); err != nil {
+	if _, err := r.Load(c.dir, time.Time{}); err != nil {
 		t.Errorf("Load reread lines it had read: %v", err)
 	}
 	// A file that shrank was rewritten, and is read anew.
 	if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Load(c.dir); err == nil {
+	if _, err := r.Load(c.dir, time.Time{}); err == nil {
 		t.Error("Load should have read the rewritten file anew and failed on its garbage")
 	}
 }
@@ -242,7 +243,7 @@ func TestLoad_ForkStartsWithACopyOfItsOwnCall(t *testing.T) {
 			map[string]any{"type": "text", "text": "<fork-boilerplate>You are a fork.</fork-boilerplate>"}}}}),
 		said(t, 2, "On it."))
 	r := NewReader()
-	conv := load(t, r, c.dir)
+	conv := load(t, r, c.dir, time.Time{})
 	if len(conv.Agents) != 1 || conv.Agents[0].Parent != "" || conv.Agents[0].Prompt != "Fix the flicker." {
 		t.Fatalf("agents = %+v, want the fork, started by the conversation, with its call's prompt", conv.Agents)
 	}
@@ -256,7 +257,7 @@ func TestLoad_ForkStartsWithACopyOfItsOwnCall(t *testing.T) {
 }
 
 func TestLoad_NoTranscript(t *testing.T) {
-	conv, err := NewReader().Load(filepath.Join(t.TempDir(), "none"))
+	conv, err := NewReader().Load(filepath.Join(t.TempDir(), "none"), time.Time{})
 	if err != nil || len(conv.Agents) != 0 {
 		t.Errorf("Load = %+v, %v; want nothing", conv, err)
 	}
@@ -296,7 +297,7 @@ func TestConversation_KeptUntilTheNextPrompt(t *testing.T) {
 	c := Conversation{Prompted: at(10), Agents: []Agent{
 		{ID: "before", Status: Done, Ended: at(5)},
 		{ID: "after", Status: Done, Ended: at(15)},
-		{ID: "failed", Status: Failed, Ended: at(5)},
+		{ID: "failed", Status: Stopped, Ended: at(5)},
 		{ID: "parent", Status: Done, Ended: at(5)},
 		{ID: "child", Parent: "parent", Depth: 1, Status: Running},
 		{ID: "running"},
@@ -317,9 +318,9 @@ func TestMatch_ReadsClaudeCodesList(t *testing.T) {
 		{ID: "b", Status: Running},
 		{ID: "b1", Parent: "b", Depth: 1, Status: Running},
 		{ID: "b2", Parent: "b", Depth: 1, Status: Done, Ended: at(90)},
-		{ID: "c", Status: Failed, Ended: at(80)},
+		{ID: "c", Status: Stopped, Ended: at(80)},
 		{ID: "d", Status: Running},
-		{ID: "e", Status: Failed, Ended: at(10)},
+		{ID: "e", Status: Stopped, Ended: at(10)},
 	}
 	rows := func(depths ...int) []Row {
 		var r []Row
@@ -364,5 +365,38 @@ func TestMatch_TheViewTitleTellsFinishedSubagentsApart(t *testing.T) {
 	l.View = "write the tests…"
 	if ids, ok := Match(agents, l, at(30)); !ok || !slices.Equal(ids, []string{"y", "z"}) {
 		t.Errorf("Match = %q, %v; want y, whose description the title starts, then z", ids, ok)
+	}
+}
+
+// Subagents end with the Claude Code they run in, which reports nothing then.
+// A conversation not written to since its session's Claude Code started was
+// left by one that exited.
+func TestLoad_SubagentsOfAnExitedClaudeCodeStopped(t *testing.T) {
+	c := newTranscripts(t)
+	c.main(human(t, 0, "Go"), stopped(t, 20, "done1", "completed"))
+	c.agent("done1", "one", "toolu_1", asked(t, 1, "/repo", "", "Do it."), said(t, 19, "Done."))
+	c.agent("busy2", "two", "toolu_2", asked(t, 2, "/repo", "", "Keep at it."), said(t, 30, "Still going."))
+	paths, err := filepath.Glob(filepath.Join(c.dir, "*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	more, err := filepath.Glob(filepath.Join(c.dir, "conv", "subagents", "*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range append(paths, more...) {
+		if err := os.Chtimes(path, at(30), at(30)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if a := byID(load(t, NewReader(), c.dir, at(25)))["busy2"]; a.Status != Running {
+		t.Errorf("status = %d, want running in a conversation written to since its Claude Code started", a.Status)
+	}
+	agents := byID(load(t, NewReader(), c.dir, at(40)))
+	if a := agents["busy2"]; a.Status != Stopped || !a.Ended.Equal(at(30)) {
+		t.Errorf("busy2: status %d, ended %v; want stopped at its last message, %v", a.Status, a.Ended, at(30))
+	}
+	if a := agents["done1"]; a.Status != Done {
+		t.Errorf("done1: status %d, want done as reported", a.Status)
 	}
 }

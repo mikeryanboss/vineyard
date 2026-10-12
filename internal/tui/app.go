@@ -1384,7 +1384,7 @@ func (m *Model) refreshTranscript() {
 }
 
 // statusNames are what the recap calls a subagent's status.
-var statusNames = map[subagent.Status]string{subagent.Running: "running", subagent.Done: "done", subagent.Failed: "failed"}
+var statusNames = map[subagent.Status]string{subagent.Running: "running", subagent.Done: "done", subagent.Stopped: "stopped"}
 
 // renderAgentRecap renders what a subagent was asked and what it reported.
 func (m Model) renderAgentRecap(a subagent.Agent) string {

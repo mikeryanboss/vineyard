@@ -1,0 +1,6 @@
+title = 'Show subagents of an exited Claude Code as stopped'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'subagents', 'bug']
+created = 2026-10-11T21:26:00Z
+updated = 2026-10-11T21:30:00Z

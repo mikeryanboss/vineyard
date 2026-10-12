@@ -32,9 +32,9 @@ const (
 	Running Status = iota
 	// Done is a subagent that completed and reported back.
 	Done
-	// Failed is a subagent that stopped without completing, as when stopped
-	// by the user.
-	Failed
+	// Stopped is a subagent that stopped without completing: it failed, the
+	// user stopped it, or the Claude Code it ran in exited.
+	Stopped
 )
 
 // Agent is one subagent, as the transcripts record it.
@@ -131,7 +131,13 @@ func NewReader() *Reader { return &Reader{files: map[string]*transcript{}} }
 
 // Load reads the subagents of the conversation last written to in dir, a
 // directory of transcripts. It finds none when dir holds no transcript.
-func (r *Reader) Load(dir string) (Conversation, error) {
+//
+// started is when the Claude Code that writes to dir started. Subagents run
+// inside Claude Code's process and end with it, unreported, so those of a
+// conversation not written to since then count as stopped, at their last
+// message. A Claude Code that exits, as when its session is paused, leaves its
+// conversation the newest in dir until its successor is sent a prompt.
+func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	main, err := newest(filepath.Join(dir, "*.jsonl"))
@@ -174,16 +180,23 @@ func (r *Reader) Load(dir string) (Conversation, error) {
 		read = append(read, t)
 		agents = append(agents, t.agent(id))
 	}
+	exited := conv.written.Before(started)
+	for _, t := range read {
+		exited = exited && t.written.Before(started)
+	}
 	for i, t := range read {
 		a := &agents[i]
 		a.Parent = launcher[t.meta.ToolUseID]
 		// A resumed subagent writes on after the report that it stopped.
 		if s, ok := stops[a.ID]; ok && !s.at.Before(t.last) {
 			a.Ended = s.at
-			a.Status = Failed
+			a.Status = Stopped
 			if s.status == "completed" {
 				a.Status = Done
 			}
+		}
+		if exited && a.Status == Running {
+			a.Status, a.Ended = Stopped, t.last
 		}
 	}
 	return Conversation{Agents: tree(agents), Prompted: conv.prompted}, nil
@@ -284,7 +297,8 @@ type stop struct {
 
 // transcript is what Reader has gathered from one transcript file.
 type transcript struct {
-	read int64 // bytes read, up to the end of the last whole line
+	read    int64     // bytes read, up to the end of the last whole line
+	written time.Time // when the file was last written
 	// prompted is when the user last sent a prompt.
 	prompted time.Time
 	// stops are the last reports of tasks that stopped, by task ID.
@@ -324,6 +338,7 @@ func (r *Reader) update(path string, subagent bool) (*transcript, error) {
 		}
 		r.files[path] = t
 	}
+	t.written = info.ModTime()
 	if info.Size() == t.read {
 		return t, nil
 	}
@@ -562,9 +577,9 @@ func firstLines(s string, n int) string {
 	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n… +%d lines", len(lines)-n)
 }
 
-// listedFailed is how long Claude Code keeps listing a subagent that failed
+// listedStopped is how long Claude Code keeps listing a subagent that failed
 // or was stopped (https://code.claude.com/docs/en/sub-agents.md).
-const listedFailed = 30 * time.Second
+const listedStopped = 30 * time.Second
 
 // Match reads Claude Code's list l in terms of agents, all the subagents of
 // the conversation as Conversation holds them: it returns the ID of the
@@ -576,7 +591,7 @@ const listedFailed = 30 * time.Second
 // reports false when no reading fits the list, or when readings differ.
 func Match(agents []Agent, l List, now time.Time) ([]string, bool) {
 	listed := func(a Agent) bool {
-		return a.Status == Running || a.Status == Failed && now.Sub(a.Ended) < listedFailed
+		return a.Status == Running || a.Status == Stopped && now.Sub(a.Ended) < listedStopped
 	}
 	var match []string
 	found := false
