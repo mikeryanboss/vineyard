@@ -37,10 +37,14 @@ Its `Status` is one of:
   the program. For stopped sessions the worktree, and any uncommitted work in
   it, is reused.
 - `Kill` stops everything and removes the worktree. The checked-out branch is
-  deleted only when it has no commits beyond its base.
+  deleted only when it has no commits beyond its base. A detached HEAD has no
+  branch, so `Kill` deletes none, not even the one saved in the session. It
+  refuses a detached HEAD only when HEAD has commits that no branch,
+  remote-tracking branch, or tag contains, since removing the worktree would
+  lose them.
 - `Push` commits and runs `git push -u origin <branch>` for the checked-out
   branch.
-- `Pause`, `Kill`, and `Push` refuse a worktree with a detached HEAD.
+- `Pause` and `Push` refuse a worktree with a detached HEAD.
 - `Restore` runs at startup. It finds each session's worktree in
   `git worktree list` by directory name, which is the session ID, and takes its
   branch from there. A worktree git lost track of because something moved is

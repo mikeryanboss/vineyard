@@ -179,10 +179,18 @@ type KillResult struct {
 
 // Kill stops the agent and removes the worktree, discarding uncommitted
 // changes. The checked-out branch is deleted only if it has no commits of its
-// own.
+// own. A detached HEAD has no branch to delete, so no branch is touched; Kill
+// refuses it only if it holds commits that nothing else contains.
 func (m *Manager) Kill(s Session) (KillResult, error) {
 	if git.IsWorktree(s.WorktreePath) {
 		branch, err := git.CurrentBranch(s.WorktreePath)
+		if errors.Is(err, git.ErrDetachedHead) {
+			var n int
+			n, err = git.UnreferencedCommits(s.WorktreePath)
+			if err == nil && n > 0 {
+				err = fmt.Errorf("session %q has commits only on its detached HEAD; check out a branch first", s.Title)
+			}
+		}
 		if err != nil {
 			return KillResult{}, err
 		}
