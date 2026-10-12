@@ -1629,6 +1629,7 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			s.Status = session.StatusReady
 		}
 
+		save := false
 		switch {
 		case !msg.lead:
 		case r.permission && s.AutoYes:
@@ -1642,9 +1643,18 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 		case still && s.PendingPrompt != "":
 			cmds = append(cmds, m.promptCmd(s, s.PendingPrompt))
 			s.PendingPrompt = ""
-			changed = append(changed, s)
+			save = true
+		}
+		// Resume continues the conversation the agent is in. Only the leader
+		// saves it, so that several Vineyards do not write it at once.
+		if id := r.conversation.ID; msg.lead && id != "" && id != s.Conversation {
+			s.Conversation = id
+			save = true
 		}
 		m.sessions[i] = s
+		if save {
+			changed = append(changed, s)
+		}
 	}
 	m.syncList()
 	if len(changed) > 0 {

@@ -455,6 +455,30 @@ func TestApp_PendingPromptIsSentOnceReady(t *testing.T) {
 	}
 }
 
+// Resume continues the conversation a Claude session was last seen in, so the
+// leader saves it whenever it changes, as after /clear.
+func TestApp_LeaderSavesTheConversationToResume(t *testing.T) {
+	m, backend := newTestModel(t, []session.Session{readySession("", false)})
+	before := len(backend.saved)
+	poll := func(lead bool, id string) {
+		m = send(m, statusMsg{lead: lead, results: []screenStatus{{id: "s1", hash: 7, conversation: subagent.Conversation{ID: id}}}})
+	}
+	poll(false, "first")
+	if len(backend.saved) != before {
+		t.Fatal("a follower must leave saving the conversation to the leader")
+	}
+	for _, id := range []string{"first", "first", "cleared"} {
+		poll(true, id)
+	}
+	var got []string
+	for _, file := range backend.saved[before:] {
+		got = append(got, file[0].Conversation)
+	}
+	if want := []string{"first", "cleared"}; !slices.Equal(got, want) {
+		t.Errorf("saved conversations %q, want each new one once: %q", got, want)
+	}
+}
+
 func TestApp_TrustPromptHoldsPendingPrompt(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("go", false)})
 	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, trust: true}}})

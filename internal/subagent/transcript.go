@@ -65,6 +65,9 @@ type Agent struct {
 
 // Conversation is what the transcripts say about a conversation's subagents.
 type Conversation struct {
+	// ID is Claude Code's ID for the conversation, its transcript's name,
+	// which `claude --resume` takes.
+	ID string
 	// Agents are every subagent the conversation ran, each followed by those
 	// it started, in the order they started.
 	Agents []Agent
@@ -133,9 +136,11 @@ func NewReader() *Reader { return &Reader{files: map[string]*transcript{}} }
 // directory of transcripts. It finds none when dir holds no transcript.
 //
 // started is when the Claude Code that writes to dir started. Subagents run
-// inside Claude Code's process and end with it, unreported, so those of a
-// conversation not written to since then count as stopped, at their last
-// message. A Claude Code that exits, as when its session is paused, leaves its
+// inside Claude Code's process and end with it, unreported, so one whose
+// transcript was not written to since then ran in an earlier Claude Code and
+// counts as stopped, at its last message. The conversation's own transcript
+// cannot tell: a Claude Code that resumes the conversation touches it as it
+// starts. A Claude Code that exits, as when its session is paused, leaves its
 // conversation the newest in dir until its successor is sent a prompt.
 func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 	r.mu.Lock()
@@ -180,10 +185,6 @@ func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 		read = append(read, t)
 		agents = append(agents, t.agent(id))
 	}
-	exited := conv.written.Before(started)
-	for _, t := range read {
-		exited = exited && t.written.Before(started)
-	}
 	for i, t := range read {
 		a := &agents[i]
 		a.Parent = launcher[t.meta.ToolUseID]
@@ -195,11 +196,12 @@ func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 				a.Status = Done
 			}
 		}
-		if exited && a.Status == Running {
+		if a.Status == Running && t.written.Before(started) {
 			a.Status, a.Ended = Stopped, t.last
 		}
 	}
-	return Conversation{Agents: tree(agents), Prompted: conv.prompted}, nil
+	id := strings.TrimSuffix(filepath.Base(main), ".jsonl")
+	return Conversation{ID: id, Agents: tree(agents), Prompted: conv.prompted}, nil
 }
 
 // Events returns the condensed transcript of subagent id of the conversation

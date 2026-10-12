@@ -60,6 +60,9 @@ type Session struct {
 	PendingPrompt string `json:"pending_prompt,omitempty"`
 	// Issue is the grapes issue the session was started for, or 0.
 	Issue int `json:"issue,omitempty"`
+	// Conversation is the ID of the Claude Code conversation the agent was
+	// last seen in, which Resume continues.
+	Conversation string `json:"conversation,omitempty"`
 	// CreatedAt is when the session was created.
 	CreatedAt time.Time `json:"created_at"`
 }

@@ -256,6 +256,25 @@ func TestLoad_ForkStartsWithACopyOfItsOwnCall(t *testing.T) {
 	}
 }
 
+func TestLoad_IDIsTheConversationWrittenLast(t *testing.T) {
+	c := newTranscripts(t)
+	c.main(human(t, 0, "Go"))
+	r := NewReader()
+	if id := load(t, r, c.dir, time.Time{}).ID; id != "conv" {
+		t.Errorf("ID = %q, want conv", id)
+	}
+	// /clear starts a new conversation, which a restart must resume.
+	cleared := filepath.Join(c.dir, "cleared.jsonl")
+	c.appendTo(cleared, human(t, 50, "Next task"))
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(cleared, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if id := load(t, r, c.dir, time.Time{}).ID; id != "cleared" {
+		t.Errorf("ID = %q, want cleared", id)
+	}
+}
+
 func TestLoad_NoTranscript(t *testing.T) {
 	conv, err := NewReader().Load(filepath.Join(t.TempDir(), "none"), time.Time{})
 	if err != nil || len(conv.Agents) != 0 {
@@ -398,5 +417,14 @@ func TestLoad_SubagentsOfAnExitedClaudeCodeStopped(t *testing.T) {
 	}
 	if a := agents["done1"]; a.Status != Done {
 		t.Errorf("done1: status %d, want done as reported", a.Status)
+	}
+
+	// A Claude Code that resumes the conversation touches its transcript as it
+	// starts, but not those of the subagents that ended with its predecessor.
+	if err := os.Chtimes(filepath.Join(c.dir, "conv.jsonl"), at(45), at(45)); err != nil {
+		t.Fatal(err)
+	}
+	if a := byID(load(t, NewReader(), c.dir, at(40)))["busy2"]; a.Status != Stopped {
+		t.Errorf("status = %d, want stopped after its conversation was resumed", a.Status)
 	}
 }
