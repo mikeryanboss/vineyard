@@ -1,0 +1,6 @@
+title = 'Make each release reach go install at once'
+status = 'done'
+priority = 'medium'
+labels = ['release', 'ci']
+created = 2026-10-12T07:59:00Z
+updated = 2026-10-12T08:02:00Z

@@ -1,0 +1,5 @@
+### 2026-10-12T08:10
+[DONE] `.github/workflows/release.yml`: after GoReleaser, a step requests `https://proxy.golang.org/$(go list -m)/@v/<tag>.info` for each `v*` tag on HEAD (`git tag --points-at HEAD`), which works for a tag push and for Auto Tag's call alike; `curl -f` fails the job on an HTTP error. `docs/development.md` (Releases) says so. The after-merge criterion waits for the merge.
+
+### 2026-10-12T08:10
+[VERIFY] From the worktree root: `actionlint` v1.7.12 on `.github/workflows/*.yml` printed nothing. The step's `run`, extracted with PyYAML and run with `bash -e` (GitHub's default) in a fresh clone checked out at v0.1.8, printed the mirror's v0.1.8 JSON (`"Hash":"74aeb3f…","Ref":"refs/tags/v0.1.8"`), exit 0. With a local tag `v0.1.8-test` added on HEAD it printed v0.1.8's JSON, then `curl: (22) The requested URL returned error: 404`, exit 22. PASS. Not shown: that the request makes a new version reach `@latest` faster; v0.1.8 was listed by the mirror within a minute of its tag without it, as the mirror refetches when its cache has expired.

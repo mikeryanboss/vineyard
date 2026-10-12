@@ -122,8 +122,11 @@ keeps only the newest waiting run, and its release includes them all.
 
 GoReleaser (`.goreleaser.yaml`) publishes static Linux and macOS archives for
 amd64 and arm64, with the tag stamped into `main.version`. There is no Windows
-build: sessions run in tmux, and WSL uses the Linux archive. `go install …@latest`
-shows the module version Go stamps into the binary, which is the tag. Builds in
+build: sessions run in tmux, and WSL uses the Linux archive. Then the workflow
+requests the tag from the Go module mirror, proxy.golang.org, so that
+`go install …@latest` installs it within a minute; otherwise the mirror may take
+30 minutes to offer it. `go install …@latest` shows the module version Go
+stamps into the binary, which is the tag. Builds in
 a checkout show `dev`: Go stamps them with the commit of the nearest `.git`
 directory, which for a worktree inside the main checkout is the main
 checkout's.
