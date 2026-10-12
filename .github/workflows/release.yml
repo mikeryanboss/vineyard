@@ -28,3 +28,12 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The Go module mirror may take 30 minutes to offer a new version to
+      # `go install …@latest`; a request for that version makes it a minute.
+      - name: Request the version from the Go module mirror
+        run: |
+          for tag in $(git tag --points-at HEAD --list 'v*'); do
+            curl -fsS "https://proxy.golang.org/$(go list -m)/@v/$tag.info"
+            echo
+          done
