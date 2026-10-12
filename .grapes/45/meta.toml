@@ -1,0 +1,6 @@
+title = 'Offer to kill a session anyway when its commits would be lost'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'session']
+created = 2026-10-12T20:32:00Z
+updated = 2026-10-12T20:35:00Z

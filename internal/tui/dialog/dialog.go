@@ -396,13 +396,18 @@ func (d *NewSession) Hints() [][2]string {
 type Confirm struct {
 	theme     common.Theme
 	message   string
+	lines     []string
 	action    common.Action
 	sessionID string
 }
 
-// NewConfirm returns a confirmation for action on a session.
-func NewConfirm(theme common.Theme, message string, action common.Action, sessionID string) *Confirm {
-	return &Confirm{theme: theme, message: message, action: action, sessionID: sessionID}
+// confirmWidth is the widest a Confirm gets, border included.
+const confirmWidth = 64
+
+// NewConfirm returns a confirmation for action on a session. Lines, if any,
+// are listed under the message, each cut to the dialog's width.
+func NewConfirm(theme common.Theme, message string, action common.Action, sessionID string, lines ...string) *Confirm {
+	return &Confirm{theme: theme, message: message, lines: lines, action: action, sessionID: sessionID}
 }
 
 // Update handles input. Clicks are relative to the dialog box: on the
@@ -446,12 +451,15 @@ func (d *Confirm) answers() (yes, no string) {
 func (d *Confirm) View() string {
 	t := d.theme
 	yes, no := d.answers()
-	body := lipgloss.JoinVertical(lipgloss.Left,
-		t.StyleTitle.Render(d.message),
-		"",
-		yes+t.StyleFaint.Render(confirmSeparator)+no,
-	)
-	return t.StyleDialog.Width(min(64, lipgloss.Width(body)+6)).Render(body)
+	parts := []string{t.StyleTitle.Render(d.message), ""}
+	for _, line := range d.lines {
+		parts = append(parts, ansi.Truncate(line, confirmWidth-6, "…"))
+	}
+	if len(d.lines) > 0 {
+		parts = append(parts, "")
+	}
+	body := lipgloss.JoinVertical(lipgloss.Left, append(parts, yes+t.StyleFaint.Render(confirmSeparator)+no)...)
+	return t.StyleDialog.Width(min(confirmWidth, lipgloss.Width(body)+6)).Render(body)
 }
 
 // Hints returns the status bar key hints.

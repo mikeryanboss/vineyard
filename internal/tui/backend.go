@@ -24,7 +24,7 @@ type Backend interface {
 	Start(s session.Session, width, height int) (session.Session, error)
 	Pause(s session.Session) (session.Session, error)
 	Resume(s session.Session, width, height int) (session.Session, error)
-	Kill(s session.Session) (session.KillResult, error)
+	Kill(s session.Session, discardCommits bool) (session.KillResult, error)
 	Push(s session.Session) (session.Session, error)
 	EnsureShell(s session.Session, width, height int) error
 

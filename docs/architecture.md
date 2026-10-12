@@ -38,10 +38,11 @@ Its `Status` is one of:
   it, is reused.
 - `Kill` stops everything and removes the worktree. The checked-out branch is
   deleted only when it has no commits beyond its base. A detached HEAD has no
-  branch, so `Kill` deletes none, not even the one saved in the session. It
-  refuses a detached HEAD only when HEAD has commits that no branch,
-  remote-tracking branch, or tag contains, since removing the worktree would
-  lose them.
+  branch, so `Kill` deletes none, not even the one saved in the session. When
+  HEAD has commits that no branch, remote-tracking branch, or tag contains,
+  removing the worktree would lose them, so `Kill` refuses with a
+  `LostCommitsError` listing them unless told to discard them. The TUI then
+  shows the commits and asks again.
 - `Push` commits and runs `git push -u origin <branch>` for the checked-out
   branch.
 - `Pause` and `Push` refuse a worktree with a detached HEAD.

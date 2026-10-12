@@ -34,7 +34,8 @@ type fakeBackend struct {
 	pasted   []string
 	enters   []string
 	killed   []string
-	branches map[string]string // session ID -> checked-out branch
+	lost     map[string][]string // session ID -> commits only on its detached HEAD
+	branches map[string]string   // session ID -> checked-out branch
 	resized  [][2]int
 	configs  []config.Config
 	recaps   map[string]recap.Recap // by session ID
@@ -80,9 +81,12 @@ func (f *fakeBackend) Resume(s session.Session, w, h int) (session.Session, erro
 	return s, nil
 }
 
-func (f *fakeBackend) Kill(s session.Session) (session.KillResult, error) {
+func (f *fakeBackend) Kill(s session.Session, discardCommits bool) (session.KillResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if commits := f.lost[s.ID]; len(commits) > 0 && !discardCommits {
+		return session.KillResult{}, &session.LostCommitsError{Title: s.Title, Commits: commits}
+	}
 	f.killed = append(f.killed, s.ID)
 	return session.KillResult{KeptBranch: s.Branch}, nil
 }
@@ -1170,6 +1174,38 @@ func TestApp_PreviewWithoutScrollbackStaysLive(t *testing.T) {
 	m = keys(m, "l", "k")
 	if m.preview.Scrolling() || !contains(m.status, "No scrollback") {
 		t.Errorf("scrolling %v, status %q; want the live preview and a message", m.preview.Scrolling(), m.status)
+	}
+}
+
+func TestApp_KillLosingCommitsAsksAgain(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	var commits []string
+	for i := range 7 {
+		commits = append(commits, fmt.Sprintf("c0ffee%d Try parser %d", i, i))
+	}
+	backend.lost = map[string][]string{"login-1": commits}
+
+	m = keys(m, "D", "y")
+	if len(backend.killed) != 0 || m.dialog == nil {
+		t.Fatal("a kill that loses commits should ask again instead of killing")
+	}
+	view := testutil.StripANSI(m.View().Content)
+	for _, want := range []string{"c0ffee0 Try parser 0", "c0ffee4 Try parser 4", "… and 2 more", "git switch -c"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the dialog should show %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "c0ffee5") {
+		t.Errorf("the dialog should list at most five commits:\n%s", view)
+	}
+
+	m = keys(m, "n")
+	if len(backend.killed) != 0 || m.find("login-1") < 0 {
+		t.Fatal("declining must keep the session and its commits")
+	}
+	m = keys(m, "D", "y", "y")
+	if !slices.Equal(backend.killed, []string{"login-1"}) || m.find("login-1") >= 0 {
+		t.Errorf("killed %q; session still listed: %v", backend.killed, m.find("login-1") >= 0)
 	}
 }
 
