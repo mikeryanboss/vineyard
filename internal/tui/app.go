@@ -732,7 +732,7 @@ func (m Model) diffCmd() tea.Cmd {
 			}
 		}
 		if msg.tree != "" {
-			msg.raw, msg.rawErr = backend.TreeDiff(msg.tree)
+			msg.raw, msg.rawErr = backend.TreeDiff(msg.tree, selected)
 		} else if showDiff {
 			msg.raw, msg.rawErr = backend.Diff(selected)
 			if branch, err := backend.Branch(selected); err == nil {
@@ -1839,7 +1839,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		backend, command, tree := m.backend, m.opts.Config.DiffCommand, m.agentTree
 		return m, func() tea.Msg {
 			if tree != "" { // the shown subagent's own worktree
-				cmd, err := backend.TreeDiffTool(tree, command)
+				cmd, err := backend.TreeDiffTool(tree, s, command)
 				return diffToolMsg{id: s.ID, cmd: cmd, err: err}
 			}
 			cmd, err := backend.DiffTool(s, command)

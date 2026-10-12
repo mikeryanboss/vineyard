@@ -46,7 +46,36 @@ func Base(dir, start string) (string, error) {
 		}
 		return "", err
 	}
-	fork, err := run(dir, "merge-base", "origin/HEAD", "HEAD")
+	return baseOn(dir, "origin/HEAD")
+}
+
+// StackedBase is Base for a branch that may have been created from another
+// branch, whose tip is onto, instead of from the mainline. Its work begins
+// where it forks from that branch or from the mainline, whichever is later,
+// and a merge commit on that branch's first-parent history takes it in as one
+// on the mainline's does. Without origin/HEAD its work begins where it forks
+// from that branch.
+func StackedBase(dir, onto string) (string, error) {
+	stacked, err := baseOn(dir, onto)
+	if err != nil {
+		return "", err
+	}
+	mainline, err := Base(dir, stacked)
+	if err != nil {
+		return "", err
+	}
+	if _, err := run(dir, "merge-base", "--is-ancestor", mainline, stacked); err != nil {
+		if exitCode(err) == 1 {
+			return mainline, nil
+		}
+		return "", err
+	}
+	return stacked, nil
+}
+
+// baseOn is Base with the mainline's tip at mainline.
+func baseOn(dir, mainline string) (string, error) {
+	fork, err := run(dir, "merge-base", mainline, "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -57,7 +86,7 @@ func Base(dir, start string) (string, error) {
 	if fork = strings.TrimSpace(fork); fork != head {
 		return fork, nil
 	}
-	after, err := run(dir, "rev-list", "--first-parent", "--ancestry-path", "--reverse", "HEAD..origin/HEAD")
+	after, err := run(dir, "rev-list", "--first-parent", "--ancestry-path", "--reverse", "HEAD.."+mainline)
 	if err != nil {
 		return "", err
 	}

@@ -47,10 +47,10 @@ type Backend interface {
 	// none does.
 	Worktree(dir string) string
 	// TreeDiff and TreeDiffTool are Diff and DiffTool for the worktree at
-	// root, which a subagent works in: its work begins where its branch
-	// forks from the mainline, or else at its HEAD.
-	TreeDiff(root string) (string, error)
-	TreeDiffTool(root, command string) (*exec.Cmd, error)
+	// root, which a subagent of s works in: its work begins where its branch
+	// forks from the branch of s or from the mainline, whichever is later.
+	TreeDiff(root string, s session.Session) (string, error)
+	TreeDiffTool(root string, s session.Session, command string) (*exec.Cmd, error)
 	// DiffTool builds the configured diff command for s. Its error wraps
 	// exec.ErrNotFound when the command is empty or its program is missing.
 	DiffTool(s session.Session, command string) (*exec.Cmd, error)
@@ -162,29 +162,30 @@ func (b LiveBackend) SubagentEvents(s session.Session, id string) ([]subagent.Ev
 
 func (b LiveBackend) Worktree(dir string) string { return git.Root(dir) }
 
-func (b LiveBackend) TreeDiff(root string) (string, error) {
-	base, err := treeBase(root)
+func (b LiveBackend) TreeDiff(root string, s session.Session) (string, error) {
+	base, err := treeBase(root, s)
 	if err != nil {
 		return "", err
 	}
 	return git.Diff(root, base)
 }
 
-func (b LiveBackend) TreeDiffTool(root, command string) (*exec.Cmd, error) {
-	base, err := treeBase(root)
+func (b LiveBackend) TreeDiffTool(root string, s session.Session, command string) (*exec.Cmd, error) {
+	base, err := treeBase(root, s)
 	if err != nil {
 		return nil, err
 	}
 	return diffTool(root, base, command)
 }
 
-// treeBase is where the work in the worktree at root begins.
-func treeBase(root string) (string, error) {
-	head, err := git.Head(root)
+// treeBase is where the work in the worktree at root, which a subagent of s
+// works in, begins. Subagents often create their branches from that of s.
+func treeBase(root string, s session.Session) (string, error) {
+	onto, err := git.Head(s.WorktreePath)
 	if err != nil {
 		return "", err
 	}
-	return git.Base(root, head)
+	return git.StackedBase(root, onto)
 }
 
 // tmuxScreen is a session's tmux window as subagent.Open drives it.

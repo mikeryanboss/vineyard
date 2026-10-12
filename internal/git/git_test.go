@@ -258,6 +258,64 @@ func TestBase_FindsTheBranchsOwnWorkThroughRebaseAndMerge(t *testing.T) {
 	}
 }
 
+// A subagent's branch created from its session's branch has only its own
+// work, not the session's commits before it, also once the session merges it.
+// A branch created from the mainline beyond the session's fork has only its
+// own work too.
+func TestStackedBase_FindsTheWorkOfABranchCreatedFromAnother(t *testing.T) {
+	root := newRepo(t)
+	session := filepath.Join(t.TempDir(), "session")
+	mustGit(t, root, "worktree", "add", "-q", "-b", "session", session)
+	commit := func(dir, name string) {
+		t.Helper()
+		writeFile(t, dir, name, name+"\n")
+		mustGit(t, dir, "add", "-A")
+		mustGit(t, dir, "commit", "-q", "-m", name)
+	}
+	own := func(dir string) []string {
+		t.Helper()
+		onto, _ := Head(session)
+		base, err := StackedBase(dir, onto)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stat, err := DiffStat(dir, base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stat.Paths
+	}
+
+	commit(session, ".grapes/1/meta.toml")
+	sub := filepath.Join(t.TempDir(), "sub")
+	mustGit(t, session, "worktree", "add", "-q", "-b", "sub", sub)
+	commit(sub, "sub.txt")
+	commit(session, "session.txt")
+	if got := own(sub); !slices.Equal(got, []string{"sub.txt"}) {
+		t.Errorf("without origin/HEAD: got %v, want [sub.txt]", got)
+	}
+
+	mustGit(t, root, "update-ref", "refs/remotes/origin/main", "main")
+	mustGit(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	if got := own(sub); !slices.Equal(got, []string{"sub.txt"}) {
+		t.Errorf("created from the session's branch: got %v, want [sub.txt]", got)
+	}
+	mustGit(t, session, "merge", "-q", "--no-ff", "-m", "merge sub", "sub")
+	commit(session, "later.txt")
+	if got := own(sub); !slices.Equal(got, []string{"sub.txt"}) {
+		t.Errorf("merged into the session's branch: got %v, want [sub.txt]", got)
+	}
+
+	commit(root, "mainline.txt")
+	mustGit(t, root, "update-ref", "refs/remotes/origin/main", "main")
+	fresh := filepath.Join(t.TempDir(), "fresh")
+	mustGit(t, root, "worktree", "add", "-q", "-b", "fresh", fresh, "origin/main")
+	commit(fresh, "fresh.txt")
+	if got := own(fresh); !slices.Equal(got, []string{"fresh.txt"}) {
+		t.Errorf("created from the mainline: got %v, want [fresh.txt]", got)
+	}
+}
+
 func TestDiff_LeavesIndexUntouched(t *testing.T) {
 	root := newRepo(t)
 	base, _ := Head(root)
