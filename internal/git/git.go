@@ -160,17 +160,32 @@ func Worktrees(repoRoot string) ([]Worktree, error) {
 	return worktrees, nil
 }
 
-// CurrentBranch returns the branch checked out in dir. A detached HEAD is an
-// error: there is no branch to commit to, push, or check out again.
+// ErrDetachedHead reports a checkout without a branch: there is no branch to
+// commit to, push, or check out again.
+var ErrDetachedHead = errors.New("detached HEAD; check out a branch first")
+
+// CurrentBranch returns the branch checked out in dir. A detached HEAD is
+// ErrDetachedHead.
 func CurrentBranch(dir string) (string, error) {
 	out, err := run(dir, "symbolic-ref", "--quiet", "--short", "HEAD")
 	if exitCode(err) == 1 {
-		return "", fmt.Errorf("%s has a detached HEAD; check out a branch first", dir)
+		return "", fmt.Errorf("%s has a %w", dir, ErrDetachedHead)
 	}
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+// UnreferencedCommits counts the commits reachable from HEAD in dir that no
+// branch, remote-tracking branch, or tag contains. Removing a worktree with a
+// detached HEAD loses exactly these.
+func UnreferencedCommits(dir string) (int, error) {
+	out, err := run(dir, "rev-list", "--count", "HEAD", "--not", "--branches", "--remotes", "--tags")
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(out))
 }
 
 // RemoveWorktree deletes the worktree at path, discarding uncommitted changes,

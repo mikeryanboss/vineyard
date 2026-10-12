@@ -448,7 +448,7 @@ func TestPushAndKill_UseTheCheckedOutBranch(t *testing.T) {
 	}
 }
 
-func TestLifecycle_RefusesDetachedHead(t *testing.T) {
+func TestPauseAndPush_RefuseDetachedHead(t *testing.T) {
 	m, _ := newTestManager(t)
 	s := startSession(t, m, "detached")
 	runGit(t, s.WorktreePath, "switch", "-q", "--detach")
@@ -459,11 +459,53 @@ func TestLifecycle_RefusesDetachedHead(t *testing.T) {
 	if _, err := m.Push(s); err == nil || !strings.Contains(err.Error(), "detached") {
 		t.Errorf("push err = %v, want a detached HEAD error", err)
 	}
-	if _, err := m.Kill(s); err == nil || !strings.Contains(err.Error(), "detached") {
-		t.Errorf("kill err = %v, want a detached HEAD error", err)
-	}
 	if !git.IsWorktree(s.WorktreePath) {
 		t.Error("a refused operation must leave the worktree in place")
+	}
+}
+
+// An agent whose PR merged detaches at origin/main and deletes its branch,
+// while local main lags behind until the human pulls (#44).
+func TestKill_RemovesDetachedHeadMergedUpstream(t *testing.T) {
+	m, term := newTestManager(t)
+	remote := t.TempDir()
+	runGit(t, remote, "init", "-q", "--bare")
+	runGit(t, m.Repo.Root, "remote", "add", "origin", remote)
+	s := startSession(t, m, "merged")
+	runGit(t, s.WorktreePath, "switch", "-q", "-c", "44/work")
+	writeFile(t, s.WorktreePath, "work.txt", "x\n")
+	runGit(t, s.WorktreePath, "add", "-A")
+	runGit(t, s.WorktreePath, "commit", "-q", "-m", "merged work")
+	runGit(t, s.WorktreePath, "push", "-q", "origin", "HEAD:main")
+	runGit(t, s.WorktreePath, "fetch", "-q", "origin")
+	runGit(t, s.WorktreePath, "switch", "-q", "--detach", "origin/main")
+	runGit(t, s.WorktreePath, "branch", "-q", "-D", "44/work")
+
+	result, err := m.Kill(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if git.IsWorktree(s.WorktreePath) || term.Exists(s.TmuxName) {
+		t.Error("kill should remove the worktree and stop the agent")
+	}
+	if result.KeptBranch != "" || !git.BranchExists(m.Repo.Root, s.Branch) {
+		t.Errorf("kept branch = %q; a detached HEAD has no branch, so the saved %s must be left alone", result.KeptBranch, s.Branch)
+	}
+}
+
+func TestKill_RefusesDetachedHeadWithUnreferencedCommits(t *testing.T) {
+	m, term := newTestManager(t)
+	s := startSession(t, m, "adrift")
+	runGit(t, s.WorktreePath, "switch", "-q", "--detach")
+	writeFile(t, s.WorktreePath, "work.txt", "x\n")
+	runGit(t, s.WorktreePath, "add", "-A")
+	runGit(t, s.WorktreePath, "commit", "-q", "-m", "only on the detached HEAD")
+
+	if _, err := m.Kill(s); err == nil || !strings.Contains(err.Error(), "detached HEAD") {
+		t.Errorf("kill err = %v, want a detached HEAD error", err)
+	}
+	if !git.IsWorktree(s.WorktreePath) || !term.Exists(s.TmuxName) {
+		t.Error("a refused kill must leave the worktree, its commit, and the agent in place")
 	}
 }
 
