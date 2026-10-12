@@ -50,7 +50,7 @@ A PR is the review gate. Open or reuse one with the [pr skill](.agents/skills/pr
 - Mark every issue the PR solves `done` on the branch, with its acceptance criteria checked off and its verification recorded. Leave an issue `in_progress` only when the PR leaves part of it unfinished, and say which part in the description.
 - Show the reviewer that the change works, in proportion to the change. Evidence must be viewable from the PR itself: the reviewer may be on another device, and the worktree is deleted after merge. The pr skill says what evidence each kind of change needs and how to publish images. For TUI changes, that means screenshots of the running app, not golden files; [`docs/development.md`](docs/development.md#screenshots-for-pull-requests) says how to capture them.
 - Never merge without explicit human approval. If the reviewer requests changes, push new commits to the same branch and tell the user.
-- After your PR merges, fast-forward local `main` and remove the merged branch and its worktree.
+- Your job ends when the PR merges. Leave `main`, the branch, and the worktree alone: the human pulls `main` and deletes the session.
 
 ## Verify state, don't recall it
 Humans and other agents change shared state concurrently; a PR you opened minutes ago may already be merged. Check PR, issue, and branch state when you report or act on it (`gh pr view <n> --json state`, `git fetch origin main`), including before adding commits to an existing PR. Empty output is evidence: `gh pr list` printing nothing means there are no open PRs.

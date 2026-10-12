@@ -1,0 +1,6 @@
+title = "End the agent's job at merge instead of cleaning up after it"
+status = 'done'
+priority = 'medium'
+labels = ['instructions']
+created = 2026-10-12T19:40:00Z
+updated = 2026-10-12T19:41:00Z
