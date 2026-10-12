@@ -14,21 +14,26 @@ import (
 	"time"
 
 	"github.com/mikeryanboss/vineyard/internal/git"
+	"github.com/mikeryanboss/vineyard/internal/recap"
 )
 
 // fakeTerminal records sessions instead of running tmux.
 type fakeTerminal struct {
 	live     map[string]string // name -> dir
+	programs map[string]string // name -> program last started
 	startErr error
 }
 
-func newFakeTerminal() *fakeTerminal { return &fakeTerminal{live: map[string]string{}} }
+func newFakeTerminal() *fakeTerminal {
+	return &fakeTerminal{live: map[string]string{}, programs: map[string]string{}}
+}
 
 func (f *fakeTerminal) Start(name, dir, program string, width, height int) error {
 	if f.startErr != nil {
 		return f.startErr
 	}
 	f.live[name] = dir
+	f.programs[name] = program
 	return nil
 }
 
@@ -294,6 +299,38 @@ func TestResume_StoppedSessionKeepsUncommittedWork(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.WorktreePath, "draft.txt")); err != nil {
 		t.Error("restarting a stopped session must not recreate its worktree")
+	}
+}
+
+func TestResume_ClaudeContinuesItsConversation(t *testing.T) {
+	m, term := newTestManager(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	s := startSession(t, m, "crashy")
+	projects, err := recap.ProjectsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := recap.Dir(projects, restore(t, m, s)[0].WorktreePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "kept.jsonl", "{}\n")
+
+	tests := []struct{ name, program, conversation, want string }{
+		{"saved conversation", "claude --model opus", "kept", "claude --model opus --resume kept"},
+		{"no conversation yet", "claude", "", "claude"},
+		{"transcript cleaned up", "claude", "gone", "claude"},
+		{"another agent", "aider", "kept", "aider"},
+	}
+	for _, tt := range tests {
+		s.Program, s.Conversation = tt.program, tt.conversation
+		delete(term.live, s.TmuxName) // the tmux server died
+		if _, err := m.Resume(restore(t, m, s)[0], 80, 24); err != nil {
+			t.Fatal(err)
+		}
+		if got := term.programs[s.TmuxName]; got != tt.want {
+			t.Errorf("%s: started %q, want %q", tt.name, got, tt.want)
+		}
 	}
 }
 

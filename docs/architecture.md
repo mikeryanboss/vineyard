@@ -35,7 +35,12 @@ Its `Status` is one of:
   checked out elsewhere. The recorded branch is what `Resume` checks out.
 - `Resume` re-adds the worktree from the branch when it is missing and restarts
   the program. For stopped sessions the worktree, and any uncommitted work in
-  it, is reused.
+  it, is reused. Claude Code restarts with `--resume <id>` of the conversation
+  its agent was last seen in, saved in `Conversation`: on each status poll
+  the leading Vineyard saves the ID of the conversation the subagent rows
+  are read from (Subagents below). Without a saved ID, or once its
+  transcript is gone, the plain program starts: `claude --resume` exits at
+  once for a conversation it cannot find.
 - `Kill` stops everything and removes the worktree. The checked-out branch is
   deleted only when it has no commits beyond its base. A detached HEAD has no
   branch, so `Kill` deletes none, not even the one saved in the session. When
@@ -149,13 +154,14 @@ subagents it started, and its status:
   queues in the conversation when a subagent stops, is newer than its
   transcript's last message. `completed` is done; anything else, such as a
   failure or a subagent the user stopped, is stopped.
-- **Stopped** too, at its last message, when its conversation has not been
+- **Stopped** too, at its last message, when its own transcript has not been
   written to since the session's Claude Code started (tmux's
   `session_created`, since the tmux session runs Claude Code itself).
   Subagents run inside Claude Code's process and end with it unreported, as
-  when the session is paused. A resumed session's new Claude Code writes no
-  transcript until its first prompt, so until then the old conversation is
-  the newest.
+  when the session is paused. The conversation's transcript cannot tell: a
+  Claude Code that resumes the conversation touches it as it starts. One
+  restarted without a conversation to resume writes no transcript until its
+  first prompt, so until then the old conversation is the newest.
 - **Running** otherwise, also again after its caller resumed it with a
   message, which appends to the same transcript.
 

@@ -3,12 +3,14 @@ package session
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/mikeryanboss/vineyard/internal/git"
+	"github.com/mikeryanboss/vineyard/internal/recap"
 )
 
 // Terminal runs programs in named, detachable terminal sessions.
@@ -147,7 +149,8 @@ func (m *Manager) Pause(s Session) (Session, error) {
 
 // Resume recreates a paused session's worktree from its branch, if needed,
 // and relaunches its program. It also restarts stopped sessions, whose
-// worktree, and any uncommitted work in it, is still on disk.
+// worktree, and any uncommitted work in it, is still on disk. Claude Code
+// continues the conversation the agent was last seen in.
 func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 	if !git.IsWorktree(s.WorktreePath) {
 		checkout, err := git.BranchCheckout(m.Repo.Root, s.Branch)
@@ -162,12 +165,37 @@ func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 		}
 	}
 	if !m.Terminal.Exists(s.TmuxName) {
-		if err := m.Terminal.Start(s.TmuxName, s.WorktreePath, s.Program, width, height); err != nil {
+		program, err := resumeCommand(s)
+		if err != nil {
+			return s, err
+		}
+		if err := m.Terminal.Start(s.TmuxName, s.WorktreePath, program, width, height); err != nil {
 			return s, err
 		}
 	}
 	s.Status = StatusRunning
 	return s, nil
+}
+
+// resumeCommand is the command that relaunches s's program. For Claude Code
+// it resumes s.Conversation while that conversation's transcript is on disk:
+// `claude --resume` exits at once when it finds none, as after Claude Code
+// cleaned up old transcripts, and the session could never restart.
+func resumeCommand(s Session) (string, error) {
+	if ProgramName(s.Program) != "claude" || s.Conversation == "" {
+		return s.Program, nil
+	}
+	projects, err := recap.ProjectsDir()
+	if err != nil {
+		return "", err
+	}
+	transcript := filepath.Join(recap.Dir(projects, s.WorktreePath), s.Conversation+".jsonl")
+	if _, err := os.Stat(transcript); errors.Is(err, fs.ErrNotExist) {
+		return s.Program, nil
+	} else if err != nil {
+		return "", err
+	}
+	return s.Program + " --resume " + s.Conversation, nil
 }
 
 // KillResult reports what Kill left behind.

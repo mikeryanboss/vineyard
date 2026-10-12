@@ -48,7 +48,7 @@ Run `vineyard` inside a git repository.
 | `t` | Open a shell in the session's worktree |
 | `s` | Commit all changes and push the branch |
 | `c` | Check out: commit, stop the agent, remove the worktree, keep the branch |
-| `r` | Resume a checked-out or stopped session |
+| `r` | Resume a checked-out or stopped session; Claude Code continues its conversation |
 | `D` | Kill the session; a branch with commits is kept |
 | `a` | Toggle auto-yes, which accepts the agent's permission prompts |
 | `i` | Open the grapes issues; on an issue, `a` goes to or starts its session |
