@@ -1,0 +1,5 @@
+### 2026-10-13T17:25
+[DECISION] The attaching Vineyard sends the session's title (`Attachment.Title`, JSON `title`; `AttachRequest.Title`); the bar draws it bold at the left, then a grey `│`, then the peers, their counts, or "no other sessions". The counts fallback now applies only when there are peers, so a narrow bar with none keeps "no other sessions" and drops the key hints instead. Shell attachments send the session's title too. Protocol 5, since attaching changed: sessions on a protocol 4 server attach through its executable and keep the old bar. tmux's status line is left alone.
+
+### 2026-10-13T17:25
+[VERIFY] gofmt -l . (no output), go vet ./... clean, go test ./... PASS. Updated TestBarFollowsTheOtherSessions (title before peers and before counts), TestBarSuitsTheBackground (title before "no other sessions"), TestApp_AttachListsTheOtherSessionsInTheStatusBar (Title for agent and shell). Real app via scripts/drive, two sessions, attached to "Add parser tests": last row reads " Add parser tests │ ● Fix login redirect … ctrl+q back  ctrl+k hide ", title wrapped in \e[1m (.grapes/68/tmp/bar.png). PASS

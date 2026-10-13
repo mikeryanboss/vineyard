@@ -1,0 +1,6 @@
+title = "Show the attached session's own title first in the status bar"
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'vterm']
+created = 2026-10-13T15:20:00Z
+updated = 2026-10-13T15:22:00Z
