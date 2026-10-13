@@ -1,0 +1,6 @@
+title = 'N starts a session from a chosen profile; terminals run in the main checkout'
+status = 'in_progress'
+priority = 'medium'
+labels = ['session', 'tui', 'config']
+created = 2026-10-13T08:46:00Z
+updated = 2026-10-13T08:47:00Z
