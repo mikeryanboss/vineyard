@@ -1,0 +1,6 @@
+title = 'Show a status bar with the other sessions while attached'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'vterm']
+created = 2026-10-13T13:38:00Z
+updated = 2026-10-13T13:53:00Z

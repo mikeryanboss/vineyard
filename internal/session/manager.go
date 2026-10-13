@@ -24,6 +24,27 @@ type Terminal interface {
 	Kill(name string) error
 }
 
+// Attachment says how an attached terminal is left and what its status bar
+// shows.
+type Attachment struct {
+	// Detach are the keys that leave the terminal, and ToggleBar those that
+	// show or hide its status bar, each ctrl and a letter or ctrl+\.
+	Detach, ToggleBar []string
+	// ShowBar shows the status bar at first.
+	ShowBar bool
+	// Peers are the sessions the status bar lists.
+	Peers []Peer
+}
+
+// Peer is a session an attached terminal's status bar lists.
+type Peer struct {
+	// Terminal names its terminal in the multiplexer.
+	Terminal string
+	Title    string
+	// Running is whether Vineyard last saw it running.
+	Running bool
+}
+
 // Manager performs session lifecycle operations for one repository.
 //
 // Its methods take a Session value and return the updated value instead of

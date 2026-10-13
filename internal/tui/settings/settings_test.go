@@ -267,3 +267,16 @@ func TestSettings_Multiplexers(t *testing.T) {
 		}
 	}
 }
+
+func TestSettings_StatusBarToggles(t *testing.T) {
+	cfg := twoProfiles()
+	cfg.StatusBar = true
+	m, _ := press(newSettings(cfg, nil), "l", "j", "j", "j", "j", "j", "j", "enter")
+	if m.Config().StatusBar {
+		t.Fatal("enter on the status bar field should turn it off")
+	}
+	m, _ = press(m, "enter")
+	if !m.Config().StatusBar {
+		t.Error("enter again should turn it on")
+	}
+}

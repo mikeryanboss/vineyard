@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"os/exec"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -57,6 +58,8 @@ type fakeBackend struct {
 	shellScreen   string
 	shells        []string
 	shellAttaches int
+	// attached is how the last attach, to an agent or a shell, attached.
+	attached session.Attachment
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
@@ -108,8 +111,9 @@ func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error {
 }
 func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, nil }
 func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
-func (f *fakeBackend) AttachCommand(s session.Session) tea.ExecCommand {
+func (f *fakeBackend) AttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
 	f.attaches++
+	f.attached = how
 	return nil
 }
 
@@ -123,8 +127,9 @@ func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, er
 	return cmd, err
 }
 
-func (f *fakeBackend) ShellAttachCommand(s session.Session) tea.ExecCommand {
+func (f *fakeBackend) ShellAttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
 	f.shellAttaches++
+	f.attached = how
 	return nil
 }
 func (f *fakeBackend) CaptureShell(s session.Session) (string, error) { return f.shellScreen, nil }
@@ -803,6 +808,37 @@ func TestApp_EnterOnPreviewAttachesAndOnRecapZooms(t *testing.T) {
 	m = keys(m, "tab")
 	if m.zoomed {
 		t.Error("switching tabs should leave the zoom")
+	}
+}
+
+// An attached terminal's status bar shows as configured and lists the active
+// sessions in the attached one's multiplexer, which its server can sample,
+// but for the agent attached to; attached to a shell, it lists its agent too.
+func TestApp_AttachListsTheOtherSessionsInTheStatusBar(t *testing.T) {
+	sessions := testutil.Sessions()
+	for i := range sessions {
+		sessions[i].TmuxName = "vineyard-shop-" + sessions[i].ID
+	}
+	sessions = append(sessions, session.Session{ID: "tmux-6", Title: "In tmux", Program: "claude", Status: session.StatusRunning, Multiplexer: config.MultiplexerTmux})
+	m, backend := newTestModel(t, sessions)
+	m.opts.Config.StatusBar = true
+	if s, _ := m.selected(); s.ID != "login-1" {
+		t.Fatalf("selected %s, want login-1", s.ID)
+	}
+	agent := session.Peer{Terminal: "vineyard-shop-login-1", Title: "Fix login redirect", Running: true}
+	tests := session.Peer{Terminal: "vineyard-shop-tests-2", Title: "Add unit tests for the parser"}
+
+	m = keys(m, "o")
+	want := session.Attachment{Detach: []string{"ctrl+q"}, ToggleBar: []string{"ctrl+\\"}, ShowBar: true, Peers: []session.Peer{tests}}
+	if !reflect.DeepEqual(backend.attached, want) {
+		t.Errorf("attaching to the agent: %+v, want %+v", backend.attached, want)
+	}
+
+	m.opts.Config.StatusBar = false
+	keys(m, "tab", "tab", "tab", "enter")
+	want = session.Attachment{Detach: []string{"ctrl+q"}, ToggleBar: []string{"ctrl+\\"}, Peers: []session.Peer{agent, tests}}
+	if backend.shellAttaches != 1 || !reflect.DeepEqual(backend.attached, want) {
+		t.Errorf("attaching to the shell (%d times): %+v, want %+v", backend.shellAttaches, backend.attached, want)
 	}
 }
 

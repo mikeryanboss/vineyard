@@ -34,8 +34,8 @@ func TestLoad_PartialFileKeepsOtherDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.AutoYes || cfg.DefaultProgram != "claude" {
-		t.Errorf("cfg = %+v, want auto_yes plus default program", cfg)
+	if !cfg.AutoYes || cfg.DefaultProgram != "claude" || !cfg.StatusBar {
+		t.Errorf("cfg = %+v, want auto_yes plus default program and status bar", cfg)
 	}
 }
 

@@ -23,12 +23,13 @@ type KeyMap struct {
 	Pick     PickKeys
 }
 
-// GlobalKeys act everywhere: Quit and Back before any other key, Detach in
-// an attached terminal.
+// GlobalKeys act everywhere: Quit and Back before any other key, Detach and
+// StatusBar in an attached terminal.
 type GlobalKeys struct {
-	Quit   key.Binding
-	Back   key.Binding
-	Detach key.Binding
+	Quit      key.Binding
+	Back      key.Binding
+	Detach    key.Binding
+	StatusBar key.Binding
 }
 
 // ListKeys act on the session list, which has focus by default.
@@ -131,9 +132,10 @@ func NewKeyMap(keys config.Keys) KeyMap {
 	}
 	m := KeyMap{
 		Global: GlobalKeys{
-			Quit:   b("global", "quit"),
-			Back:   b("global", "back"),
-			Detach: b("global", "detach"),
+			Quit:      b("global", "quit"),
+			Back:      b("global", "back"),
+			Detach:    b("global", "detach"),
+			StatusBar: b("global", "status_bar"),
 		},
 		List: ListKeys{
 			Up:             b("list", "up"),

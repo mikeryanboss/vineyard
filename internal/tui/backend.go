@@ -14,7 +14,6 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/subagent"
-	"github.com/mikeryanboss/vineyard/internal/tui/common"
 )
 
 // Backend is everything the TUI does outside its own process. The root model
@@ -36,8 +35,10 @@ type Backend interface {
 	Resize(s session.Session, width, height int) error
 	SendEnter(s session.Session) error
 	Paste(s session.Session, text string) error
-	AttachCommand(s session.Session) tea.ExecCommand
-	ShellAttachCommand(s session.Session) tea.ExecCommand
+	// AttachCommand and ShellAttachCommand hand the user's terminal to the
+	// session's agent or shell, as how says.
+	AttachCommand(s session.Session, how session.Attachment) tea.ExecCommand
+	ShellAttachCommand(s session.Session, how session.Attachment) tea.ExecCommand
 	// CaptureShell, CaptureShellHistory, and ResizeShell are Capture,
 	// CaptureHistory, and Resize for the session's shell.
 	CaptureShell(s session.Session) (string, error)
@@ -103,9 +104,8 @@ type Terminal interface {
 	SendKeys(name string, keys ...string) error
 	Paste(name, text string) error
 	// Attach hands the user's terminal to the named terminal until the user
-	// presses one of the detach keys, each ctrl and a letter such as
-	// "ctrl+q".
-	Attach(name string, detach []string) tea.ExecCommand
+	// presses one of how's detach keys.
+	Attach(name string, how session.Attachment) tea.ExecCommand
 }
 
 // LiveBackend is the Backend backed by the multiplexers, git, and the session
@@ -163,12 +163,12 @@ func (b LiveBackend) Paste(s session.Session, text string) error {
 	return b.terminal(s).Paste(s.TmuxName, text)
 }
 
-func (b LiveBackend) AttachCommand(s session.Session) tea.ExecCommand {
-	return b.terminal(s).Attach(s.TmuxName, common.Keys.Global.Detach.Keys())
+func (b LiveBackend) AttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
+	return b.terminal(s).Attach(s.TmuxName, how)
 }
 
-func (b LiveBackend) ShellAttachCommand(s session.Session) tea.ExecCommand {
-	return b.terminal(s).Attach(s.ShellName(), common.Keys.Global.Detach.Keys())
+func (b LiveBackend) ShellAttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
+	return b.terminal(s).Attach(s.ShellName(), how)
 }
 
 func (b LiveBackend) CaptureShell(s session.Session) (string, error) {
@@ -312,17 +312,17 @@ type unavailable struct{ s session.Session }
 
 func (u unavailable) err() error { return session.Unavailable(u.s) }
 
-func (u unavailable) Start(string, string, string, int, int) error { return u.err() }
-func (u unavailable) Exists(string) bool                           { return false }
-func (u unavailable) Kill(string) error                            { return nil }
-func (u unavailable) Created(string) (time.Time, error)            { return time.Time{}, u.err() }
-func (u unavailable) Capture(string) (string, error)               { return "", u.err() }
-func (u unavailable) CaptureHistory(string, int) (string, error)   { return "", u.err() }
-func (u unavailable) Resize(string, int, int) error                { return u.err() }
-func (u unavailable) SendEnter(string) error                       { return u.err() }
-func (u unavailable) SendKeys(string, ...string) error             { return u.err() }
-func (u unavailable) Paste(string, string) error                   { return u.err() }
-func (u unavailable) Attach(string, []string) tea.ExecCommand      { return failing{u.err()} }
+func (u unavailable) Start(string, string, string, int, int) error      { return u.err() }
+func (u unavailable) Exists(string) bool                                { return false }
+func (u unavailable) Kill(string) error                                 { return nil }
+func (u unavailable) Created(string) (time.Time, error)                 { return time.Time{}, u.err() }
+func (u unavailable) Capture(string) (string, error)                    { return "", u.err() }
+func (u unavailable) CaptureHistory(string, int) (string, error)        { return "", u.err() }
+func (u unavailable) Resize(string, int, int) error                     { return u.err() }
+func (u unavailable) SendEnter(string) error                            { return u.err() }
+func (u unavailable) SendKeys(string, ...string) error                  { return u.err() }
+func (u unavailable) Paste(string, string) error                        { return u.err() }
+func (u unavailable) Attach(string, session.Attachment) tea.ExecCommand { return failing{u.err()} }
 
 // failing is a command that fails with err without running anything.
 type failing struct{ err error }

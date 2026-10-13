@@ -65,6 +65,9 @@ type Config struct {
 	// MultiplexerVineyard or MultiplexerTmux. Each session keeps running in
 	// the multiplexer it started in.
 	Multiplexer string `toml:"multiplexer"`
+	// StatusBar shows a status bar on every attached terminal, until its
+	// key (keys.global.status_bar) hides it.
+	StatusBar bool `toml:"status_bar"`
 	// Keys replace the default keys of the actions they name
 	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
 	Keys Keys `toml:"keys,omitempty"`
@@ -93,6 +96,7 @@ func Defaults() Config {
 		WorktreeDir:    filepath.Join(DirName, "worktrees"),
 		DiffCommand:    "hunk diff {base} --watch",
 		Multiplexer:    MultiplexerVineyard,
+		StatusBar:      true,
 	}
 }
 
