@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mikeryanboss/vineyard/internal/config"
+	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/vterm"
 )
 
@@ -111,5 +112,46 @@ func TestMultiplexers_WithoutTmux(t *testing.T) {
 	terminals := multiplexers(server)
 	if _, ok := terminals[config.MultiplexerVineyard].(*vterm.Client); !ok || len(terminals) != 1 {
 		t.Errorf("multiplexers = %v, want Vineyard's server alone", terminals)
+	}
+}
+
+// A Vineyard of another protocol than the server's cannot reach the agents
+// on it, so it refuses to start while this repository's sessions may run
+// there, instead of showing them as stopped.
+func TestCheckServer(t *testing.T) {
+	other := &vterm.ServerInfo{PID: 4242, Protocol: vterm.Protocol() - 1}
+	on := func(multiplexer string, status session.Status) []session.Session {
+		return []session.Session{{Title: "fix", Multiplexer: multiplexer, Status: status}}
+	}
+	for _, tc := range []struct {
+		name     string
+		info     *vterm.ServerInfo
+		sessions []session.Session
+		refuse   bool
+	}{
+		{"no server", nil, on("vineyard", session.StatusRunning), false},
+		{"same protocol", &vterm.ServerInfo{PID: 4242, Protocol: vterm.Protocol()}, on("vineyard", session.StatusRunning), false},
+		{"running session", other, on("vineyard", session.StatusRunning), true},
+		{"ready session", other, on("vineyard", session.StatusReady), true},
+		{"paused session", other, on("vineyard", session.StatusPaused), false},
+		{"stopped session", other, on("vineyard", session.StatusStopped), false},
+		{"tmux session", other, on("tmux", session.StatusRunning), false},
+	} {
+		err := checkServer(tc.info, tc.sessions)
+		if !tc.refuse {
+			if err != nil {
+				t.Errorf("%s: %v, want none", tc.name, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Errorf("%s: no error", tc.name)
+			continue
+		}
+		for _, want := range []string{"process 4242", `"fix"`, "kill 4242"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: %q lacks %q", tc.name, err, want)
+			}
+		}
 	}
 }

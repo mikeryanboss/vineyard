@@ -219,6 +219,7 @@ goreleaser release --snapshot --clean --skip=publish   # writes dist/; delete it
 | Issues screen, issue tab, or session–issue links | `tui/app.go` (`issuesOf`, `showSessions`, `showIssues`, `refreshIssue`) | `app_grapes_test.go` |
 | Issue session prompts, example templates | `prompt/prompt.go`, `config/templates/`, `tui/dialog/dialog.go` (`ForIssue`) | `prompt_test.go`, `dialog_test.go`, `app_grapes_test.go` |
 | What a failure leaves for diagnosis | `vterm/daemon.go` (server log), `tui/app.go` (`setError`, `logPanic`), `runDebug` in `main.go` | `TestInfoAndLogDescribeTheServer`, `TestApp_LogsErrorsAndPanics`, `TestRun_DebugPrintsPaths` |
+| Server calls (`vterm.Service`) | `vterm/daemon.go`, `vterm/client.go`; raise `protocol` | `client_test.go`, `TestCheckServer` |
 | What grapes exposes | grapes' `embedded/` package, then `go get` the release here | grapes' `embedded_test.go`, `app_grapes_test.go` |
 
 ### Changing grapes alongside vineyard

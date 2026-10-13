@@ -396,7 +396,9 @@ them.
   `Version`, and a server of another protocol version is an error naming its
   process ID (`protocol` in `daemon.go`; change it with any change to the
   calls). `Client.Info` asks `Version` and `List` without that check, for
-  `vineyard debug`.
+  `vineyard debug`. Vineyard refuses to start while a server of another
+  protocol may run this repository's agents (`checkServer` in `main.go`):
+  it could not reach them, and would show them as stopped.
 - **Terminals**: `vterm.Server` runs each program through `$SHELL -c` on a
   pseudo-terminal (`creack/pty`) with the starting Vineyard's environment and
   `TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`

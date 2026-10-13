@@ -1,0 +1,8 @@
+### 2026-10-13T15:50
+[DECISION] Refuse to start, rather than mark the sessions unreachable in the TUI. Vineyard has no status for "running where this build cannot see", and adding one touches the list, the preview, and every operation; refusing fails explicitly with what to do, in a few lines of `main.go`. The refusal applies only while this repository records running or ready sessions on the server: the server is per user, and another repository's old agents should not block this one. Paused and stopped sessions have no agent to lose. Once a mismatched build has marked sessions stopped, the check no longer sees them; with this change no build marks them so.
+
+### 2026-10-13T15:50
+[VERIFY] `go test -count=1 ./...` passes, including `TestCheckServer` (refuses for running and ready sessions on a mismatched server; starts with no server, the same protocol, or paused, stopped, or tmux sessions). PASS.
+
+### 2026-10-13T15:50
+[VERIFY] Real app via `scripts/drive`: a session started by a build of 73d94db (protocol 1), then this branch's build in the same repository exits with status 1 before the TUI: `Vineyard's server, process 521774, is from another version of Vineyard: it speaks protocol 1, this Vineyard 2. It may still run the agents of "old", which this Vineyard cannot reach. Let them finish under the Vineyard that started the server, or end them all with: kill 521774`. In a second repository without sessions on that server, Vineyard starts, and creating a session shows `starting "bash": end the agents of Vineyard's server, process 521774, or kill it: …` in the status line, with the full error in `.vineyard/vineyard.log`. PASS.

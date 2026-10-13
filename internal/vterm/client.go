@@ -113,7 +113,7 @@ func (c *Client) connect(start bool) (*rpc.Client, error) {
 		calls, v, err := c.handshake(start)
 		if err == nil && v.Protocol != protocol {
 			calls.Close()
-			return nil, fmt.Errorf("the Vineyard server at %s (process %d) is from another version of Vineyard (protocol %d, want %d); end its agents or kill it", c.socket, v.PID, v.Protocol, protocol)
+			return nil, fmt.Errorf("end the agents of Vineyard's server, process %d, or kill it: it is from another version of Vineyard (protocol %d, want %d, at %s)", v.PID, v.Protocol, protocol, c.socket)
 		}
 		if err == nil {
 			c.calls = calls

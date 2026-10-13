@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -161,6 +162,17 @@ func runTUI(program string, autoYes bool, issue int) (err error) {
 	if err != nil {
 		return err
 	}
+	saved, err := store.Load()
+	if err != nil {
+		return err
+	}
+	info, err := server.Info()
+	if err != nil {
+		return err
+	}
+	if err := checkServer(info, saved); err != nil {
+		return err
+	}
 	terminals := multiplexers(server)
 	managed := map[string]session.Terminal{}
 	for name, t := range terminals {
@@ -255,6 +267,28 @@ func multiplexers(server *vterm.Client) map[string]tui.Terminal {
 		terminals[config.MultiplexerTmux] = tmux.New(socketName())
 	}
 	return terminals
+}
+
+// checkServer fails when Vineyard's server, described by info, speaks
+// another protocol than this build while it may run agents of sessions:
+// this build cannot reach them, and would show them as stopped.
+func checkServer(info *vterm.ServerInfo, sessions []session.Session) error {
+	if info == nil || info.Protocol == vterm.Protocol() {
+		return nil
+	}
+	var titles []string
+	for _, s := range sessions {
+		if s.Multiplexer == config.MultiplexerVineyard && s.Status != session.StatusPaused && s.Status != session.StatusStopped {
+			titles = append(titles, strconv.Quote(s.Title))
+		}
+	}
+	if len(titles) == 0 {
+		return nil
+	}
+	return fmt.Errorf("Vineyard's server, process %d, is from another version of Vineyard: it speaks protocol %d, this Vineyard %d.\n"+
+		"It may still run the agents of %s, which this Vineyard cannot reach.\n"+
+		"Let them finish under the Vineyard that started the server, or end them all with: kill %d",
+		info.PID, info.Protocol, vterm.Protocol(), strings.Join(titles, ", "), info.PID)
 }
 
 // vineyardServer returns a client of Vineyard's own terminal server, which
