@@ -2,25 +2,25 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  Sessions 5                      ╭───────────────────────────────────────────────────────────────────────────╮
                                  │ Preview   Diff   Issue   Recap                                            │
-▌◑ Fix login redirec╭────────────────────────────────────────────────────────────────────╮                   │
-▌  ⑂ mboss/fix-login│                                                                    │                   │
-                    │  New session with prompt                                           │                   │
+▌◑ Fix login redirect            │                                                                           │
+▌  ⑂ mboss/fix-login-redirect    │                                                                           │
+                    ╭────────────────────────────────────────────────────────────────────╮                   │
  ● Add unit tests fo│                                                                    │                   │
-   ⑂ mboss/add-unit-│  Title                                                             │                   │
-                    │  What should the agent work on?                                    │                   │
- ○ Docs pass        │                                                                    │                   │
-   ⑂ mboss/docs-pass│  Prompt                                                            │                   │
-                    │  Instructions typed into the agent once it is ready                │                   │
+   ⑂ mboss/add-unit-│  New session                                                       │                   │
+                    │                                                                    │                   │
+ ○ Docs pass        │  Profile                                                           │                   │
+   ⑂ mboss/docs-pass│  ‹ claude ›                                                        │                   │
+                    │  Runs claude in a new worktree.                                    │                   │
  × Cache layer      │                                                                    │                   │
-   ⑂ mboss/cache-lay│                                                                    │                   │
-                    │                                                                    │                   │
+   ⑂ mboss/cache-lay│  Title                                                             │                   │
+                    │  What is this session for?                                         │                   │
  ◌ Starting up      │                                                                    │                   │
-   ⑂ loading…       │                                                                    │                   │
-                    │  Agent: claude                                                     │                   │
-                    │                                                                    │                   │
-                    ╰────────────────────────────────────────────────────────────────────╯                   │
+   ⑂ loading…       ╰────────────────────────────────────────────────────────────────────╯                   │
+                                 │                                                                           │
+                                 │                                                                           │
+                                 │                                                                           │
                                  │                                                                           │
                                  │                                                                           │
                                  │                                                                           │
                                  ╰───────────────────────────────────────────────────────────────────────────╯
- enter create · alt+enter newline · tab next field · esc cancel                                               
+ enter title · tab next field · ←/→ profile · esc cancel                                                      

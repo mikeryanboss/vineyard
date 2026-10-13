@@ -1166,8 +1166,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setError(fmt.Errorf("reading prompt templates: %w", msg.err))
 		}
 		issue, _ := m.grapes.Issue(msg.issue)
-		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), true, min(70, m.width-4))
-		m.dialog = d.ForIssue(issue.Title, msg.templates, m.promptData(issue), m.height-statusBarHeight)
+		// An issue's session works on a branch of its own, and its prompt
+		// would run as commands in a shell.
+		profiles := slices.DeleteFunc(m.profiles(), func(p config.Profile) bool { return p.MainCheckout })
+		if len(profiles) == 0 {
+			return m, m.setError(errors.New("every profile runs in the main checkout; an issue's session needs one that makes a worktree"))
+		}
+		d, _ := dialog.NewSessionDialog(m.theme, profiles, true, min(70, m.width-4))
+		var cmd tea.Cmd
+		m.dialog, cmd = d.ForIssue(issue.Title, msg.templates, m.promptData(issue), m.height-statusBarHeight)
 		return m, cmd
 
 	case jumpToSessionMsg:
@@ -1702,22 +1709,19 @@ func (m Model) profiles() []config.Profile {
 }
 
 func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
-	program := msg.Profile.Program
-	if program == "" {
-		program = m.profiles()[0].Program
-	}
 	worktreeDir, err := config.ResolveWorktreeDir(m.opts.RepoRoot, m.opts.Config.WorktreeDir)
 	if err != nil {
 		return m, m.setError(fmt.Errorf("worktree directory: %w", err))
 	}
 	s := m.backend.New(session.NewOptions{
 		Title:        msg.Title,
-		Program:      program,
+		Program:      msg.Profile.Program,
 		Prompt:       msg.Prompt,
 		AutoYes:      m.opts.Config.AutoYes || m.opts.AutoYes,
 		BranchPrefix: m.opts.Config.BranchPrefix,
 		WorktreeDir:  worktreeDir,
 		Issue:        msg.Issue,
+		MainCheckout: msg.Profile.MainCheckout,
 	})
 	m.issuesOpen = false // show the new session, even when started from an issue
 	m.sessions = append(m.sessions, s)
@@ -1803,9 +1807,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Up, keys.Down):
 		m.list, _ = m.list.Update(msg)
 		return m, m.refreshShown()
-	case key.Matches(msg, keys.New, keys.NewPrompt):
+	case key.Matches(msg, keys.New, keys.NewFromProfile):
 		width := min(70, m.width-4)
-		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), key.Matches(msg, keys.NewPrompt), width)
+		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), key.Matches(msg, keys.NewFromProfile), width)
 		m.dialog = d
 		return m, cmd
 	case key.Matches(msg, keys.Tab, keys.PrevTab):
@@ -1876,9 +1880,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return shellReadyMsg{session: s, err: backend.EnsureShell(s, w, h)}
 		}
 	case key.Matches(msg, keys.Kill):
-		m.dialog = dialog.NewConfirm(m.theme,
-			fmt.Sprintf("Kill %q? Its worktree is deleted, uncommitted changes included. The branch is kept if it has commits.", s.Title),
-			common.ActionKill, s.ID)
+		text := fmt.Sprintf("Kill %q? Its worktree is deleted, uncommitted changes included. The branch is kept if it has commits.", s.Title)
+		if s.MainCheckout {
+			text = fmt.Sprintf("Kill %q? Its program stops; the main checkout is left as it is.", s.Title)
+		}
+		m.dialog = dialog.NewConfirm(m.theme, text, common.ActionKill, s.ID)
+	case key.Matches(msg, keys.Pause, keys.Push) && s.MainCheckout:
+		return m, m.setStatus(s.Title+" runs in the main checkout, which Vineyard does not commit, check out, or push.", false)
 	case key.Matches(msg, keys.Pause):
 		if s.Status == session.StatusPaused {
 			return m, nil
@@ -2256,7 +2264,7 @@ func (m Model) renderStatusBar() string {
 				open = attach
 			}
 		}
-		hints = [][2]string{{"n", "new"}, {"N", "new+prompt"}, {"enter", open}}
+		hints = [][2]string{{"n", "new"}, {"N", "new from profile"}, {"enter", open}}
 		if m.tab != tabPreview {
 			hints = append(hints, [2]string{"o", attach})
 		}

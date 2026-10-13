@@ -61,6 +61,13 @@ Its `Status` is one of:
 The TUI's git poll also reads each session's branch, so the list follows branch
 switches within one poll.
 
+A session whose profile sets `main_checkout`, such as the default `terminal`,
+records `MainCheckout` and runs in the main checkout, which is not its own:
+`New` gives it no branch, `Start` only launches the program there, `Kill`
+only stops its tmux sessions, `Pause` and `Push` refuse it, since they would
+commit everyone's work there, and `Locate` gives it the main checkout's path.
+Its branch and diff are the main checkout's.
+
 A session started from a grapes issue records it in `Issue`, and `New` names its
 branch `<issue>/<slug>` instead of using the prefix. `Start` refuses an issue
 that is not committed at the checkout's HEAD: the worktree starts there, and

@@ -33,7 +33,8 @@ const (
 	fieldEnum fieldKind = iota
 	// fieldText is edited in place.
 	fieldText
-	// fieldProfile is one profile; enter edits its command.
+	// fieldProfile is one profile; enter edits its command, and w toggles
+	// whether it runs in the main checkout.
 	fieldProfile
 	// fieldAdd adds a profile.
 	fieldAdd
@@ -298,6 +299,11 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		if f, ok := m.currentField(); ok && f.kind == fieldProfile {
 			m.removeProfile(f.profile)
 		}
+	case key.Matches(msg, keys.Where):
+		if f, ok := m.currentField(); ok && f.kind == fieldProfile {
+			p := &m.cfg.Profiles[f.profile]
+			p.MainCheckout = !p.MainCheckout
+		}
 	}
 	return m, nil
 }
@@ -510,7 +516,7 @@ func (m Model) Hints() [][2]string {
 	}
 	hints := [][2]string{{"j/k", "navigate"}, {"tab", "pane"}, {"enter", "edit"}}
 	if f, ok := m.currentField(); ok && f.kind == fieldProfile {
-		hints = append(hints, [2]string{"x", "remove"})
+		hints = append(hints, [2]string{"w", "worktree/main checkout"}, [2]string{"x", "remove"})
 	}
 	return append(hints, [2]string{"ctrl+s", "save"}, [2]string{"esc", "back"})
 }
@@ -578,6 +584,9 @@ func (m Model) View() string {
 			label = t.StyleFaint.Render(label)
 		default:
 			label, value = t.StyleSubtitle.Render(label), t.StyleTitle.UnsetBold().Render(value)
+		}
+		if f.kind == fieldProfile && m.cfg.Profiles[f.profile].MainCheckout {
+			value += t.StyleFaint.Render("  in the main checkout")
 		}
 		right = append(right, label+value)
 	}

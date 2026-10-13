@@ -1,5 +1,6 @@
 // Package session defines an agent session — one agent program running in a
-// tmux session inside its own git worktree — and manages its lifecycle.
+// tmux session inside its own git worktree, or in the main checkout — and
+// manages its lifecycle.
 package session
 
 import (
@@ -30,7 +31,8 @@ func (s Status) Active() bool {
 	return s == StatusRunning || s == StatusReady
 }
 
-// Session is one agent working in its own worktree.
+// Session is one agent working in its own worktree, or a program, such as a
+// shell, running in the main checkout.
 type Session struct {
 	// ID is stable and unique within a project. It names the worktree directory.
 	ID string `json:"id"`
@@ -60,6 +62,10 @@ type Session struct {
 	PendingPrompt string `json:"pending_prompt,omitempty"`
 	// Issue is the grapes issue the session was started for, or 0.
 	Issue int `json:"issue,omitempty"`
+	// MainCheckout means the session runs in the repository's main checkout,
+	// with no worktree or branch of its own. Check out and push refuse it,
+	// and killing it only stops its program.
+	MainCheckout bool `json:"main_checkout,omitempty"`
 	// Conversation is the ID of the Claude Code conversation the agent was
 	// last seen in, which Resume continues.
 	Conversation string `json:"conversation,omitempty"`

@@ -153,6 +153,57 @@ func TestStart_CreatesBranchWorktreeAndTerminal(t *testing.T) {
 	}
 }
 
+// A main-checkout session, such as a terminal beside the agents, runs in the
+// main checkout through its whole life and never commits, removes, or
+// branches it: the work there is not the session's own.
+func TestMainCheckout_LeavesTheMainCheckoutAlone(t *testing.T) {
+	m, term := newTestManager(t)
+	branches := runGit(t, m.Repo.Root, "branch", "--list")
+	s, err := m.Start(m.New(NewOptions{Title: "dev server", Program: "$SHELL", BranchPrefix: "test/", WorktreeDir: worktrees(m), MainCheckout: true}), 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if term.live[s.TmuxName] != m.Repo.Root || s.Branch != "main" {
+		t.Errorf("started in %q on branch %q, want the main checkout on its branch", term.live[s.TmuxName], s.Branch)
+	}
+	if _, err := os.Stat(worktrees(m)); !os.IsNotExist(err) {
+		t.Errorf("a worktree directory was created: %v", err)
+	}
+	if err := m.EnsureShell(s, 80, 24); err != nil || term.live[s.ShellName()] != m.Repo.Root {
+		t.Errorf("shell: %v in %q, want the main checkout", err, term.live[s.ShellName()])
+	}
+
+	writeFile(t, m.Repo.Root, "README.md", "edited by the user\n")
+	if _, err := m.Push(s); err == nil {
+		t.Error("push should refuse a main-checkout session")
+	}
+	if _, err := m.Pause(s); err == nil {
+		t.Error("check out should refuse a main-checkout session")
+	}
+
+	restored := restore(t, m, s)[0]
+	if restored.WorktreePath != m.Repo.Root || restored.Status != StatusReady {
+		t.Errorf("restored at %q as %s, want the main checkout, ready", restored.WorktreePath, restored.Status)
+	}
+	if _, err := m.Kill(restored, false); err != nil {
+		t.Fatal(err)
+	}
+	if term.Exists(s.TmuxName) || term.Exists(s.ShellName()) {
+		t.Error("kill must stop the program and the shell")
+	}
+	if got := runGit(t, m.Repo.Root, "status", "--porcelain"); got != "M README.md" {
+		t.Errorf("main checkout status = %q, want the user's edit left uncommitted", got)
+	}
+	if got := runGit(t, m.Repo.Root, "branch", "--list"); got != branches {
+		t.Errorf("branches = %q, want %q", got, branches)
+	}
+
+	resumed, err := m.Resume(restored, 80, 24)
+	if err != nil || term.live[s.TmuxName] != m.Repo.Root || resumed.Status != StatusRunning {
+		t.Errorf("resume: %v in %q as %s, want running in the main checkout", err, term.live[s.TmuxName], resumed.Status)
+	}
+}
+
 // Worktrees go where the caller says, named by session ID, and tmux names
 // carry the project name so repositories sharing the socket never collide.
 func TestNew_PlacesWorktreeAndNamesTmuxSession(t *testing.T) {

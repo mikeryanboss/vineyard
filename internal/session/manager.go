@@ -59,6 +59,9 @@ type NewOptions struct {
 	// Issue is the grapes issue the session works on, or 0. Its branch is
 	// then named "<issue>/<slug>" instead of using BranchPrefix.
 	Issue int
+	// MainCheckout runs the program in the main checkout instead of a new
+	// worktree and branch.
+	MainCheckout bool
 }
 
 // New describes a session without creating anything, so the TUI can show it
@@ -70,17 +73,22 @@ func (m *Manager) New(opts NewOptions) Session {
 	if opts.Issue > 0 {
 		branch = strconv.Itoa(opts.Issue) + "/" + Slug(opts.Title, id)
 	}
+	path := filepath.Join(opts.WorktreeDir, id)
+	if opts.MainCheckout {
+		branch, path = "", m.Repo.Root
+	}
 	return Session{
 		ID:            id,
 		Title:         opts.Title,
 		Program:       opts.Program,
 		Branch:        branch,
 		Issue:         opts.Issue,
-		WorktreePath:  filepath.Join(opts.WorktreeDir, id),
+		WorktreePath:  path,
 		TmuxName:      "vineyard-" + m.Project + "-" + id,
 		Status:        StatusLoading,
 		AutoYes:       opts.AutoYes,
 		PendingPrompt: opts.Prompt,
+		MainCheckout:  opts.MainCheckout,
 		CreatedAt:     now,
 	}
 }
@@ -88,8 +96,28 @@ func (m *Manager) New(opts NewOptions) Session {
 // Start creates the session's branch and worktree from the current HEAD and
 // launches its program. A session for an issue needs the issue committed at
 // that HEAD. If launching fails, the worktree and branch are removed again so
-// a failed start leaves nothing behind.
+// a failed start leaves nothing behind. A main-checkout session only launches
+// its program there.
 func (m *Manager) Start(s Session, width, height int) (Session, error) {
+	if s.MainCheckout {
+		base, err := git.Head(s.WorktreePath)
+		if err != nil {
+			return s, err
+		}
+		s.BaseCommit = base
+		// The git poll keeps the branch current, but skips the selected
+		// session outside the Diff tab, as a new session is.
+		branch, err := git.CurrentBranch(s.WorktreePath)
+		if err != nil && !errors.Is(err, git.ErrDetachedHead) {
+			return s, err
+		}
+		s.Branch = branch
+		if err := m.Terminal.Start(s.TmuxName, s.WorktreePath, s.Program, width, height); err != nil {
+			return s, fmt.Errorf("starting %q: %w", s.Program, err)
+		}
+		s.Status = StatusRunning
+		return s, nil
+	}
 	base, err := git.Head(m.Repo.Checkout)
 	if err != nil {
 		return s, err
@@ -127,6 +155,9 @@ func (m *Manager) freeBranch(name string) string {
 // removes the worktree. The branch can then be checked out elsewhere. The
 // branch recorded is the one checked out, which Resume checks out again.
 func (m *Manager) Pause(s Session) (Session, error) {
+	if s.MainCheckout {
+		return s, errMainCheckout(s, "check out")
+	}
 	if git.IsWorktree(s.WorktreePath) {
 		branch, err := git.CurrentBranch(s.WorktreePath)
 		if err != nil {
@@ -152,7 +183,7 @@ func (m *Manager) Pause(s Session) (Session, error) {
 // worktree, and any uncommitted work in it, is still on disk. Claude Code
 // continues the conversation the agent was last seen in.
 func (m *Manager) Resume(s Session, width, height int) (Session, error) {
-	if !git.IsWorktree(s.WorktreePath) {
+	if !s.MainCheckout && !git.IsWorktree(s.WorktreePath) {
 		checkout, err := git.BranchCheckout(m.Repo.Root, s.Branch)
 		if err != nil {
 			return s, err
@@ -223,8 +254,12 @@ func (e *LostCommitsError) Error() string {
 // changes. The checked-out branch is deleted only if it has no commits of its
 // own. A detached HEAD has no branch to delete, so no branch is touched. When
 // a detached HEAD holds commits that nothing else contains, Kill refuses with
-// a *LostCommitsError unless discardCommits is set.
+// a *LostCommitsError unless discardCommits is set. A main-checkout session
+// only has its terminals stopped.
 func (m *Manager) Kill(s Session, discardCommits bool) (KillResult, error) {
+	if s.MainCheckout {
+		return KillResult{}, m.stopTerminals(s)
+	}
 	if git.IsWorktree(s.WorktreePath) {
 		branch, err := git.CurrentBranch(s.WorktreePath)
 		if errors.Is(err, git.ErrDetachedHead) {
@@ -255,6 +290,12 @@ func (m *Manager) Kill(s Session, discardCommits bool) (KillResult, error) {
 	return KillResult{}, git.DeleteBranch(m.Repo.Root, s.Branch)
 }
 
+// errMainCheckout refuses an operation that commits a session's work: in the
+// main checkout, that work is everyone's.
+func errMainCheckout(s Session, verb string) error {
+	return fmt.Errorf("%q runs in the main checkout; Vineyard does not %s it", s.Title, verb)
+}
+
 // stopTerminals ends the agent and the session's shell, if one is open.
 func (m *Manager) stopTerminals(s Session) error {
 	return errors.Join(m.Terminal.Kill(s.TmuxName), m.Terminal.Kill(s.ShellName()))
@@ -274,6 +315,9 @@ func (m *Manager) EnsureShell(s Session, width, height int) error {
 // Push commits the session's work and pushes the checked-out branch to origin.
 // It returns the session with that branch.
 func (m *Manager) Push(s Session) (Session, error) {
+	if s.MainCheckout {
+		return s, errMainCheckout(s, "push")
+	}
 	branch, err := git.CurrentBranch(s.WorktreePath)
 	if err != nil {
 		return s, err
@@ -330,7 +374,7 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 // checked out. Git, not the saved state, knows both: Locate finds a session's
 // worktree by its directory name, the session ID, and takes the branch from
 // it. A session without a worktree gets <worktreeDir>/<id>, where it gets one
-// when it resumes.
+// when it resumes. A main-checkout session gets the main checkout.
 func (m *Manager) Locate(sessions []Session, worktreeDir string) ([]Session, error) {
 	found, err := m.worktreesByID()
 	if err != nil {
@@ -339,6 +383,9 @@ func (m *Manager) Locate(sessions []Session, worktreeDir string) ([]Session, err
 	out := make([]Session, len(sessions))
 	for i, s := range sessions {
 		s.WorktreePath = filepath.Join(worktreeDir, s.ID)
+		if s.MainCheckout {
+			s.WorktreePath = m.Repo.Root
+		}
 		if w, ok := found[s.ID]; ok {
 			s.WorktreePath = w.Path
 			if w.Branch != "" {
