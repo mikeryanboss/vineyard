@@ -410,7 +410,7 @@ them.
   of another protocol to `vineyards.Older`, which returns:
   - a client, when that server speaks this build's protocol;
   - `vterm.NewOlderClient`, when its calls match this build's
-    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 4 differ only in
+    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 5 differ only in
     attaching). It makes every call, so the session shows its screen and
     status and can be killed;
   - otherwise `olderVineyard`, which asks only `Version` and `Exists`, through
@@ -454,7 +454,8 @@ them.
   reset on detach.
 - **Status bar** (`bar.go`): while attached, the TUI's loop is blocked in
   `tea.Exec`, so the server keeps the attached terminal's status bar. The
-  `AttachRequest` carries the sessions to list (`session.Peer`: terminal
+  `AttachRequest` carries the attached session's title, which the bar names
+  first in bold, the sessions to list (`session.Peer`: terminal
   name, title, and whether Vineyard last saw it running), whether the bar
   starts shown (`status_bar`), and whether the user's terminal is dark, as
   Bubble Tea reported it to the TUI. The server cannot tell, and the bar is

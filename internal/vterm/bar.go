@@ -15,14 +15,16 @@ import (
 // other sessions' screens, as often as Vineyard polls them.
 const sampleEvery = time.Second
 
-// bar is the status bar on the last row of an attached terminal. It lists
-// the other sessions, each running, ready, or finished, and the keys that
-// detach and hide it.
+// bar is the status bar on the last row of an attached terminal. It names
+// the session attached to, lists the other sessions, each running, ready, or
+// finished, and the keys that detach and hide it.
 type bar struct {
 	// shown is set while the user wants the bar, and visible while it is
 	// drawn: when shown, unless it would leave the program no row.
 	shown, visible bool
-	peers          []peer
+	// title is the attached session's.
+	title string
+	peers []peer
 	// detach and toggle are the names of the detach and status bar keys.
 	detach, toggle []string
 	// colors are the bar's colours, for the user's terminal's background.
@@ -41,10 +43,11 @@ type peer struct {
 	ran, gone bool
 }
 
-// newBar returns a bar listing peers, for a terminal with a dark background
-// when dark is set and a light one otherwise.
-func newBar(shown bool, peers []session.Peer, detach, toggle []string, dark bool) *bar {
-	b := &bar{shown: shown, detach: detach, toggle: toggle, colors: lightBar}
+// newBar returns a bar naming the session titled title and listing peers,
+// for a terminal with a dark background when dark is set and a light one
+// otherwise.
+func newBar(shown bool, title string, peers []session.Peer, detach, toggle []string, dark bool) *bar {
+	b := &bar{shown: shown, title: title, detach: detach, toggle: toggle, colors: lightBar}
 	if dark {
 		b.colors = darkBar
 	}
@@ -113,7 +116,8 @@ func (p peer) status() peerStatus {
 // basic colours, so the bar takes its colours from the 256-colour palette,
 // which they leave alone.
 type barColors struct {
-	bar, hint ansi.Style
+	// title styles the attached session's title.
+	bar, title, hint ansi.Style
 	// icons style each status's icon, and finished titles too.
 	icons map[peerStatus]ansi.Style
 }
@@ -121,8 +125,9 @@ type barColors struct {
 func newBarColors(background, text, hint, running, finished ansi.IndexedColor) barColors {
 	bar := ansi.NewStyle().BackgroundColor(background).ForegroundColor(text)
 	return barColors{
-		bar:  bar,
-		hint: bar.ForegroundColor(hint),
+		bar:   bar,
+		title: bar.Bold(),
+		hint:  bar.ForegroundColor(hint),
 		icons: map[peerStatus]ansi.Style{
 			peerRunning:  bar.ForegroundColor(running),
 			peerFinished: bar.ForegroundColor(finished).Bold(),
@@ -137,11 +142,12 @@ var (
 	icons    = map[peerStatus]string{peerRunning: "◑", peerFinished: "✓", peerReady: "●"}
 )
 
-// text returns the bar as styled text width cells wide: each peer's status
-// icon and title, or when those do not fit, how many peers have each status,
-// then the keys on the right.
+// text returns the bar as styled text width cells wide: the attached
+// session's title, then each peer's status icon and title, or when those do
+// not fit, how many peers have each status, then the keys on the right.
 func (b *bar) text(width int) string {
 	barStyle, hintStyle, iconStyles := b.colors.bar, b.colors.hint, b.colors.icons
+	own := barStyle.Styled(" ") + b.colors.title.Styled(b.title) + hintStyle.Styled(" │ ")
 	var items []string
 	counts := map[peerStatus]int{}
 	for _, p := range b.peers {
@@ -157,9 +163,9 @@ func (b *bar) text(width int) string {
 		counts[st]++
 	}
 	sep := barStyle.Styled("  ")
-	left := barStyle.Styled(" ") + strings.Join(items, sep)
+	left := own + strings.Join(items, sep)
 	if len(items) == 0 {
-		left = hintStyle.Styled(" no other sessions")
+		left = own + hintStyle.Styled("no other sessions")
 	}
 	var hints []string
 	if len(b.detach) > 0 {
@@ -169,14 +175,14 @@ func (b *bar) text(width int) string {
 		hints = append(hints, strings.Join(b.toggle, "/")+" hide")
 	}
 	right := hintStyle.Styled(strings.Join(hints, "  ") + " ")
-	if ansi.StringWidth(left)+ansi.StringWidth(right)+1 > width {
+	if len(items) > 0 && ansi.StringWidth(left)+ansi.StringWidth(right)+1 > width {
 		var summary []string
 		for _, st := range []peerStatus{peerRunning, peerFinished, peerReady} {
 			if counts[st] > 0 {
 				summary = append(summary, iconStyles[st].Styled(icons[st])+barStyle.Styled(" "+strconv.Itoa(counts[st])))
 			}
 		}
-		left = barStyle.Styled(" ") + strings.Join(summary, sep)
+		left = own + strings.Join(summary, sep)
 	}
 	gap := width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if gap < 1 {

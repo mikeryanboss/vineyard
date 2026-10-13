@@ -38,6 +38,8 @@ type Attachment struct {
 	ToggleBar []string `json:"toggle_bar"`
 	// ShowBar shows the status bar at first.
 	ShowBar bool `json:"show_bar"`
+	// Title is the attached session's, which the status bar names first.
+	Title string `json:"title"`
 	// Peers are the sessions the status bar lists.
 	Peers []Peer `json:"peers"`
 	// Dark is set when the user's terminal has a dark background, which
