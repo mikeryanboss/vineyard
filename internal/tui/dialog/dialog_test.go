@@ -37,12 +37,12 @@ func TestNewSession_ChoosingSubmitsTitleAndProfile(t *testing.T) {
 	var d dialog.Dialog
 	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, true, 60)
 	d, _ = press(d, "right")
-	d, _ = d.Update(testutil.Key("enter")) // its command only blinks the cursor
-	if view := testutil.StripANSI(d.View()); strings.Contains(view, "A title is required.") {
-		t.Fatalf("enter on the profile should move to the title, not create:\n%s", view)
+	d, msg := press(d, "enter")
+	if _, created := msg.(common.NewSessionMsg); created {
+		t.Fatal("enter on the profile should move to the title, not create")
 	}
 	d = typeText(d, "Fix login")
-	_, msg := press(d, "enter")
+	_, msg = press(d, "enter")
 
 	got, ok := msg.(common.NewSessionMsg)
 	if !ok {
@@ -90,14 +90,19 @@ func TestNewSession_PromptFieldTakesMultilineInput(t *testing.T) {
 	}
 }
 
-func TestNewSession_RequiresTitle(t *testing.T) {
+// Enter on an empty title creates the session with a random two-word title.
+func TestNewSession_EmptyTitleGetsARandomOne(t *testing.T) {
 	var d dialog.Dialog
 	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, false, 60)
-	d, msg := press(d, "enter")
-	if _, ok := msg.(common.NewSessionMsg); ok {
-		t.Fatal("an empty title must not create a session")
+	d = typeText(d, "  ")
+	_, msg := press(d, "enter")
+	got, ok := msg.(common.NewSessionMsg)
+	if !ok {
+		t.Fatalf("enter on an empty title produced %T, want NewSessionMsg", msg)
 	}
-	testutil.RequireGolden(t, d.View())
+	if words := strings.Fields(got.Title); len(words) != 2 || got.Title != strings.Join(words, " ") {
+		t.Errorf("title = %q, want two words", got.Title)
+	}
 }
 
 func TestNewSession_EscCancels(t *testing.T) {
