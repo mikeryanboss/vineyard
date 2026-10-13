@@ -79,14 +79,17 @@ func TestRun_DebugPrintsPaths(t *testing.T) {
 		}
 	}
 	t.Chdir(repo)
+	t.Setenv("TMPDIR", t.TempDir())
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"debug"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("debug exit code %d: %s", code, stderr.String())
 	}
 	for _, want := range []string{
+		"not running",
 		filepath.Join(repo, ".vineyard", "config.toml"),
 		filepath.Join(repo, ".vineyard", "worktrees"),
+		filepath.Join(repo, ".vineyard", "vineyard.log"),
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("debug output lacks %s:\n%s", want, stdout.String())
@@ -101,10 +104,11 @@ func TestRun_DebugPrintsPaths(t *testing.T) {
 func TestMultiplexers_WithoutTmux(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
-	terminals, err := multiplexers()
+	server, err := vineyardServer()
 	if err != nil {
 		t.Fatal(err)
 	}
+	terminals := multiplexers(server)
 	if _, ok := terminals[config.MultiplexerVineyard].(*vterm.Client); !ok || len(terminals) != 1 {
 		t.Errorf("multiplexers = %v, want Vineyard's server alone", terminals)
 	}

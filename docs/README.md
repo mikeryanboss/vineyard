@@ -36,6 +36,7 @@ main.go
 | Task | Start here | Then read |
 | --- | --- | --- |
 | CLI, flags, startup | `main.go` | `internal/config/config.go` |
+| Debugging a failure, logs, driving the TUI | Debugging in `development.md` | `runDebug` in `main.go`, `scripts/drive` |
 | Session lifecycle (create, pause, resume, kill, push) | `internal/session/manager.go` | `internal/git/git.go` |
 | Session fields, persistence, locking | `internal/session/session.go`, `store.go` | `leader.go`, `lock_unix.go` |
 | Several Vineyards on one repository | Several Vineyards in `architecture.md` | `adopt` in `internal/tui/app.go` |

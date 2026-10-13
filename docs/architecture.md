@@ -382,7 +382,9 @@ them.
 
 - **Socket**: `$TMPDIR/vineyard-<uid>/<name>` (`vterm.SocketPath`), in a
   directory only the user may use, as tmux keeps `/tmp/tmux-<uid>/<name>`.
-  The server's output goes to `<socket>.log`.
+  The server logs its start and stop, and each terminal's start and exit,
+  with the exit status and the last lines of its screen, to `<socket>.log`
+  (`internal/logfile`, restarted past 1 MB).
 - **Starting**: a client that starts a terminal when no server answers runs
   `vineyard server <socket>` in a session of its own (`setsid`), working in
   `/`, and dials until it listens. The server checks for a live server and
@@ -393,7 +395,8 @@ them.
   method; each client keeps one such connection. Every connection first asks
   `Version`, and a server of another protocol version is an error naming its
   process ID (`protocol` in `daemon.go`; change it with any change to the
-  calls).
+  calls). `Client.Info` asks `Version` and `List` without that check, for
+  `vineyard debug`.
 - **Terminals**: `vterm.Server` runs each program through `$SHELL -c` on a
   pseudo-terminal (`creack/pty`) with the starting Vineyard's environment and
   `TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`

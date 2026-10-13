@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/rpc"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -54,17 +56,26 @@ func SocketPath(name string) (string, error) {
 
 // Serve runs the server on socket. It returns once it has neither terminals
 // nor connections, or at once when another server already listens on socket.
+// It logs its life and its terminals' to standard error, which the client
+// that starts it sends to the log beside the socket.
 func Serve(socket string) error {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	log.SetPrefix(fmt.Sprintf("[%d] ", os.Getpid()))
 	d := &daemon{socket: socket, terminals: New(), stopped: make(chan struct{})}
-	d.terminals.exited = d.exitIfIdle
+	d.terminals.exited = d.exited
 	// Servers starting at once probe this one, and the client that started
 	// it may connect after them, so it is not idle before a terminal starts
 	// or a grace period passes.
 	time.AfterFunc(idleGrace, d.arm)
 	listener, err := d.listen()
-	if err != nil || listener == nil {
+	if err != nil {
 		return err
 	}
+	if listener == nil {
+		log.Printf("another server listens on %s; exiting", socket)
+		return nil
+	}
+	log.Printf("server started on %s, protocol %d", socket, protocol)
 	d.listener = listener
 	if d.listening, err = os.Stat(socket); err != nil {
 		return err
@@ -95,7 +106,7 @@ func Serve(socket string) error {
 		d.mu.Unlock()
 		go func() {
 			if err := d.serve(conn, calls); err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				log.Print(err)
 			}
 			conn.Close()
 			d.mu.Lock()
@@ -185,14 +196,44 @@ func (d *daemon) exitIfIdle() {
 	defer close(d.stopped)
 	unlock, err := d.lock()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 	defer unlock()
+	log.Print("server stopping: no terminals or connections")
 	d.listener.Close()
 	if info, err := os.Stat(d.socket); err == nil && os.SameFile(info, d.listening) {
 		os.Remove(d.socket)
 	}
+}
+
+// exited logs how a terminal's program exited, with the end of its last
+// screen, which shows why an agent that ends at once ended, and stops the
+// server if it is idle.
+func (d *daemon) exited(e Exit) {
+	status := "exit status 0"
+	if e.Err != nil {
+		status = e.Err.Error()
+	}
+	log.Printf("terminal %s exited after %s: %s; its program was %q; its screen ended:\n%s",
+		e.Name, e.Lifetime.Round(time.Millisecond), status, e.Program, screenEnd(e.Screen, screenEndLines))
+	d.exitIfIdle()
+}
+
+// screenEndLines is how many lines of a terminal's last screen the log keeps.
+const screenEndLines = 10
+
+// screenEnd returns the last n non-blank lines of screen, indented.
+func screenEnd(screen string, n int) string {
+	var lines []string
+	for line := range strings.Lines(screen) {
+		if line = strings.TrimRight(line, " \n"); line != "" {
+			lines = append(lines, "    "+line)
+		}
+	}
+	if len(lines) == 0 {
+		return "    (blank)"
+	}
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }
 
 // serve answers one connection.
@@ -327,10 +368,19 @@ func (s *Service) Version(_ struct{}, reply *VersionReply) error {
 
 func (s *Service) Start(args StartArgs, _ *struct{}) error {
 	err := s.d.terminals.Start(args.Name, args.Dir, args.Program, args.Env, args.Width, args.Height)
-	if err == nil {
-		s.d.arm()
+	if err != nil {
+		log.Printf("terminal %s failed to start %q in %s: %v", args.Name, args.Program, args.Dir, err)
+		return err
 	}
-	return err
+	log.Printf("terminal %s started %q in %s", args.Name, args.Program, args.Dir)
+	s.d.arm()
+	return nil
+}
+
+// List returns the names of the server's terminals, sorted.
+func (s *Service) List(_ struct{}, reply *[]string) error {
+	*reply = s.d.terminals.names()
+	return nil
 }
 
 func (s *Service) Exists(name string, reply *bool) error {

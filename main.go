@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
+	"github.com/mikeryanboss/vineyard/internal/logfile"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/subagent"
 	"github.com/mikeryanboss/vineyard/internal/tmux"
@@ -114,7 +116,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runTUI(program string, autoYes bool, issue int) error {
+// tuiLog is the log of the Vineyards on the repository whose data directory
+// is dir. Several Vineyards share it; each line names its process.
+func tuiLog(dir string) string { return filepath.Join(dir, "vineyard.log") }
+
+func runTUI(program string, autoYes bool, issue int) (err error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -127,6 +133,22 @@ func runTUI(program string, autoYes bool, issue int) error {
 	if err := config.Prepare(dir); err != nil {
 		return err
 	}
+	logFile, err := logfile.Open(tuiLog(dir))
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	log.SetPrefix(fmt.Sprintf("[%d] ", os.Getpid()))
+	log.Printf("vineyard %s started in %s", version, cwd)
+	defer func() {
+		if err != nil {
+			log.Printf("vineyard exited: %v", err)
+		} else {
+			log.Print("vineyard exited")
+		}
+	}()
 	cfg, cfgErr := config.Load(dir)
 
 	store := session.NewStore(dir)
@@ -135,10 +157,11 @@ func runTUI(program string, autoYes bool, issue int) error {
 		return fmt.Errorf("worktree directory: %w", err)
 	}
 	leader := session.NewLeader(dir)
-	terminals, err := multiplexers()
+	server, err := vineyardServer()
 	if err != nil {
 		return err
 	}
+	terminals := multiplexers(server)
 	managed := map[string]session.Terminal{}
 	for name, t := range terminals {
 		managed[name] = t
@@ -226,16 +249,12 @@ func terminal() (in, out *os.File, closeTTY func(), err error) {
 
 // multiplexers returns the multiplexers available to run sessions, by name:
 // Vineyard's server, and tmux when it is installed.
-func multiplexers() (map[string]tui.Terminal, error) {
-	server, err := vineyardServer()
-	if err != nil {
-		return nil, err
-	}
+func multiplexers(server *vterm.Client) map[string]tui.Terminal {
 	terminals := map[string]tui.Terminal{config.MultiplexerVineyard: server}
 	if _, err := exec.LookPath("tmux"); err == nil {
 		terminals[config.MultiplexerTmux] = tmux.New(socketName())
 	}
-	return terminals, nil
+	return terminals
 }
 
 // vineyardServer returns a client of Vineyard's own terminal server, which
@@ -262,6 +281,12 @@ func socketName() string {
 	return tmux.DefaultSocket
 }
 
+// debugLogLines is how many lines of each log debug prints.
+const debugLogLines = 15
+
+// runDebug prints what diagnosing a failure starts from: the multiplexers'
+// state, the data paths, each session's terminal, and the ends of the logs.
+// It starts no server and creates no files.
 func runDebug(stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "version:     %s\n", version)
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -269,11 +294,14 @@ func runDebug(stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", socketName(), socketName())
 	}
-	if server, err := vineyardServer(); err == nil {
-		fmt.Fprintf(stdout, "server:      %s\n", server.Socket())
-	} else {
+	server, err := vineyardServer()
+	if err != nil {
 		fmt.Fprintf(stdout, "server:      %v\n", err)
+		return 0
 	}
+	fmt.Fprintf(stdout, "server:      %s\n", server.Socket())
+	info, infoErr := server.Info()
+	printServer(stdout, server, info, infoErr)
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
@@ -293,13 +321,78 @@ func runDebug(stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "             unreadable, using defaults: %v\n", cfgErr)
 	}
 	fmt.Fprintf(stdout, "multiplexer: %s, for new sessions\n", cfg.Multiplexer)
-	fmt.Fprintf(stdout, "sessions:    %s\n", session.NewStore(dir).Path())
+	store := session.NewStore(dir)
+	fmt.Fprintf(stdout, "sessions:    %s\n", store.Path())
+	printSessions(stdout, store, multiplexers(server), info)
 	if worktrees, err := config.ResolveWorktreeDir(repo.Root, cfg.WorktreeDir); err == nil {
 		fmt.Fprintf(stdout, "worktrees:   %s\n", worktrees)
 	} else {
 		fmt.Fprintf(stdout, "worktrees:   %v\n", err)
 	}
+	fmt.Fprintf(stdout, "log:         %s\n", tuiLog(dir))
+	printLogEnd(stdout, tuiLog(dir))
 	return 0
+}
+
+// printServer prints whether Vineyard's server runs, its terminals, and the
+// end of its log.
+func printServer(w io.Writer, server *vterm.Client, info *vterm.ServerInfo, err error) {
+	switch {
+	case err != nil:
+		fmt.Fprintf(w, "             not answering: %v\n", err)
+	case info == nil:
+		fmt.Fprintf(w, "             not running\n")
+	case info.Protocol != vterm.Protocol():
+		fmt.Fprintf(w, "             running as process %d, of protocol %d, which this build (protocol %d) refuses; end its agents or kill it\n",
+			info.PID, info.Protocol, vterm.Protocol())
+	default:
+		fmt.Fprintf(w, "             running as process %d, protocol %d\n", info.PID, info.Protocol)
+		if len(info.Terminals) == 0 {
+			fmt.Fprintf(w, "             no terminals; it stops once no Vineyard is connected\n")
+		} else {
+			fmt.Fprintf(w, "             %d terminals: %s\n", len(info.Terminals), strings.Join(info.Terminals, ", "))
+		}
+	}
+	fmt.Fprintf(w, "             log: %s\n", server.Log())
+	printLogEnd(w, server.Log())
+}
+
+// printSessions prints each session's multiplexer, recorded status, and
+// whether its terminal runs. info describes Vineyard's server.
+func printSessions(w io.Writer, store session.Store, terminals map[string]tui.Terminal, info *vterm.ServerInfo) {
+	sessions, err := store.Load()
+	if err != nil {
+		fmt.Fprintf(w, "             unreadable: %v\n", err)
+		return
+	}
+	for _, s := range sessions {
+		live := "multiplexer unavailable"
+		if t, ok := terminals[s.Multiplexer]; ok {
+			live = "terminal gone"
+			if s.Multiplexer == config.MultiplexerVineyard && info != nil && info.Protocol != vterm.Protocol() {
+				live = "terminal unknown: the server speaks another protocol"
+			} else if t.Exists(s.TmuxName) {
+				live = "terminal alive"
+			}
+		}
+		fmt.Fprintf(w, "             %s: %s, %s, %s (%s)\n", s.Title, s.Multiplexer, s.Status, live, s.TmuxName)
+	}
+}
+
+// printLogEnd prints the last lines of the log at path, indented.
+func printLogEnd(w io.Writer, path string) {
+	end, err := logfile.Tail(path, debugLogLines)
+	switch {
+	case err != nil:
+		fmt.Fprintf(w, "             unreadable: %v\n", err)
+	case end == "":
+		fmt.Fprintf(w, "             (empty)\n")
+	default:
+		for line := range strings.Lines(end) {
+			fmt.Fprintf(w, "               %s", line)
+		}
+		fmt.Fprintln(w)
+	}
 }
 
 func writeHelp(w io.Writer) {
@@ -315,7 +408,7 @@ FLAGS:
   -i, --issue <id>          Open at grapes issue <id>: its session, or a new one for it
 
 COMMANDS:
-  debug                     Print configuration and data paths
+  debug                     Print the server's and sessions' state, data paths, and log ends
   version                   Print the version
   help                      Show this help
 

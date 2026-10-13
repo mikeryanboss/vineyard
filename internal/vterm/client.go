@@ -16,6 +16,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
+
+	"github.com/mikeryanboss/vineyard/internal/logfile"
 )
 
 // serverStartTimeout is how long a client waits for a server it started to
@@ -41,6 +43,41 @@ func NewClient(socket string, server ...string) *Client {
 
 // Socket returns the path of the server's socket.
 func (c *Client) Socket() string { return c.socket }
+
+// Log returns the path of the log of the servers this client starts.
+func (c *Client) Log() string { return c.socket + ".log" }
+
+// ServerInfo describes a running server.
+type ServerInfo struct {
+	PID, Protocol int
+	// Terminals names the server's terminals, when its protocol is this
+	// build's: a server of another protocol may not answer the call.
+	Terminals []string
+}
+
+// Info describes the server on the socket, on a connection of its own, or
+// returns nil when none runs. Unlike the other calls, it accepts a server of
+// another protocol, to report it.
+func (c *Client) Info() (*ServerInfo, error) {
+	calls, v, err := c.handshake(false)
+	if noServer(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer calls.Close()
+	info := &ServerInfo{PID: v.PID, Protocol: v.Protocol}
+	if v.Protocol == protocol {
+		if err := calls.Call("Terminals.List", struct{}{}, &info.Terminals); err != nil {
+			return nil, err
+		}
+	}
+	return info, nil
+}
+
+// Protocol is the version of the calls this build makes to its server.
+func Protocol() int { return protocol }
 
 // Close closes the connection to the server.
 func (c *Client) Close() error {
@@ -124,7 +161,7 @@ func hungUp(err error) bool {
 // this process and the user's terminal, and dials it. Its output goes to a log
 // beside the socket.
 func (c *Client) startServer() (*net.UnixConn, error) {
-	log, err := os.OpenFile(c.socket+".log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	log, err := logfile.Open(c.Log())
 	if err != nil {
 		return nil, err
 	}

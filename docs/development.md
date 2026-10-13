@@ -34,9 +34,55 @@ printf 'multiplexer = "tmux"\n' >> /tmp/vy/demo/.vineyard/config.toml
 ```
 
 Vineyard's server outlives the development build, and a rebuilt Vineyard of another
-`protocol` refuses to use it. `vineyard debug` prints its socket; the server
+`protocol` refuses to use it. `vineyard debug` prints its socket and process; the server
 stops by itself once its agents end and no Vineyard runs, or end it with
-`pkill -f 'vineyard server'`.
+`kill <process>`.
+
+## Debugging
+
+Find out what happened before reproducing it, and reproduce it below the TUI
+before driving the TUI. Each step costs more context than the one before.
+
+1. **`vineyard debug`**, in the repository, on the user's socket. It starts
+   nothing and prints, in about 30 lines: whether Vineyard's server runs, its
+   process and protocol, its terminals; each session's multiplexer, recorded
+   status, and whether its terminal is alive; and the ends of two logs.
+   - `<socket>.log`, Vineyard's server's: its start and stop, and each
+     terminal's start and exit, with the exit status and the last lines of
+     its screen. An agent that "crashes immediately" leaves its error here.
+   - `.vineyard/vineyard.log`, the Vineyards': each start and exit, with the
+     exit error, every error the status line showed, and the stack of a panic
+     in `Update` or `View`. Each line names its process.
+   A server of another `protocol`, left by an earlier build, is the usual
+   cause of failures right after an update.
+2. **A failing test against the real thing.** The session tests use fake
+   multiplexers; the `vterm` tests start real servers (`serverSocket` in
+   `client_test.go`). A test that drives the failing path gives a stack trace,
+   runs in milliseconds, and stays as the regression test.
+3. **The TUI, driven in tmux**, to confirm a fix in the real app or to
+   reproduce what needs the TUI. `scripts/drive` runs a build in a detached
+   tmux window and prints only the screen's non-blank lines:
+
+   ```sh
+   go build -o .grapes/<id>/tmp/vineyard .
+   scripts/drive init .grapes/<id>/tmp/demo vineyard   # or tmux
+   scripts/drive start .grapes/<id>/tmp/vineyard .grapes/<id>/tmp/demo -p bash
+   scripts/drive keys n; scripts/drive type fix; scripts/drive keys Enter
+   scripts/drive screen 2        # the screen, 2 seconds on
+   scripts/drive exit            # Vineyard's stderr and exit status, once it quit
+   (cd .grapes/<id>/tmp/demo && VINEYARD_SOCKET=vineyard-drive-dev ../vineyard debug)
+   scripts/drive stop            # the window, and the development multiplexers
+   ```
+
+   It keeps the traps out of the way: its tmux server is not on the
+   `VINEYARD_SOCKET` name, which names Vineyard's tmux socket too; the window
+   outlives Vineyard, so its exit can be read; and `stop` ends the
+   development server without `pkill -f` patterns that match the shell
+   running them.
+
+To reproduce a failure across versions, build the earlier commit in a
+temporary worktree (`git worktree add --detach <dir> <commit>`) and run each
+build in turn on the same repository.
 
 ## TUI Testing
 
@@ -69,10 +115,9 @@ build above, using a tmux window of fixed size:
 ```sh
 GOBIN=$PWD/.grapes/<id>/tmp/bin go install github.com/charmbracelet/freeze@latest
 go build -o .grapes/<id>/tmp/vineyard .
-tmux new-session -d -s shot -x 110 -y 30 -c <demo-repo> \
-  "VINEYARD_SOCKET=vy-shot <tmp>/vineyard -p bash"
-tmux send-keys -t shot n          # drive the app like a user
-tmux capture-pane -e -p -t shot > .grapes/<id>/tmp/shot.ansi
+scripts/drive start .grapes/<id>/tmp/vineyard <demo-repo> -p bash
+scripts/drive keys n              # drive the app like a user
+scripts/drive screen 1 -e > .grapes/<id>/tmp/shot.ansi
 .grapes/<id>/tmp/bin/freeze .grapes/<id>/tmp/shot.ansi --language ansi \
   --theme github --background "#ffffff" \
   --window=false --border.radius 0 -o .grapes/<id>/tmp/shot.png
@@ -173,6 +218,7 @@ goreleaser release --snapshot --clean --skip=publish   # writes dist/; delete it
 | Recap tab or transcript format | `recap/recap.go`, `tui/app.go` (`recapCmd`, `refreshRecap`) | `recap_test.go`, `app_test.go` |
 | Issues screen, issue tab, or session–issue links | `tui/app.go` (`issuesOf`, `showSessions`, `showIssues`, `refreshIssue`) | `app_grapes_test.go` |
 | Issue session prompts, example templates | `prompt/prompt.go`, `config/templates/`, `tui/dialog/dialog.go` (`ForIssue`) | `prompt_test.go`, `dialog_test.go`, `app_grapes_test.go` |
+| What a failure leaves for diagnosis | `vterm/daemon.go` (server log), `tui/app.go` (`setError`, `logPanic`), `runDebug` in `main.go` | `TestInfoAndLogDescribeTheServer`, `TestApp_LogsErrorsAndPanics`, `TestRun_DebugPrintsPaths` |
 | What grapes exposes | grapes' `embedded/` package, then `go get` the release here | grapes' `embedded_test.go`, `app_grapes_test.go` |
 
 ### Changing grapes alongside vineyard

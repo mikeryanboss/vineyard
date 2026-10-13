@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"log"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -329,6 +331,9 @@ type Model struct {
 	status      string
 	statusIsErr bool
 	statusSeq   int
+	// loggedErr is the error last logged, which setError logs once while it
+	// repeats, as a failing poll's does.
+	loggedErr string
 }
 
 // NewModel returns the root model showing sessions. It installs the
@@ -528,7 +533,23 @@ func (m *Model) setStatus(msg string, isErr bool) tea.Cmd {
 	return tick(statusMessageDuration, func(time.Time) tea.Msg { return clearStatusMsg{seq: seq} })
 }
 
-func (m *Model) setError(err error) tea.Cmd { return m.setStatus(err.Error(), true) }
+// setError shows err and logs it: the status line shows it only briefly.
+func (m *Model) setError(err error) tea.Cmd {
+	if msg := err.Error(); msg != m.loggedErr {
+		m.loggedErr = msg
+		log.Print(msg)
+	}
+	return m.setStatus(err.Error(), true)
+}
+
+// logPanic, deferred, logs a panic with its stack, which Bubble Tea prints
+// only to the terminal it restores, and panics again.
+func logPanic() {
+	if r := recover(); r != nil {
+		log.Printf("panic: %v\n%s", r, debug.Stack())
+		panic(r)
+	}
+}
 
 // placeholder is what the preview shows instead of a screen, or "".
 func (m Model) placeholder(s session.Session, ok bool) string {
@@ -906,6 +927,7 @@ func (m Model) enterCmd(s session.Session) tea.Cmd {
 
 // Update handles a message.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	defer logPanic()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -2269,6 +2291,7 @@ func moved(msg tea.MouseMsg, dx, dy int) tea.MouseMsg {
 
 // View renders the screen.
 func (m Model) View() tea.View {
+	defer logPanic()
 	var content string
 	switch {
 	case m.width == 0:

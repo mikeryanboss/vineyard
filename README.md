@@ -73,7 +73,9 @@ have; attach to scroll it.
 
 Flags: `-p <command>` runs a different agent in new sessions, `-y` turns on
 auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed
-`a` there. `vineyard debug` prints where Vineyard stores its data.
+`a` there. `vineyard debug` prints where Vineyard stores its data, whether its
+server runs, whether each session's agent runs, and the ends of the logs: what
+went wrong is usually there.
 
 ## Configuration
 
