@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -13,8 +15,9 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/recap"
 )
 
-// Terminal runs programs in named, detachable terminal sessions.
-// *tmux.Client implements it.
+// Terminal runs programs in named, detachable terminal sessions: a
+// multiplexer, such as tmux (*tmux.Client) or Vineyard's own server
+// (*vterm.Client).
 type Terminal interface {
 	Start(name, dir, program string, width, height int) error
 	Exists(name string) bool
@@ -27,23 +30,48 @@ type Terminal interface {
 // mutating shared state. The TUI runs them in background commands and applies
 // the results in its update loop, so they must not touch anything else.
 type Manager struct {
-	Repo     git.Repo
-	Terminal Terminal
-	// Project names the repository in tmux session names, which share one
+	Repo git.Repo
+	// Terminals are the multiplexers available, by name. Each session runs
+	// in the one its Multiplexer names.
+	Terminals map[string]Terminal
+	// Default is the multiplexer of new sessions that name none, and of saved
+	// sessions that recorded none and run nowhere.
+	Default string
+	// Project names the repository in terminal names, which share one
 	// socket across repositories.
 	Project string
 
 	now func() time.Time
 }
 
-// NewManager returns a manager for repo, named project in tmux.
-func NewManager(repo git.Repo, terminal Terminal, project string) *Manager {
+// NewManager returns a manager for repo, named project in terminal names,
+// whose sessions run in terminals, the multiplexers by name.
+func NewManager(repo git.Repo, terminals map[string]Terminal, defaultMultiplexer, project string) *Manager {
 	return &Manager{
-		Repo:     repo,
-		Terminal: terminal,
-		Project:  project,
-		now:      time.Now,
+		Repo:      repo,
+		Terminals: terminals,
+		Default:   defaultMultiplexer,
+		Project:   project,
+		now:       time.Now,
 	}
+}
+
+// terminal returns the multiplexer that runs s.
+func (m *Manager) terminal(s Session) (Terminal, error) {
+	t, ok := m.Terminals[s.Multiplexer]
+	if !ok {
+		return nil, Unavailable(s)
+	}
+	return t, nil
+}
+
+// Unavailable is the error of an operation on s's terminals when s's
+// multiplexer is not available.
+func Unavailable(s Session) error {
+	if s.Multiplexer == "tmux" {
+		return fmt.Errorf("session %q runs in tmux, which is not installed", s.Title)
+	}
+	return fmt.Errorf("session %q runs in %s, which is not available", s.Title, s.Multiplexer)
 }
 
 // NewOptions describe a session to create.
@@ -62,6 +90,9 @@ type NewOptions struct {
 	// MainCheckout runs the program in the main checkout instead of a new
 	// worktree and branch.
 	MainCheckout bool
+	// Multiplexer names the multiplexer that runs the session; empty means
+	// the manager's Default.
+	Multiplexer string
 }
 
 // New describes a session without creating anything, so the TUI can show it
@@ -74,6 +105,10 @@ func (m *Manager) New(opts NewOptions) Session {
 		branch = strconv.Itoa(opts.Issue) + "/" + Slug(opts.Title, id)
 	}
 	path := filepath.Join(opts.WorktreeDir, id)
+	multiplexer := opts.Multiplexer
+	if multiplexer == "" {
+		multiplexer = m.Default
+	}
 	if opts.MainCheckout {
 		branch, path = "", m.Repo.Root
 	}
@@ -89,6 +124,7 @@ func (m *Manager) New(opts NewOptions) Session {
 		AutoYes:       opts.AutoYes,
 		PendingPrompt: opts.Prompt,
 		MainCheckout:  opts.MainCheckout,
+		Multiplexer:   multiplexer,
 		CreatedAt:     now,
 	}
 }
@@ -99,6 +135,10 @@ func (m *Manager) New(opts NewOptions) Session {
 // a failed start leaves nothing behind. A main-checkout session only launches
 // its program there.
 func (m *Manager) Start(s Session, width, height int) (Session, error) {
+	terminal, err := m.terminal(s)
+	if err != nil {
+		return s, err
+	}
 	if s.MainCheckout {
 		base, err := git.Head(s.WorktreePath)
 		if err != nil {
@@ -112,7 +152,7 @@ func (m *Manager) Start(s Session, width, height int) (Session, error) {
 			return s, err
 		}
 		s.Branch = branch
-		if err := m.Terminal.Start(s.TmuxName, s.WorktreePath, s.Program, width, height); err != nil {
+		if err := terminal.Start(s.TmuxName, s.WorktreePath, s.Program, width, height); err != nil {
 			return s, fmt.Errorf("starting %q: %w", s.Program, err)
 		}
 		s.Status = StatusRunning
@@ -131,7 +171,7 @@ func (m *Manager) Start(s Session, width, height int) (Session, error) {
 	if err := git.AddWorktree(m.Repo.Root, s.WorktreePath, s.Branch, base); err != nil {
 		return s, err
 	}
-	if err := m.Terminal.Start(s.TmuxName, s.WorktreePath, s.Program, width, height); err != nil {
+	if err := terminal.Start(s.TmuxName, s.WorktreePath, s.Program, width, height); err != nil {
 		cleanup := errors.Join(
 			git.RemoveWorktree(m.Repo.Root, s.WorktreePath),
 			git.DeleteBranch(m.Repo.Root, s.Branch),
@@ -183,6 +223,10 @@ func (m *Manager) Pause(s Session) (Session, error) {
 // worktree, and any uncommitted work in it, is still on disk. Claude Code
 // continues the conversation the agent was last seen in.
 func (m *Manager) Resume(s Session, width, height int) (Session, error) {
+	terminal, err := m.terminal(s)
+	if err != nil {
+		return s, err
+	}
 	if !s.MainCheckout && !git.IsWorktree(s.WorktreePath) {
 		checkout, err := git.BranchCheckout(m.Repo.Root, s.Branch)
 		if err != nil {
@@ -195,12 +239,12 @@ func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 			return s, err
 		}
 	}
-	if !m.Terminal.Exists(s.TmuxName) {
+	if !terminal.Exists(s.TmuxName) {
 		program, err := resumeCommand(s)
 		if err != nil {
 			return s, err
 		}
-		if err := m.Terminal.Start(s.TmuxName, s.WorktreePath, program, width, height); err != nil {
+		if err := terminal.Start(s.TmuxName, s.WorktreePath, program, width, height); err != nil {
 			return s, err
 		}
 	}
@@ -296,9 +340,15 @@ func errMainCheckout(s Session, verb string) error {
 	return fmt.Errorf("%q runs in the main checkout; Vineyard does not %s it", s.Title, verb)
 }
 
-// stopTerminals ends the agent and the session's shell, if one is open.
+// stopTerminals ends the agent and the session's shell, if one is open. A
+// multiplexer that is not available, such as tmux when it is not installed,
+// runs nothing to end.
 func (m *Manager) stopTerminals(s Session) error {
-	return errors.Join(m.Terminal.Kill(s.TmuxName), m.Terminal.Kill(s.ShellName()))
+	terminal, ok := m.Terminals[s.Multiplexer]
+	if !ok {
+		return nil
+	}
+	return errors.Join(terminal.Kill(s.TmuxName), terminal.Kill(s.ShellName()))
 }
 
 // EnsureShell starts the session's shell in its worktree unless it is running.
@@ -306,10 +356,14 @@ func (m *Manager) EnsureShell(s Session, width, height int) error {
 	if !git.IsWorktree(s.WorktreePath) {
 		return fmt.Errorf("session %q has no worktree; resume it first", s.Title)
 	}
-	if m.Terminal.Exists(s.ShellName()) {
+	terminal, err := m.terminal(s)
+	if err != nil {
+		return err
+	}
+	if terminal.Exists(s.ShellName()) {
 		return nil
 	}
-	return m.Terminal.Start(s.ShellName(), s.WorktreePath, "", width, height)
+	return terminal.Start(s.ShellName(), s.WorktreePath, "", width, height)
 }
 
 // Push commits the session's work and pushes the checked-out branch to origin.
@@ -335,8 +389,10 @@ func (m *Manager) Push(s Session) (Session, error) {
 // moved, is reconnected when it is at <worktreeDir>/<id>. Locate then finds
 // each session's worktree and branch.
 //
-// A session whose tmux session is gone becomes stopped; its worktree is left
-// alone.
+// Each session's terminal is looked for in every multiplexer, its own first,
+// and the session records the one running it. A session whose terminal runs
+// nowhere becomes stopped; its worktree is left alone. One that recorded no
+// multiplexer, as sessions saved before sessions had one, gets Default.
 func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, error) {
 	found, err := m.worktreesByID()
 	if err != nil {
@@ -359,15 +415,31 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 		return nil, err
 	}
 	for i, s := range out {
-		switch {
-		case s.Status == StatusPaused:
-		case m.Terminal.Exists(s.TmuxName):
-			out[i].Status = StatusReady
-		default:
+		if s.Status != StatusPaused {
 			out[i].Status = StatusStopped
+			if name, ok := m.running(s); ok {
+				out[i].Multiplexer, out[i].Status = name, StatusReady
+			}
+		}
+		if out[i].Multiplexer == "" {
+			out[i].Multiplexer = m.Default
 		}
 	}
 	return out, nil
+}
+
+// running returns the multiplexer that runs s's terminal, looking in the one
+// s records first.
+func (m *Manager) running(s Session) (string, bool) {
+	if t, ok := m.Terminals[s.Multiplexer]; ok && t.Exists(s.TmuxName) {
+		return s.Multiplexer, true
+	}
+	for _, name := range slices.Sorted(maps.Keys(m.Terminals)) {
+		if name != s.Multiplexer && m.Terminals[name].Exists(s.TmuxName) {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // Locate fills in where saved sessions' worktrees are and what they have

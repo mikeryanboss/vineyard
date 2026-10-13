@@ -7,7 +7,7 @@
                 │  Auto-yes for new sessions  off                                                             
                 │  Worktree directory         .vineyard/worktrees                                             
                 │  Diff tool                                                                                  
-                │  Multiplexer (on restart)   auto                                                            
+                │  Multiplexer                vineyard                                                        
                                                                                                               
                                                                                                               
                                                                                                               

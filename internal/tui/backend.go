@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -87,7 +88,7 @@ type Backend interface {
 
 // Terminal runs agents and shells in named terminals of a multiplexer: on
 // Vineyard's tmux server (*tmux.Client), or on Vineyard's own terminal server
-// (*vterm.Client).
+// (*vterm.Client). Each session runs in the multiplexer it names.
 type Terminal interface {
 	session.Terminal
 	// Created returns when the named terminal started its program, to the
@@ -105,17 +106,28 @@ type Terminal interface {
 	Attach(name string) tea.ExecCommand
 }
 
-// LiveBackend is the Backend backed by a Terminal, git, and the session store.
+// LiveBackend is the Backend backed by the multiplexers, git, and the session
+// store.
 type LiveBackend struct {
 	*session.Manager
-	Terminal Terminal
-	Store    session.Store
-	Leader   *session.Leader
+	// Terminals are the multiplexers available, by name, as in the Manager.
+	Terminals map[string]Terminal
+	Store     session.Store
+	Leader    *session.Leader
 	// Transcripts reads Claude Code's transcripts, remembering where it left
 	// off in each.
 	Transcripts *subagent.Reader
 	// Dir is the repository's .vineyard directory, which holds config.toml.
 	Dir string
+}
+
+// terminal returns the multiplexer that runs s, or one whose every call
+// fails when that multiplexer is not available.
+func (b LiveBackend) terminal(s session.Session) Terminal {
+	if t, ok := b.Terminals[s.Multiplexer]; ok {
+		return t
+	}
+	return unavailable{s}
 }
 
 func (b LiveBackend) Add(s session.Session) error     { return b.Store.Add(s) }
@@ -132,45 +144,45 @@ func (b LiveBackend) Load(worktreeDir string) ([]session.Session, error) {
 }
 
 func (b LiveBackend) Capture(s session.Session) (string, error) {
-	return b.Terminal.Capture(s.TmuxName)
+	return b.terminal(s).Capture(s.TmuxName)
 }
 
 func (b LiveBackend) CaptureHistory(s session.Session, lines int) (string, error) {
-	return b.Terminal.CaptureHistory(s.TmuxName, lines)
+	return b.terminal(s).CaptureHistory(s.TmuxName, lines)
 }
 
 func (b LiveBackend) Resize(s session.Session, width, height int) error {
-	return b.Terminal.Resize(s.TmuxName, width, height)
+	return b.terminal(s).Resize(s.TmuxName, width, height)
 }
 
-func (b LiveBackend) SendEnter(s session.Session) error { return b.Terminal.SendEnter(s.TmuxName) }
+func (b LiveBackend) SendEnter(s session.Session) error { return b.terminal(s).SendEnter(s.TmuxName) }
 
 func (b LiveBackend) Paste(s session.Session, text string) error {
-	return b.Terminal.Paste(s.TmuxName, text)
+	return b.terminal(s).Paste(s.TmuxName, text)
 }
 
 func (b LiveBackend) AttachCommand(s session.Session) tea.ExecCommand {
-	return b.Terminal.Attach(s.TmuxName)
+	return b.terminal(s).Attach(s.TmuxName)
 }
 
 func (b LiveBackend) ShellAttachCommand(s session.Session) tea.ExecCommand {
-	return b.Terminal.Attach(s.ShellName())
+	return b.terminal(s).Attach(s.ShellName())
 }
 
 func (b LiveBackend) CaptureShell(s session.Session) (string, error) {
-	return b.Terminal.Capture(s.ShellName())
+	return b.terminal(s).Capture(s.ShellName())
 }
 
 func (b LiveBackend) CaptureShellHistory(s session.Session, lines int) (string, error) {
-	return b.Terminal.CaptureHistory(s.ShellName(), lines)
+	return b.terminal(s).CaptureHistory(s.ShellName(), lines)
 }
 
 func (b LiveBackend) ResizeShell(s session.Session, width, height int) error {
-	return b.Terminal.Resize(s.ShellName(), width, height)
+	return b.terminal(s).Resize(s.ShellName(), width, height)
 }
 
 func (b LiveBackend) OpenSubagent(s session.Session, position, total int) error {
-	return subagent.Open(terminalScreen{b.Terminal, s.TmuxName}, position, total)
+	return subagent.Open(terminalScreen{b.terminal(s), s.TmuxName}, position, total)
 }
 
 func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error) {
@@ -183,7 +195,7 @@ func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error)
 	// until the moment its successor starts, which may be within that
 	// second, while the successor needs longer than a second to start and be
 	// sent a prompt before it writes. So the second after counts as the start.
-	created, err := b.Terminal.Created(s.TmuxName)
+	created, err := b.terminal(s).Created(s.TmuxName)
 	if err != nil {
 		return subagent.Conversation{}, err
 	}
@@ -291,3 +303,29 @@ func (b LiveBackend) SaveConfig(cfg config.Config) error { return config.Save(b.
 func (b LiveBackend) Templates(inline []config.Template) ([]config.Template, error) {
 	return config.LoadTemplates(b.Dir, inline)
 }
+
+// unavailable is the multiplexer of a session whose multiplexer is not
+// available, such as tmux when it is not installed. It runs nothing.
+type unavailable struct{ s session.Session }
+
+func (u unavailable) err() error { return session.Unavailable(u.s) }
+
+func (u unavailable) Start(string, string, string, int, int) error { return u.err() }
+func (u unavailable) Exists(string) bool                           { return false }
+func (u unavailable) Kill(string) error                            { return nil }
+func (u unavailable) Created(string) (time.Time, error)            { return time.Time{}, u.err() }
+func (u unavailable) Capture(string) (string, error)               { return "", u.err() }
+func (u unavailable) CaptureHistory(string, int) (string, error)   { return "", u.err() }
+func (u unavailable) Resize(string, int, int) error                { return u.err() }
+func (u unavailable) SendEnter(string) error                       { return u.err() }
+func (u unavailable) SendKeys(string, ...string) error             { return u.err() }
+func (u unavailable) Paste(string, string) error                   { return u.err() }
+func (u unavailable) Attach(string) tea.ExecCommand                { return failing{u.err()} }
+
+// failing is a command that fails with err without running anything.
+type failing struct{ err error }
+
+func (f failing) Run() error          { return f.err }
+func (f failing) SetStdin(io.Reader)  {}
+func (f failing) SetStdout(io.Writer) {}
+func (f failing) SetStderr(io.Writer) {}

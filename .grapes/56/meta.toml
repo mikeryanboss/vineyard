@@ -1,0 +1,6 @@
+title = "Run each session in its own multiplexer, Vineyard's server by default"
+status = 'done'
+priority = 'high'
+labels = ['feature', 'terminal']
+created = 2026-10-13T11:30:00Z
+updated = 2026-10-13T11:30:00Z

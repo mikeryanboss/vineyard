@@ -1805,10 +1805,15 @@ func (m *Model) showTab(t tab) tea.Cmd {
 }
 
 func (m Model) profiles() []config.Profile {
+	profiles := m.opts.Config.ResolvedProfiles()
 	if m.opts.Program != "" {
-		return []config.Profile{{Name: session.ProgramName(m.opts.Program), Program: m.opts.Program}}
+		profiles = []config.Profile{{Name: session.ProgramName(m.opts.Program), Program: m.opts.Program}}
 	}
-	return m.opts.Config.ResolvedProfiles()
+	// Each names its multiplexer, which the new session dialog shows.
+	for i, p := range profiles {
+		profiles[i].Multiplexer = m.opts.Config.MultiplexerFor(p)
+	}
+	return profiles
 }
 
 func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
@@ -1825,6 +1830,7 @@ func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
 		WorktreeDir:  worktreeDir,
 		Issue:        msg.Issue,
 		MainCheckout: msg.Profile.MainCheckout,
+		Multiplexer:  msg.Profile.Multiplexer,
 	})
 	m.issuesOpen = false // show the new session, even when started from an issue
 	m.sessions = append(m.sessions, s)

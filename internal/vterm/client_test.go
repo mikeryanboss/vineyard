@@ -31,14 +31,31 @@ func TestMain(m *testing.M) {
 }
 
 // serverSocket returns a socket for the test, and the command clients start
-// a server on it with: this test binary, in a process of its own.
+// a server on it with: this test binary, in a process of its own. Its
+// directory is removed once the servers are gone, which may write there
+// after the test ends: one that lost a race to start exits on its own time.
 func serverSocket(t *testing.T) (string, []string) {
-	socket := filepath.Join(t.TempDir(), "s")
+	dir, err := os.MkdirTemp("", "vterm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(dir, "s")
 	t.Setenv("VINEYARD_TEST_SERVE", socket)
 	t.Setenv("SHELL", "/bin/sh")
 	t.Cleanup(func() {
 		if log, _ := os.ReadFile(socket + ".log"); t.Failed() && len(log) > 0 {
 			t.Logf("server log:\n%s", log)
+		}
+		waitForExit(t, socket)
+		for deadline := time.Now().Add(time.Second); ; time.Sleep(10 * time.Millisecond) {
+			err := os.RemoveAll(dir)
+			if err == nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Error(err)
+				return
+			}
 		}
 	})
 	return socket, []string{os.Args[0]}

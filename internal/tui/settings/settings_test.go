@@ -25,6 +25,7 @@ func twoProfiles() config.Config {
 		BranchPrefix:     "mboss/",
 		Profiles:         []config.Profile{{Name: "codex", Program: "codex --full-auto"}},
 		DisabledProfiles: []string{"terminal"},
+		Multiplexer:      config.MultiplexerVineyard,
 	}
 }
 
@@ -251,14 +252,18 @@ func TestSettings_AnotherCategoryStartsAtItsFirstField(t *testing.T) {
 	}
 }
 
-// The multiplexer cycles through auto, tmux, and Vineyard's server; auto
-// leaves it unset, so that Vineyard picks tmux when it is installed.
-func TestSettings_MultiplexerAutoIsUnset(t *testing.T) {
-	m, _ := press(newSettings(twoProfiles(), nil), "l", "j", "j", "j", "j", "j")
+// The default multiplexer switches between Vineyard's server and tmux, and m
+// cycles a profile's through the default, tmux, and Vineyard's server.
+func TestSettings_Multiplexers(t *testing.T) {
+	m, _ := press(newSettings(twoProfiles(), nil), "l", "j", "j", "j", "j", "j", "enter")
+	if got := m.Config().Multiplexer; got != config.MultiplexerTmux {
+		t.Fatalf("default multiplexer = %q, want tmux", got)
+	}
+	m, _ = press(m, "h", "j", "l", "j") // the second profile, terminal
 	for _, want := range []string{config.MultiplexerTmux, config.MultiplexerVineyard, ""} {
-		m, _ = press(m, "enter")
-		if got := m.Config().Multiplexer; got != want {
-			t.Fatalf("multiplexer = %q, want %q", got, want)
+		m, _ = press(m, "m")
+		if got := m.Config().Profiles[1].Multiplexer; got != want {
+			t.Fatalf("terminal's multiplexer = %q, want %q", got, want)
 		}
 	}
 }

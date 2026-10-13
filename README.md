@@ -18,14 +18,13 @@ model, rebuilt on Bubble Tea v2.
 - **Issues.** Vineyard embeds the [grapes](https://github.com/Mibokess/grapes)
   issue tracker. Start an agent from an issue, and see which session works on
   which issue.
-- **Persistent.** Agents keep running after you quit, in tmux or in Vineyard's
-  own terminal server; the next launch picks them up.
+- **Persistent.** Agents keep running after you quit, in Vineyard's own
+  terminal server or in tmux; the next launch picks them up.
 
 ## Install
 
-Requires git 2.48 or newer. tmux is optional: Vineyard runs agents in tmux
-when it is installed, and otherwise in its own terminal server. Set
-`multiplexer` in the configuration to choose.
+Requires git 2.48 or newer. tmux is optional: Vineyard runs agents in its own
+terminal server, and in tmux for sessions you start there.
 
 Download a Linux or macOS build from the
 [releases](https://github.com/mikeryanboss/vineyard/releases), or build with
@@ -83,13 +82,14 @@ branch_prefix = "mboss/"              # defaults to your username
 auto_yes = false
 worktree_dir = ".vineyard/worktrees"  # relative to the repository, absolute, or ~/...
 diff_command = "hunk diff {base} --watch"  # run by enter on the Diff tab
-multiplexer = "vineyard"              # or "tmux"; unset: tmux if installed
+multiplexer = "vineyard"              # runs new sessions; or "tmux"
 
 disabled_profiles = ["terminal"]     # built-in profiles not to offer
 
 [[profiles]]
 name = "codex"
 program = "codex"
+multiplexer = "tmux"                  # this profile's sessions run in tmux
 
 [[profiles]]
 name = "dev server"
@@ -115,10 +115,12 @@ forks from `origin/HEAD`, even after a rebase or merge. The default is
 [Hunk](https://github.com/modem-dev/hunk). When the command is empty or its
 program is not installed, `enter` shows Vineyard's own diff full-screen instead.
 
-`multiplexer` chooses what runs the agents, from the next launch: `tmux`, or
-`vineyard` for Vineyard's own terminal server. Vineyard refuses to start while
-a session still runs in the multiplexer it is not set to; end it there, or
-set `multiplexer` back.
+`multiplexer` chooses what runs new sessions: `vineyard`, Vineyard's own
+terminal server, or `tmux`. A profile's own `multiplexer` overrides it for the
+profile's sessions; `m` on a profile in the config screen cycles it. Each
+session keeps running where it started, so one Vineyard shows sessions in
+both side by side, and changing the setting moves no running session. A
+session in tmux when tmux is not installed shows as stopped and cannot start.
 
 ### Prompt templates
 
@@ -167,16 +169,14 @@ current one.
 ## How it works
 
 A session is a branch, a worktree under `worktree_dir`, and the agent running
-in a detached tmux session on Vineyard's own tmux server (`tmux -L vineyard
-ls`). The preview mirrors the agent's screen with `tmux capture-pane`. An agent
-whose screen keeps changing is working; one whose screen is still is waiting
-for you. Attaching hands the terminal to tmux.
-
-Without tmux, or with `multiplexer = "vineyard"`, Vineyard starts its own
-terminal server in the background, which works like tmux's: it runs each agent
-on a pseudo-terminal, mirrors it with a built-in terminal emulator, and keeps
-running after Vineyard quits until its last agent ends. Attaching and ctrl-q
-work the same; `vineyard debug` prints the server's socket.
+in a detached terminal of a multiplexer. By default that is Vineyard's own
+terminal server, which works like tmux's: it runs in the background, runs each
+agent on a pseudo-terminal, mirrors it with a built-in terminal emulator, and
+keeps running after Vineyard quits until its last agent ends. `vineyard debug`
+prints its socket. A session in tmux runs on Vineyard's own tmux server
+(`tmux -L vineyard ls`). The preview mirrors the agent's screen. An agent whose
+screen keeps changing is working; one whose screen is still is waiting for
+you. Attaching hands the terminal to the agent until ctrl-q.
 
 You can run several Vineyards on one repository, for example one per terminal
 window; they share the session list and show each other's changes within a
