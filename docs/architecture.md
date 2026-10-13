@@ -19,9 +19,9 @@ Its `Status` is one of:
 | `paused` | Worktree removed, work committed to the branch |
 | `stopped` | tmux session gone, worktree still on disk |
 
-`session.Manager` performs lifecycle operations against git and a `Terminal`
+`session.Manager` performs lifecycle operations against git and each session's `Terminal`
 (implemented by `*tmux.Client`, or `*vterm.Client` for Vineyard's own server;
-see Choosing a Multiplexer):
+see Multiplexers per Session):
 
 - `New` names the branch from the branch prefix passed in by the TUI and the
   title. The TUI passes the prefix from its current config, so a prefix saved
@@ -345,17 +345,27 @@ The TUI reads from standard input and output when they are terminals and
 falls back to `tea.OpenTTY` otherwise. Attached tmux clients inherit these
 files, and tmux rejects a descriptor opened through `/dev/tty`.
 
-## Choosing a Multiplexer
+## Multiplexers per Session
 
-`multiplexer` in `config.toml` picks what runs agents: `tmux`, or `vineyard`
-for Vineyard's own server. Unset, `main` picks tmux when it is on `PATH`,
-otherwise Vineyard's server; `tmux` without tmux installed is an error. Both
-implement `tui.Terminal`, and the rest of Vineyard does not know which runs.
-Both name their socket `vineyard`, or `VINEYARD_SOCKET`.
+Each session runs in its own multiplexer, which it records
+(`Session.Multiplexer`, saved in `sessions.json`), so one Vineyard runs
+sessions in different multiplexers side by side. `main` makes every available
+multiplexer: Vineyard's server always, and tmux when it is on `PATH`. Both
+implement `tui.Terminal`; `session.Manager.Terminals` and
+`tui.LiveBackend.Terminals` hold them by name, and every terminal operation on
+a session goes to the session's own. Both name their socket `vineyard`, or
+`VINEYARD_SOCKET`.
 
-Before `Restore`, `main` asks the multiplexer not chosen whether a saved
-session still runs there, and refuses to start if one does: `Restore` would
-find it stopped, and resuming it would start a second agent in its worktree.
+- **New sessions** take their profile's `multiplexer`, else the
+  configuration's (`Config.MultiplexerFor`), `vineyard` by default. The new
+  session dialog shows it.
+- **Restore** looks for each session's terminal in every multiplexer, its
+  recorded one first, and records where it found it. A session that recorded
+  none, as those saved before sessions had one, and runs nowhere gets the
+  configured default.
+- **Unavailable**: a session whose multiplexer is not available, such as tmux
+  when it is not installed, shows as stopped. Starting, resuming, and reading
+  it fail with `session.Unavailable`; killing it only removes its worktree.
 
 ## Vineyard's Server
 

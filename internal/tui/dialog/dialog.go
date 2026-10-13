@@ -370,12 +370,20 @@ func (d *NewSession) blocks() []block {
 	return blocks
 }
 
-// profileSummary says what a session of profile p runs, and where.
+// profileSummary says what a session of profile p runs, where, and in which
+// multiplexer.
 func profileSummary(p config.Profile) string {
+	summary := "Runs " + p.Program + " in a new worktree"
 	if p.MainCheckout {
-		return "Runs " + p.Program + " in the main checkout."
+		summary = "Runs " + p.Program + " in the main checkout"
 	}
-	return "Runs " + p.Program + " in a new worktree."
+	switch p.Multiplexer {
+	case config.MultiplexerTmux:
+		summary += ", in tmux"
+	case config.MultiplexerVineyard:
+		summary += ", on Vineyard's server"
+	}
+	return summary + "."
 }
 
 // View renders the dialog box.

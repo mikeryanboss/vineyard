@@ -94,19 +94,22 @@ type SettingsKeys struct {
 	Enter  key.Binding
 	Remove key.Binding
 	Where  key.Binding
-	Save   key.Binding
-	Back   key.Binding
+	// Multiplexer cycles a profile's multiplexer.
+	Multiplexer key.Binding
+	Save        key.Binding
+	Back        key.Binding
 }
 
 var SettingsKeyMap = SettingsKeys{
-	Up:     key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
-	Down:   key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
-	Left:   key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "categories")),
-	Right:  key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "fields")),
-	Tab:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pane")),
-	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
-	Remove: key.NewBinding(key.WithKeys("x", "delete"), key.WithHelp("x", "remove")),
-	Where:  key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree/main checkout")),
-	Save:   key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
-	Back:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Up:          key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
+	Down:        key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
+	Left:        key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "categories")),
+	Right:       key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "fields")),
+	Tab:         key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pane")),
+	Enter:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
+	Remove:      key.NewBinding(key.WithKeys("x", "delete"), key.WithHelp("x", "remove")),
+	Where:       key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree/main checkout")),
+	Multiplexer: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "multiplexer")),
+	Save:        key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
+	Back:        key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 }

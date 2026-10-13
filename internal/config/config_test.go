@@ -296,12 +296,13 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 		AutoYes:        true,
 		Profiles: []Profile{
 			{Name: "claude", Program: "claude"},
-			{Name: "yolo", Program: "claude --dangerously-skip-permissions"},
+			{Name: "yolo", Program: "claude --dangerously-skip-permissions", Multiplexer: MultiplexerVineyard},
 			{Name: "dev server", Program: "npm run dev", MainCheckout: true},
 		},
 		DisabledProfiles: []string{"terminal"},
 		WorktreeDir:      "../worktrees",
 		Templates:        []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},
+		Multiplexer:      MultiplexerTmux,
 	}
 	if err := Save(home, want); err != nil {
 		t.Fatal(err)
@@ -312,5 +313,24 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("loaded %+v, want %+v", got, want)
+	}
+}
+
+// New sessions run on Vineyard's server unless the configuration or their
+// profile says tmux. An empty multiplexer, which files saved while it meant
+// "auto" hold, is Vineyard's server; an unknown one is an error.
+func TestMultiplexerFor(t *testing.T) {
+	cfg, err := Load(writeConfig(t, "multiplexer = ''\n[[profiles]]\nname = 'old'\nprogram = 'claude'\nmultiplexer = 'tmux'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.MultiplexerFor(Profile{Name: "claude"}); got != MultiplexerVineyard {
+		t.Errorf("default multiplexer = %q, want %q", got, MultiplexerVineyard)
+	}
+	if got := cfg.MultiplexerFor(cfg.Profiles[0]); got != MultiplexerTmux {
+		t.Errorf("profile multiplexer = %q, want %q", got, MultiplexerTmux)
+	}
+	if _, err := Load(writeConfig(t, "multiplexer = 'screen'")); err == nil {
+		t.Error("an unknown multiplexer was accepted")
 	}
 }
