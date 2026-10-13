@@ -120,8 +120,11 @@ scripts/drive keys n              # drive the app like a user
 scripts/drive screen 1 -e > .grapes/<id>/tmp/shot.ansi
 .grapes/<id>/tmp/bin/freeze .grapes/<id>/tmp/shot.ansi --language ansi \
   --theme github --background "#ffffff" \
-  --window=false --border.radius 0 -o .grapes/<id>/tmp/shot.png
+  --window=false --border.radius 0 -o .grapes/<id>/tmp/shot.png </dev/null
 ```
+
+`freeze` reads its standard input when it is not a terminal, as under an
+agent's shell, and then waits forever; hence `</dev/null`.
 
 Vineyard is light until the terminal reports a dark background, and tmux does
 not, so the capture is light text on `freeze`'s dark default canvas unless you
