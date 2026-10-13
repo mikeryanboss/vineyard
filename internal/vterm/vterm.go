@@ -20,9 +20,22 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/ansi/parser"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 )
+
+// The emulator's parser ends an OSC or DCS string at the 8-bit string
+// terminator, 0x9C, which is also a byte of UTF-8 characters: ✳ is E2 9C B3,
+// and Claude Code puts it before its title, so the rest of the title was
+// printed in its prompt box. Programs on a UTF-8 terminal end strings with
+// BEL or ESC \, so 0x9C stays in the string. Every parser in the process
+// shares the table. Upstream fixes are open: charmbracelet/x#946, #976.
+func init() {
+	for _, state := range []parser.State{parser.OscStringState, parser.DcsStringState} {
+		parser.Table.AddOne(0x9C, state, parser.PutAction, state)
+	}
+}
 
 // ErrNoTerminal reports that a terminal does not exist.
 var ErrNoTerminal = errors.New("terminal not found")

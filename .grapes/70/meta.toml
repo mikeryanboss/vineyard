@@ -1,0 +1,6 @@
+title = "Claude Code's title appears in its prompt box on Vineyard's server"
+status = 'done'
+priority = 'high'
+labels = ['bug', 'vterm']
+created = 2026-10-13T18:26:00Z
+updated = 2026-10-13T18:29:00Z

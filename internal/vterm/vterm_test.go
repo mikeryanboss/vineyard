@@ -123,3 +123,14 @@ func TestKillEndsTheProgramAndItsChildren(t *testing.T) {
 		t.Errorf("killing a missing terminal: %v", err)
 	}
 }
+
+// Claude Code puts ✳ (E2 9C B3) before its title. Its 0x9C byte must not end
+// the title's OSC, which printed the rest of the title in the prompt box.
+func TestTitleStaysOffTheScreen(t *testing.T) {
+	s := New()
+	start(t, s, "a", `printf '\033]0;\342\234\263 Greeting reply\007ready\n'; sleep 5`)
+	got := waitFor(t, func() (string, error) { return s.Capture("a") }, "ready")
+	if strings.Contains(got, "Greeting") {
+		t.Errorf("the title is on the screen: %q", got)
+	}
+}
