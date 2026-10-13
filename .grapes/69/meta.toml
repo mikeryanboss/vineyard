@@ -1,0 +1,6 @@
+title = 'Show subagents the user stopped in Claude Code as stopped'
+status = 'done'
+priority = 'high'
+labels = ['bug', 'subagents']
+created = 2026-10-13T15:50:00Z
+updated = 2026-10-13T15:52:00Z
