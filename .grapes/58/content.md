@@ -54,19 +54,19 @@ Vineyard's design:
   not edit keys; they are edited in the file.
 
 ## Acceptance Criteria
-- [ ] Every action of every mode listed above has default keys equal to
+- [x] Every action of every mode listed above has default keys equal to
       today's, and a `[keys.<mode>]` entry replaces them.
-- [ ] An empty list unbinds an action, and its hint disappears.
-- [ ] `config.Load` reports unknown modes and actions, bad key names,
+- [x] An empty list unbinds an action, and its hint disappears.
+- [x] `config.Load` reports unknown modes and actions, bad key names,
       duplicate keys within a mode or with `global.quit`, and bad or missing
       detach keys.
-- [ ] Saving from the config screen keeps the `[keys]` tables as written.
-- [ ] Footer hints, confirm answers, and key mentions in messages follow the
+- [x] Saving from the config screen keeps the `[keys]` tables as written.
+- [x] Footer hints, confirm answers, and key mentions in messages follow the
       configured keys.
-- [ ] Double clicks, wheel, and picker clicks work with the default actions
+- [x] Double clicks, wheel, and picker clicks work with the default actions
       unbound.
-- [ ] Detaching works with a rebound key on tmux and on Vineyard's server.
-- [ ] README documents the `[keys]` tables, modes, and actions.
+- [x] Detaching works with a rebound key on tmux and on Vineyard's server.
+- [x] README documents the `[keys]` tables, modes, and actions.
 
 ## Verify
 Run from the worktree root:

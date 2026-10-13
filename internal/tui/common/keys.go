@@ -1,6 +1,34 @@
 package common
 
-import "charm.land/bubbles/v2/key"
+import (
+	"fmt"
+	"strings"
+
+	"charm.land/bubbles/v2/key"
+	"github.com/mikeryanboss/vineyard/internal/config"
+)
+
+// Keys are the key bindings in effect. NewModel in package tui installs the
+// configuration's.
+var Keys = NewKeyMap(config.DefaultKeys())
+
+// KeyMap holds the bindings of every mode of config.DefaultKeys.
+type KeyMap struct {
+	Global   GlobalKeys
+	List     ListKeys
+	Pane     PaneKeys
+	Settings SettingsKeys
+	Form     FormKeys
+	Confirm  ConfirmKeys
+	Pick     PickKeys
+}
+
+// GlobalKeys act everywhere: Quit before any other key, Detach in an
+// attached terminal.
+type GlobalKeys struct {
+	Quit   key.Binding
+	Detach key.Binding
+}
 
 // ListKeys act on the session list, which has focus by default.
 type ListKeys struct {
@@ -8,105 +36,213 @@ type ListKeys struct {
 	Down           key.Binding
 	New            key.Binding
 	NewFromProfile key.Binding
+	Terminal       key.Binding
 	Open           key.Binding
 	Attach         key.Binding
 	Shell          key.Binding
-	Terminal       key.Binding
 	Kill           key.Binding
-	Pause          key.Binding
+	Checkout       key.Binding
 	Resume         key.Binding
 	Push           key.Binding
 	AutoYes        key.Binding
-	Tab            key.Binding
+	NextTab        key.Binding
 	PrevTab        key.Binding
-	Focus          key.Binding
+	Expand         key.Binding
 	Collapse       key.Binding
 	Config         key.Binding
 	Issues         key.Binding
 	Quit           key.Binding
 }
 
-var ListKeyMap = ListKeys{
-	Up:             key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
-	Down:           key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
-	New:            key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
-	NewFromProfile: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new from a profile")),
-	Open:           key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open the shown tab")),
-	Attach:         key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "attach")),
-	Shell:          key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "shell")),
-	Terminal:       key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "new terminal")),
-	Kill:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "kill")),
-	Pause:          key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "checkout")),
-	Resume:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resume")),
-	Push:           key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "push")),
-	AutoYes:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
-	Tab:            key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/terminal/recap")),
-	PrevTab:        key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
-	Focus:          key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "show subagents or scroll pane")),
-	Collapse:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "hide subagents")),
-	Config:         key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
-	Issues:         key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
-	Quit:           key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-}
-
-// PaneKeys act on the preview, diff, or issue pane once it has focus.
+// PaneKeys act on the preview, diff, issue, terminal, or recap pane once it
+// has focus.
 type PaneKeys struct {
-	Up       key.Binding
-	Down     key.Binding
-	HalfUp   key.Binding
-	HalfDown key.Binding
-	Top      key.Binding
-	Bottom   key.Binding
-	NextFile key.Binding
-	PrevFile key.Binding
-	Toggle   key.Binding
-	Collapse key.Binding
-	Expand   key.Binding
-	Tab      key.Binding
-	PrevTab  key.Binding
-	Back     key.Binding
-}
-
-var PaneKeyMap = PaneKeys{
-	Up:       key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
-	Down:     key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
-	HalfUp:   key.NewBinding(key.WithKeys("ctrl+u", "pgup"), key.WithHelp("ctrl+u", "half page up")),
-	HalfDown: key.NewBinding(key.WithKeys("ctrl+d", "pgdown", "space"), key.WithHelp("ctrl+d", "half page down")),
-	Top:      key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),
-	Bottom:   key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
-	NextFile: key.NewBinding(key.WithKeys("]", "n"), key.WithHelp("]", "next file")),
-	PrevFile: key.NewBinding(key.WithKeys("[", "p"), key.WithHelp("[", "prev file")),
-	Toggle:   key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("enter", "fold file")),
-	Collapse: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "collapse all")),
-	Expand:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "expand all")),
-	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/terminal/recap")),
-	PrevTab:  key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
-	Back:     key.NewBinding(key.WithKeys("esc", "h", "left", "q"), key.WithHelp("esc", "back")),
+	Up        key.Binding
+	Down      key.Binding
+	HalfUp    key.Binding
+	HalfDown  key.Binding
+	Top       key.Binding
+	Bottom    key.Binding
+	NextFile  key.Binding
+	PrevFile  key.Binding
+	Fold      key.Binding
+	FoldAll   key.Binding
+	UnfoldAll key.Binding
+	NextTab   key.Binding
+	PrevTab   key.Binding
+	Back      key.Binding
 }
 
 // SettingsKeys act on the config screen.
 type SettingsKeys struct {
-	Up     key.Binding
-	Down   key.Binding
-	Left   key.Binding
-	Right  key.Binding
-	Tab    key.Binding
-	Enter  key.Binding
-	Remove key.Binding
-	Where  key.Binding
-	Save   key.Binding
-	Back   key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
+	NextPane key.Binding
+	Edit     key.Binding
+	Remove   key.Binding
+	Where    key.Binding
+	Save     key.Binding
+	Back     key.Binding
 }
 
-var SettingsKeyMap = SettingsKeys{
-	Up:     key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
-	Down:   key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
-	Left:   key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "categories")),
-	Right:  key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "fields")),
-	Tab:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pane")),
-	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
-	Remove: key.NewBinding(key.WithKeys("x", "delete"), key.WithHelp("x", "remove")),
-	Where:  key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree/main checkout")),
-	Save:   key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
-	Back:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+// FormKeys act while typing into the new-session dialog or a config value.
+type FormKeys struct {
+	Submit     key.Binding
+	Cancel     key.Binding
+	NextField  key.Binding
+	PrevField  key.Binding
+	PrevOption key.Binding
+	NextOption key.Binding
+	Newline    key.Binding
+	Toggle     key.Binding
+}
+
+// ConfirmKeys answer a yes/no question.
+type ConfirmKeys struct {
+	Yes key.Binding
+	No  key.Binding
+}
+
+// PickKeys choose one of several options.
+type PickKeys struct {
+	Up     key.Binding
+	Down   key.Binding
+	Choose key.Binding
+	Cancel key.Binding
+}
+
+// NewKeyMap returns the bindings of keys, which holds every mode and action
+// of config.DefaultKeys, as Config.ResolvedKeys returns. It panics when keys
+// and the KeyMap disagree on the actions.
+func NewKeyMap(keys config.Keys) KeyMap {
+	used := 0
+	b := func(mode, action string) key.Binding {
+		names, ok := keys[mode][action]
+		if !ok {
+			panic(fmt.Sprintf("keys: no %s.%s", mode, action))
+		}
+		used++
+		return key.NewBinding(key.WithKeys(names...))
+	}
+	m := KeyMap{
+		Global: GlobalKeys{
+			Quit:   b("global", "quit"),
+			Detach: b("global", "detach"),
+		},
+		List: ListKeys{
+			Up:             b("list", "up"),
+			Down:           b("list", "down"),
+			New:            b("list", "new"),
+			NewFromProfile: b("list", "new_from_profile"),
+			Terminal:       b("list", "terminal"),
+			Open:           b("list", "open"),
+			Attach:         b("list", "attach"),
+			Shell:          b("list", "shell"),
+			Kill:           b("list", "kill"),
+			Checkout:       b("list", "checkout"),
+			Resume:         b("list", "resume"),
+			Push:           b("list", "push"),
+			AutoYes:        b("list", "auto_yes"),
+			NextTab:        b("list", "next_tab"),
+			PrevTab:        b("list", "prev_tab"),
+			Expand:         b("list", "expand"),
+			Collapse:       b("list", "collapse"),
+			Config:         b("list", "config"),
+			Issues:         b("list", "issues"),
+			Quit:           b("list", "quit"),
+		},
+		Pane: PaneKeys{
+			Up:        b("pane", "up"),
+			Down:      b("pane", "down"),
+			HalfUp:    b("pane", "half_up"),
+			HalfDown:  b("pane", "half_down"),
+			Top:       b("pane", "top"),
+			Bottom:    b("pane", "bottom"),
+			NextFile:  b("pane", "next_file"),
+			PrevFile:  b("pane", "prev_file"),
+			Fold:      b("pane", "fold"),
+			FoldAll:   b("pane", "fold_all"),
+			UnfoldAll: b("pane", "unfold_all"),
+			NextTab:   b("pane", "next_tab"),
+			PrevTab:   b("pane", "prev_tab"),
+			Back:      b("pane", "back"),
+		},
+		Settings: SettingsKeys{
+			Up:       b("settings", "up"),
+			Down:     b("settings", "down"),
+			Left:     b("settings", "left"),
+			Right:    b("settings", "right"),
+			NextPane: b("settings", "next_pane"),
+			Edit:     b("settings", "edit"),
+			Remove:   b("settings", "remove"),
+			Where:    b("settings", "where"),
+			Save:     b("settings", "save"),
+			Back:     b("settings", "back"),
+		},
+		Form: FormKeys{
+			Submit:     b("form", "submit"),
+			Cancel:     b("form", "cancel"),
+			NextField:  b("form", "next_field"),
+			PrevField:  b("form", "prev_field"),
+			PrevOption: b("form", "prev_option"),
+			NextOption: b("form", "next_option"),
+			Newline:    b("form", "newline"),
+			Toggle:     b("form", "toggle"),
+		},
+		Confirm: ConfirmKeys{
+			Yes: b("confirm", "yes"),
+			No:  b("confirm", "no"),
+		},
+		Pick: PickKeys{
+			Up:     b("pick", "up"),
+			Down:   b("pick", "down"),
+			Choose: b("pick", "choose"),
+			Cancel: b("pick", "cancel"),
+		},
+	}
+	total := 0
+	for _, actions := range keys {
+		total += len(actions)
+	}
+	if used != total {
+		panic(fmt.Sprintf("keys: %d actions configured, %d bound", total, used))
+	}
+	return m
+}
+
+// keyGlyphs are how hints show the arrow keys.
+var keyGlyphs = map[string]string{"up": "↑", "down": "↓", "left": "←", "right": "→"}
+
+// Hint names bindings for a key hint: the first key of each bound one,
+// joined by slashes, or "" when none is bound. Modifiers the first key has
+// are not repeated: ctrl+d/u.
+func Hint(bindings ...key.Binding) string {
+	var names []string
+	for _, b := range bindings {
+		if keys := b.Keys(); len(keys) > 0 {
+			name := keys[0]
+			if glyph, ok := keyGlyphs[name]; ok {
+				name = glyph
+			}
+			if len(names) > 0 {
+				// The last + is the key itself in "+" and "ctrl++".
+				if i := strings.LastIndex(strings.TrimSuffix(names[0], "+"), "+"); i > 0 {
+					name = strings.TrimPrefix(name, names[0][:i+1])
+				}
+			}
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, "/")
+}
+
+// PressTo returns "Press <key> to <what>." for b's first key, or "" when b
+// is unbound.
+func PressTo(b key.Binding, what string) string {
+	if Hint(b) == "" {
+		return ""
+	}
+	return "Press " + Hint(b) + " to " + what + "."
 }

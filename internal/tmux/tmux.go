@@ -2,7 +2,7 @@
 // screens.
 //
 // Vineyard uses its own tmux server (a named socket) rather than the user's
-// default one. That keeps its key bindings, such as ctrl-q to detach, from
+// default one. That keeps its key bindings, such as the detach keys, from
 // leaking into the user's own tmux sessions. List them with `tmux -L vineyard ls`.
 package tmux
 
@@ -22,9 +22,6 @@ import (
 
 // DefaultSocket is the tmux socket name Vineyard's sessions live on.
 const DefaultSocket = "vineyard"
-
-// DetachKey is bound on Vineyard's tmux server to return to the TUI.
-const DetachKey = "C-q"
 
 // ErrNoSession reports that a tmux session does not exist.
 var ErrNoSession = errors.New("tmux session not found")
@@ -114,9 +111,7 @@ func (c *Client) Start(name, dir, program string, width, height int) error {
 func (c *Client) configureServer() error {
 	_, err := c.command(
 		"set-option", "-g", "history-limit", "10000", ";",
-		"set-option", "-g", "mouse", "on", ";",
-		"set-option", "-g", "status-right", " ctrl-q: back to vineyard ", ";",
-		"bind-key", "-n", DetachKey, "detach-client",
+		"set-option", "-g", "mouse", "on",
 	)
 	return err
 }
@@ -195,25 +190,44 @@ func (c *Client) Kill(name string) error {
 	return err
 }
 
-// AttachCommand builds the command that hands the terminal to the session.
+// AttachCommand builds the command that hands the terminal to the session
+// until the user presses one of the detach keys, each ctrl and a letter such
+// as "ctrl+q".
 //
 // The window is switched back to following the client's size first: Resize
 // pins detached windows to the preview size, which would otherwise leave the
-// attached view the size of the preview pane. TMUX is removed from the
-// environment so attaching works when Vineyard itself runs inside tmux.
-func (c *Client) AttachCommand(name string) *exec.Cmd {
-	cmd := exec.Command("tmux", "-L", c.socket,
-		"set-option", "-w", "-t", exact(name)+":", "window-size", "latest", ";",
+// attached view the size of the preview pane. The detach keys are bound in a
+// key table named after them, which the session reads first, so that
+// Vineyards configured with other keys, sharing the server, each attach with
+// their own. TMUX is removed from the environment so attaching works when
+// Vineyard itself runs inside tmux.
+func (c *Client) AttachCommand(name string, detach []string) *exec.Cmd {
+	args := []string{"-L", c.socket, "set-option", "-w", "-t", exact(name) + ":", "window-size", "latest", ";"}
+	table := "vineyard-detach"
+	for _, k := range detach {
+		table += "-" + tmuxKey(k)
+	}
+	for _, k := range detach {
+		args = append(args, "bind-key", "-T", table, tmuxKey(k), "detach-client", ";")
+	}
+	args = append(args,
+		"set-option", "-t", exact(name)+":", "key-table", table, ";",
+		"set-option", "-t", exact(name)+":", "status-right", " "+strings.Join(detach, " or ")+": back to vineyard ", ";",
 		"attach-session", "-t", exact(name),
 	)
+	cmd := exec.Command("tmux", args...)
 	cmd.Env = withoutEnv(os.Environ(), "TMUX")
 	return cmd
 }
 
 // Attach is AttachCommand as a command Bubble Tea runs.
-func (c *Client) Attach(name string) tea.ExecCommand {
-	return execCommand{c.AttachCommand(name)}
+func (c *Client) Attach(name string, detach []string) tea.ExecCommand {
+	return execCommand{c.AttachCommand(name, detach)}
 }
+
+// tmuxKey names a key that is ctrl and a letter, such as "ctrl+q", as tmux
+// does: "C-q".
+func tmuxKey(k string) string { return "C-" + strings.TrimPrefix(k, "ctrl+") }
 
 // execCommand runs an *exec.Cmd on the terminal Bubble Tea gives it.
 type execCommand struct{ *exec.Cmd }

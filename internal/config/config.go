@@ -63,6 +63,9 @@ type Config struct {
 	// Empty means tmux when it is installed, otherwise Vineyard's server. It
 	// takes effect when Vineyard starts.
 	Multiplexer string `toml:"multiplexer"`
+	// Keys replace the default keys of the actions they name
+	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
+	Keys Keys `toml:"keys,omitempty"`
 }
 
 // The multiplexers that can run agents.
@@ -256,6 +259,9 @@ func Load(dir string) (Config, error) {
 	}
 	if len(cfg.ResolvedProfiles()) == 0 {
 		return Defaults(), fmt.Errorf("%s: every profile is disabled", Path(dir))
+	}
+	if _, err := cfg.ResolvedKeys(); err != nil {
+		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)
 	}
 	return cfg, nil
 }

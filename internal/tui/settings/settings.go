@@ -240,12 +240,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseWheelMsg:
+		step := 0
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			step = -1
+		case tea.MouseWheelDown:
+			step = 1
+		}
 		switch {
-		case m.edit != editNone:
-		case msg.Button == tea.MouseWheelUp:
-			return m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-		case msg.Button == tea.MouseWheelDown:
-			return m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		case m.edit != editNone || step == 0:
+		case m.picking:
+			m = m.movePick(step)
+		default:
+			m.setMessage("", false)
+			m = m.move(step)
 		}
 		return m, nil
 	}
@@ -269,7 +277,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	keys := common.SettingsKeyMap
+	keys := common.Keys.Settings
 	m.setMessage("", false)
 	switch {
 	case key.Matches(msg, keys.Save):
@@ -294,7 +302,7 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	case key.Matches(msg, keys.Left):
 		m.focus = paneCategories
-	case key.Matches(msg, keys.Tab):
+	case key.Matches(msg, keys.NextPane):
 		if m.focus == paneCategories {
 			m.focus = paneFields
 		} else {
@@ -303,19 +311,11 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.fieldIdx = 0
 
 	case key.Matches(msg, keys.Up):
-		if m.focus == paneCategories && m.catIdx > 0 {
-			m.catIdx, m.fieldIdx = m.catIdx-1, 0
-		} else if m.focus == paneFields && m.fieldIdx > 0 {
-			m.fieldIdx--
-		}
+		return m.move(-1), nil
 	case key.Matches(msg, keys.Down):
-		if m.focus == paneCategories && m.catIdx < len(categories)-1 {
-			m.catIdx, m.fieldIdx = m.catIdx+1, 0
-		} else if m.focus == paneFields && m.fieldIdx < len(m.fields())-1 {
-			m.fieldIdx++
-		}
+		return m.move(1), nil
 
-	case key.Matches(msg, keys.Enter):
+	case key.Matches(msg, keys.Edit):
 		if m.focus == paneCategories {
 			m.focus, m.fieldIdx = paneFields, 0
 			return m, nil
@@ -336,6 +336,21 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// move selects the category or field step rows down, or up when step is
+// negative, in the pane with focus.
+func (m Model) move(step int) Model {
+	if m.focus == paneCategories {
+		if i := m.catIdx + step; i >= 0 && i < len(categories) {
+			m.catIdx, m.fieldIdx = i, 0
+		}
+		return m
+	}
+	if i := m.fieldIdx + step; i >= 0 && i < len(m.fields()) {
+		m.fieldIdx = i
+	}
+	return m
+}
+
 // click acts on column x of line y, as the screen or the picker over it
 // draws them: it selects a category or field, edits the field already
 // selected, as enter does, and chooses a picker's option.
@@ -346,7 +361,7 @@ func (m Model) click(x, y int) (Model, tea.Cmd) {
 		// The picker's border, padding, title, and a blank line come first.
 		if row := y - 4; row >= 0 && row < visible && offset+row < len(m.pickOptions) {
 			m.pickCursor = offset + row
-			return m.updatePicking(tea.KeyPressMsg{Code: tea.KeyEnter}), nil
+			return m.pick(), nil
 		}
 		return m, nil
 	}
@@ -405,10 +420,10 @@ func (m Model) stopEdit() Model {
 }
 
 func (m Model) updateEditing(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch keys := common.Keys.Form; {
+	case key.Matches(msg, keys.Cancel):
 		return m.stopEdit(), nil
-	case "enter":
+	case key.Matches(msg, keys.Submit):
 	default:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -490,20 +505,34 @@ func (m *Model) openPicker(f field) {
 }
 
 func (m Model) updatePicking(msg tea.KeyPressMsg) Model {
-	keys := common.SettingsKeyMap
+	keys := common.Keys.Pick
 	switch {
 	case key.Matches(msg, keys.Up):
-		m.pickCursor = max(0, m.pickCursor-1)
+		return m.movePick(-1)
 	case key.Matches(msg, keys.Down):
-		m.pickCursor = min(len(m.pickOptions)-1, m.pickCursor+1)
-	case key.Matches(msg, keys.Enter):
-		if f, ok := m.currentField(); ok {
-			m.setValue(f, m.pickOptions[m.pickCursor])
-		}
-		m.picking = false
-	case key.Matches(msg, keys.Back):
+		return m.movePick(1)
+	case key.Matches(msg, keys.Choose):
+		return m.pick()
+	case key.Matches(msg, keys.Cancel):
 		m.picking = false
 	}
+	return m
+}
+
+// movePick moves the picker's cursor step options down, or up when step is
+// negative.
+func (m Model) movePick(step int) Model {
+	m.pickCursor = max(0, min(len(m.pickOptions)-1, m.pickCursor+step))
+	return m
+}
+
+// pick sets the field to the option under the picker's cursor and closes
+// the picker.
+func (m Model) pick() Model {
+	if f, ok := m.currentField(); ok {
+		m.setValue(f, m.pickOptions[m.pickCursor])
+	}
+	m.picking = false
 	return m
 }
 
@@ -550,13 +579,16 @@ func (m Model) PickerView() string {
 
 // Hints returns the status bar key hints.
 func (m Model) Hints() [][2]string {
+	keys, hint := common.Keys.Settings, common.Hint
 	switch {
 	case m.picking:
-		return [][2]string{{"j/k", "navigate"}, {"enter", "select"}, {"esc", "cancel"}}
+		pick := common.Keys.Pick
+		return [][2]string{{hint(pick.Down, pick.Up), "navigate"}, {hint(pick.Choose), "select"}, {hint(pick.Cancel), "cancel"}}
 	case m.edit != editNone:
-		return [][2]string{{"enter", "confirm"}, {"esc", "cancel"}}
+		form := common.Keys.Form
+		return [][2]string{{hint(form.Submit), "confirm"}, {hint(form.Cancel), "cancel"}}
 	}
-	hints := [][2]string{{"j/k", "navigate"}, {"tab", "pane"}, {"enter", "edit"}}
+	hints := [][2]string{{hint(keys.Down, keys.Up), "navigate"}, {hint(keys.NextPane), "pane"}, {hint(keys.Edit), "edit"}}
 	if f, ok := m.currentField(); ok && f.kind == fieldProfile {
 		remove := "remove"
 		switch name := m.cfg.Profiles[f.profile].Name; {
@@ -565,9 +597,9 @@ func (m Model) Hints() [][2]string {
 		case config.IsBuiltin(name):
 			remove = "disable"
 		}
-		hints = append(hints, [2]string{"w", "worktree/main checkout"}, [2]string{"x", remove})
+		hints = append(hints, [2]string{hint(keys.Where), "worktree/main checkout"}, [2]string{hint(keys.Remove), remove})
 	}
-	return append(hints, [2]string{"ctrl+s", "save"}, [2]string{"esc", "back"})
+	return append(hints, [2]string{hint(keys.Save), "save"}, [2]string{hint(keys.Back), "back"})
 }
 
 // The screen's title and a blank line come before the categories and fields,

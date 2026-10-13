@@ -51,7 +51,7 @@ main.go
 | Live preview and scrollback | `internal/tui/preview/` | |
 | Dialogs | `internal/tui/dialog/` | |
 | Config screen | `internal/tui/settings/` | `SaveConfigMsg` in `internal/tui/app.go` |
-| Theme, key bindings, shared messages | `internal/tui/common/` | |
+| Theme, key bindings, shared messages | `internal/tui/common/` | `internal/config/keys.go`, Key Bindings in `architecture.md` |
 | Issues screen, sessions linked to issues | `internal/tui/app.go` | Grapes in `architecture.md` |
 | Issue tab | `refreshIssue` in `internal/tui/app.go` | `internal/tui/textview/` |
 | Prompt of a session started from an issue | `internal/prompt/`, `promptData` in `internal/tui/app.go` | templates in `internal/config/templates.go`, `ForIssue` in `internal/tui/dialog/` |

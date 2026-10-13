@@ -13,6 +13,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/subagent"
+	"github.com/mikeryanboss/vineyard/internal/tui/common"
 )
 
 // Backend is everything the TUI does outside its own process. The root model
@@ -101,8 +102,9 @@ type Terminal interface {
 	SendKeys(name string, keys ...string) error
 	Paste(name, text string) error
 	// Attach hands the user's terminal to the named terminal until the user
-	// presses ctrl-q.
-	Attach(name string) tea.ExecCommand
+	// presses one of the detach keys, each ctrl and a letter such as
+	// "ctrl+q".
+	Attach(name string, detach []string) tea.ExecCommand
 }
 
 // LiveBackend is the Backend backed by a Terminal, git, and the session store.
@@ -150,11 +152,11 @@ func (b LiveBackend) Paste(s session.Session, text string) error {
 }
 
 func (b LiveBackend) AttachCommand(s session.Session) tea.ExecCommand {
-	return b.Terminal.Attach(s.TmuxName)
+	return b.Terminal.Attach(s.TmuxName, common.Keys.Global.Detach.Keys())
 }
 
 func (b LiveBackend) ShellAttachCommand(s session.Session) tea.ExecCommand {
-	return b.Terminal.Attach(s.ShellName())
+	return b.Terminal.Attach(s.ShellName(), common.Keys.Global.Detach.Keys())
 }
 
 func (b LiveBackend) CaptureShell(s session.Session) (string, error) {

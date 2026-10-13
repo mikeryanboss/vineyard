@@ -92,8 +92,9 @@ sed -e 's/\x1b\[0m/\x1b[0m\x1b[38;5;235m\x1b[48;5;231m/g' -e 's/\x1b\[39m/\x1b[3
 ```
 
 If the PNG's borders do not line up, `freeze` fell back to a proportional
-font; pass a monospace one, such as
-`--font.file /usr/share/fonts/adwaita-mono-fonts/AdwaitaMono-Regular.ttf`.
+font; pass a monospace one by family and file, such as
+`--font.family "Adwaita Mono" --font.file /usr/share/fonts/adwaita-mono-fonts/AdwaitaMono-Regular.ttf`.
+The file alone was not enough in one run.
 tmux keeps the tabs Bubble Tea moves the cursor with, so expand those with
 their column, skipping escape sequences, before rendering.
 
@@ -162,7 +163,7 @@ goreleaser release --snapshot --clean --skip=publish   # writes dist/; delete it
 
 | Change | Production files | Tests |
 | --- | --- | --- |
-| New key or action | `tui/common/keys.go`, `tui/app.go` (`handleKey`) | `app_test.go` |
+| New key or action | `config/keys.go` (`DefaultKeys`), `tui/common/keys.go` (`NewKeyMap`), `tui/app.go` (`handleKey`), README's key tables | `app_test.go`, `keys_test.go` |
 | New session operation | `session/manager.go`, `tui/backend.go`, `tui/app.go` | `session_test.go`, `app_test.go` |
 | Support another agent's prompts | `session/screen.go` | `TestScreenDetection` |
 | Diff appearance | `tui/diffview/`, colours in `tui/common/theme.go` | diffview golden tests |

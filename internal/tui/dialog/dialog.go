@@ -47,17 +47,6 @@ const (
 	contentLeft = 3
 )
 
-var (
-	keyCancel  = key.NewBinding(key.WithKeys("esc"))
-	keySubmit  = key.NewBinding(key.WithKeys("enter"))
-	keyNext    = key.NewBinding(key.WithKeys("tab"))
-	keyPrev    = key.NewBinding(key.WithKeys("shift+tab"))
-	keyLeft    = key.NewBinding(key.WithKeys("left", "h"))
-	keyRight   = key.NewBinding(key.WithKeys("right", "l"))
-	keyNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
-	keyToggle  = key.NewBinding(key.WithKeys("space"))
-)
-
 // NewSession asks for a title and, when choosing, the profile to run. For a
 // grapes issue, it also offers prompt templates and the prompt.
 type NewSession struct {
@@ -98,7 +87,7 @@ func NewSessionDialog(theme common.Theme, profiles []config.Profile, choose bool
 	prompt.Placeholder = "Instructions typed into the agent once it is ready"
 	prompt.ShowLineNumbers = false
 	prompt.Prompt = ""
-	prompt.KeyMap.InsertNewline = keyNewline
+	prompt.KeyMap.InsertNewline = common.Keys.Form.Newline
 	prompt.SetWidth(inner)
 	prompt.SetHeight(5)
 	prompt.SetStyles(textarea.DefaultStyles(theme.IsDark))
@@ -270,27 +259,28 @@ func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 		return d, d.click(c.X-contentLeft, c.Y-contentTop)
 	}
 	if k, ok := msg.(tea.KeyPressMsg); ok {
+		keys := common.Keys.Form
 		switch {
-		case key.Matches(k, keyCancel):
+		case key.Matches(k, keys.Cancel):
 			return d, cancel
-		case key.Matches(k, keyNext):
+		case key.Matches(k, keys.NextField):
 			return d, d.move(1)
-		case key.Matches(k, keyPrev):
+		case key.Matches(k, keys.PrevField):
 			return d, d.move(-1)
-		case key.Matches(k, keySubmit):
+		case key.Matches(k, keys.Submit):
 			// Enter on the profile moves on to the title, and on the title to
 			// the next field; anywhere else it creates.
 			if d.focus == fieldProfile || d.focus == fieldTitle && d.withPrompt && strings.TrimSpace(d.title.Value()) != "" {
 				return d, d.move(1)
 			}
 			return d, d.submit()
-		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keyLeft):
+		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keys.PrevOption):
 			d.step(d.focus, -1)
 			return d, nil
-		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keyRight):
+		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keys.NextOption):
 			d.step(d.focus, 1)
 			return d, nil
-		case d.focus == fieldSubIssues && key.Matches(k, keyToggle):
+		case d.focus == fieldSubIssues && key.Matches(k, keys.Toggle):
 			d.data.BuildSubIssues = !d.data.BuildSubIssues
 			d.render()
 			return d, nil
@@ -389,25 +379,26 @@ func (d *NewSession) View() string {
 
 // Hints returns the status bar key hints.
 func (d *NewSession) Hints() [][2]string {
-	hints := [][2]string{{"enter", "create"}}
+	keys, hint := common.Keys.Form, common.Hint
+	hints := [][2]string{{hint(keys.Submit), "create"}}
 	if d.focus == fieldProfile {
-		hints = [][2]string{{"enter", "title"}}
+		hints = [][2]string{{hint(keys.Submit), "title"}}
 	}
 	if d.withPrompt {
-		hints = append(hints, [2]string{"alt+enter", "newline"})
+		hints = append(hints, [2]string{hint(keys.Newline), "newline"})
 	}
 	if len(d.fields()) > 1 {
-		hints = append(hints, [2]string{"tab", "next field"})
+		hints = append(hints, [2]string{hint(keys.NextField), "next field"})
 	}
 	switch {
 	case d.focus == fieldTemplate:
-		hints = append(hints, [2]string{"←/→", "template"})
+		hints = append(hints, [2]string{hint(keys.PrevOption, keys.NextOption), "template"})
 	case d.focus == fieldSubIssues:
-		hints = append(hints, [2]string{"space", "toggle"})
+		hints = append(hints, [2]string{hint(keys.Toggle), "toggle"})
 	case d.focus == fieldProfile:
-		hints = append(hints, [2]string{"←/→", "profile"})
+		hints = append(hints, [2]string{hint(keys.PrevOption, keys.NextOption), "profile"})
 	}
-	return append(hints, [2]string{"esc", "cancel"})
+	return append(hints, [2]string{hint(keys.Cancel), "cancel"})
 }
 
 // Confirm asks a yes/no question before an action.
@@ -431,27 +422,23 @@ func NewConfirm(theme common.Theme, message string, action common.Action, sessio
 // Update handles input. Clicks are relative to the dialog box: on the
 // answers below the question, they answer it.
 func (d *Confirm) Update(msg tea.Msg) (Dialog, tea.Cmd) {
-	answer := ""
+	var yes, no bool
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		answer = msg.String()
+		yes, no = key.Matches(msg, common.Keys.Confirm.Yes), key.Matches(msg, common.Keys.Confirm.No)
 	case tea.MouseClickMsg:
-		yes, no := d.answers()
+		yesText, noText := d.answers()
 		x := msg.X - contentLeft
 		if msg.Y == lipgloss.Height(d.View())-contentTop-1 { // the last line of content
-			switch {
-			case x >= 0 && x < ansi.StringWidth(yes):
-				answer = "y"
-			case x >= lipgloss.Width(yes+confirmSeparator) && x < lipgloss.Width(yes+confirmSeparator+no):
-				answer = "n"
-			}
+			yes = x >= 0 && x < ansi.StringWidth(yesText)
+			no = x >= lipgloss.Width(yesText+confirmSeparator) && x < lipgloss.Width(yesText+confirmSeparator+noText)
 		}
 	}
-	switch answer {
-	case "y", "Y", "enter":
+	switch {
+	case yes:
 		confirmed := common.ConfirmedMsg{Action: d.action, SessionID: d.sessionID}
 		return d, func() tea.Msg { return confirmed }
-	case "n", "N", "esc", "q":
+	case no:
 		return d, cancel
 	}
 	return d, nil
@@ -462,7 +449,8 @@ const confirmSeparator = "  ·  "
 
 // answers returns the answers a Confirm offers, as drawn.
 func (d *Confirm) answers() (yes, no string) {
-	return d.theme.FormatKeyHint("y", "confirm"), d.theme.FormatKeyHint("n", "cancel")
+	keys := common.Keys.Confirm
+	return d.theme.FormatKeyHint(common.Hint(keys.Yes), "confirm"), d.theme.FormatKeyHint(common.Hint(keys.No), "cancel")
 }
 
 // View renders the dialog box.
@@ -482,7 +470,8 @@ func (d *Confirm) View() string {
 
 // Hints returns the status bar key hints.
 func (d *Confirm) Hints() [][2]string {
-	return [][2]string{{"y", "confirm"}, {"n", "cancel"}}
+	keys := common.Keys.Confirm
+	return [][2]string{{common.Hint(keys.Yes), "confirm"}, {common.Hint(keys.No), "cancel"}}
 }
 
 // Choice is one option of a Pick dialog: its label and the message sent when
@@ -509,36 +498,41 @@ func NewPick(theme common.Theme, title string, choices []Choice, width int) *Pic
 // Update handles input. Clicks are relative to the dialog box: a click on a
 // choice chooses it.
 func (d *Pick) Update(msg tea.Msg) (Dialog, tea.Cmd) {
-	pressed := ""
+	keys := common.Keys.Pick
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		pressed = msg.String()
+		switch {
+		case key.Matches(msg, keys.Down):
+			d.cursor = min(d.cursor+1, len(d.choices)-1)
+		case key.Matches(msg, keys.Up):
+			d.cursor = max(d.cursor-1, 0)
+		case key.Matches(msg, keys.Choose):
+			return d, d.choose()
+		case key.Matches(msg, keys.Cancel):
+			return d, cancel
+		}
 	case tea.MouseWheelMsg:
 		switch msg.Button {
 		case tea.MouseWheelDown:
-			pressed = "down"
+			d.cursor = min(d.cursor+1, len(d.choices)-1)
 		case tea.MouseWheelUp:
-			pressed = "up"
+			d.cursor = max(d.cursor-1, 0)
 		}
 	case tea.MouseClickMsg:
 		// The choices are the last lines of content, below the title.
 		first := lipgloss.Height(d.View()) - contentTop - len(d.choices)
 		if i := msg.Y - first; i >= 0 && i < len(d.choices) {
-			d.cursor, pressed = i, "enter"
+			d.cursor = i
+			return d, d.choose()
 		}
 	}
-	switch pressed {
-	case "j", "down":
-		d.cursor = min(d.cursor+1, len(d.choices)-1)
-	case "k", "up":
-		d.cursor = max(d.cursor-1, 0)
-	case "enter":
-		chosen := d.choices[d.cursor].Msg
-		return d, func() tea.Msg { return chosen }
-	case "esc", "q":
-		return d, cancel
-	}
 	return d, nil
+}
+
+// choose sends the message of the choice under the cursor.
+func (d *Pick) choose() tea.Cmd {
+	chosen := d.choices[d.cursor].Msg
+	return func() tea.Msg { return chosen }
 }
 
 // View renders the dialog box.
@@ -559,5 +553,6 @@ func (d *Pick) View() string {
 
 // Hints returns the status bar key hints.
 func (d *Pick) Hints() [][2]string {
-	return [][2]string{{"j/k", "move"}, {"enter", "choose"}, {"esc", "cancel"}}
+	keys := common.Keys.Pick
+	return [][2]string{{common.Hint(keys.Down, keys.Up), "move"}, {common.Hint(keys.Choose), "choose"}, {common.Hint(keys.Cancel), "cancel"}}
 }

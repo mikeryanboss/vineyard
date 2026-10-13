@@ -43,7 +43,7 @@ Run `vineyard` inside a git repository.
 | --- | --- |
 | `n` / `N` | New session with the default profile / with a profile you pick, such as a terminal |
 | `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the session's issue from Issue, if it has one, the shell from Terminal, the full recap from Recap. On a subagent, attach to its view |
-| `o` | Attach to the agent, or the selected subagent's view, from any tab; `ctrl-q` returns |
+| `o` | Attach to the agent, or the selected subagent's view, from any tab; `ctrl+q` returns |
 | `tab` / `shift+tab` | Switch the pane: preview, diff, issue, terminal, recap |
 | `l` / `→` | Show the selected session's subagents; with none to show, scroll the pane, and `esc` returns to the list |
 | `h` / `←` | Hide the selected session's subagents |
@@ -57,6 +57,8 @@ Run `vineyard` inside a git repository.
 | `i` | Open the grapes issues; on an issue, `a` goes to or starts its session |
 | `C` | Edit the configuration |
 | `q` | Quit; agents keep running |
+
+These are the default keys; [Keys](#keys) changes them.
 
 The mouse works too: click a session, a subagent, a tab, a diff file's header
 to fold it or its line in the summary to go to it, a dialog's field or answer,
@@ -122,6 +124,112 @@ program is not installed, `enter` shows Vineyard's own diff full-screen instead.
 a session still runs in the multiplexer it is not set to; end it there, or
 set `multiplexer` back.
 
+### Keys
+
+Every key can be changed. A `[keys.<mode>]` table gives an action the keys
+that replace its default ones; `[]` unbinds it. Name keys as Bubble Tea
+reports them: `k`, `K` (not `shift+k`), `?`, `enter`, `esc`, `space`, `tab`,
+`shift+tab`, `up`, `pgdown`, `f1`, `ctrl+s`, `alt+enter`.
+
+```toml
+[keys.list]
+kill = ["x"]
+auto_yes = []         # no key toggles auto-yes
+
+[keys.global]
+detach = ["ctrl+g"]   # leave an attached terminal with ctrl+g
+```
+
+The status bar and messages show the keys bound. Vineyard rejects keys that
+cannot work, as it rejects a malformed file: an unknown mode or action, a
+key two actions of one mode share, a key `global.quit` takes before every
+screen, or a detach key that is not ctrl and a letter (except `ctrl+i` and
+`ctrl+m`, which terminals send for tab and enter). The config screen shows
+the error. Keys typed into a text field move its cursor and edit it as usual,
+and grapes' issues screen has its own keys in `.grapes/config.toml`.
+
+<details>
+<summary>Every mode, action, and default key</summary>
+
+<!-- default keys: keep equal to config.DefaultKeys; TestREADMEListsTheDefaultKeys checks -->
+```toml
+[keys.global]  # everywhere
+quit = ["ctrl+c"]                           # quits from any screen, before any other key
+detach = ["ctrl+q"]                         # leaves an attached terminal; ctrl and a letter
+
+[keys.list]  # the session list
+up = ["k", "up"]
+down = ["j", "down"]
+new = ["n"]
+new_from_profile = ["N"]
+terminal = ["T"]                            # start and attach a terminal session
+open = ["enter"]                            # open the shown tab
+attach = ["o"]
+shell = ["t"]
+kill = ["D"]
+checkout = ["c"]                            # commit, stop, remove the worktree
+resume = ["r"]
+push = ["s"]
+auto_yes = ["a"]
+next_tab = ["tab"]
+prev_tab = ["shift+tab"]
+expand = ["l", "right"]                     # show subagents, or focus the pane
+collapse = ["h", "left"]                    # hide subagents
+config = ["C"]                              # the config screen
+issues = ["i"]
+quit = ["q"]
+
+[keys.pane]  # a pane with focus: preview, diff, issue, terminal, recap
+up = ["k", "up"]
+down = ["j", "down"]
+half_up = ["ctrl+u", "pgup"]
+half_down = ["ctrl+d", "pgdown", "space"]
+top = ["g", "home"]
+bottom = ["G", "end"]                       # back to live in the preview
+next_file = ["]", "n"]
+prev_file = ["[", "p"]
+fold = ["enter", "o"]                       # fold a diff file
+fold_all = ["c"]
+unfold_all = ["e"]
+next_tab = ["tab"]
+prev_tab = ["shift+tab"]
+back = ["esc", "h", "left", "q"]
+
+[keys.settings]  # the config screen
+up = ["k", "up"]
+down = ["j", "down"]
+left = ["h", "left"]                        # to the categories
+right = ["l", "right"]                      # to the fields
+next_pane = ["tab"]
+edit = ["enter"]
+remove = ["x", "delete"]                    # remove, disable, or enable a profile
+where = ["w"]                               # toggle a profile's main_checkout
+save = ["ctrl+s"]
+back = ["esc"]
+
+[keys.form]  # the new-session dialog, and typing a config value
+submit = ["enter"]                          # create, or confirm a value
+cancel = ["esc"]
+next_field = ["tab"]
+prev_field = ["shift+tab"]
+prev_option = ["left", "h"]                 # previous profile or template
+next_option = ["right", "l"]                # next profile or template
+newline = ["alt+enter", "ctrl+j"]           # a new line in the prompt
+toggle = ["space"]                          # tick Build sub-issues
+
+[keys.confirm]  # a yes/no question
+yes = ["y", "Y", "enter"]
+no = ["n", "N", "esc", "q"]
+
+[keys.pick]  # choosing one of several options
+up = ["k", "up"]
+down = ["j", "down"]
+choose = ["enter"]
+cancel = ["esc", "q"]
+```
+
+</details>
+
 ### Prompt templates
 
 `a` on an issue without a session opens the new-session dialog with a prompt
@@ -177,8 +285,8 @@ for you. Attaching hands the terminal to tmux.
 Without tmux, or with `multiplexer = "vineyard"`, Vineyard starts its own
 terminal server in the background, which works like tmux's: it runs each agent
 on a pseudo-terminal, mirrors it with a built-in terminal emulator, and keeps
-running after Vineyard quits until its last agent ends. Attaching and ctrl-q
-work the same; `vineyard debug` prints the server's socket.
+running after Vineyard quits until its last agent ends. Attaching and
+detaching work the same; `vineyard debug` prints the server's socket.
 
 You can run several Vineyards on one repository, for example one per terminal
 window; they share the session list and show each other's changes within a

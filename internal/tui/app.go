@@ -331,8 +331,14 @@ type Model struct {
 	statusSeq   int
 }
 
-// NewModel returns the root model showing sessions.
+// NewModel returns the root model showing sessions. It installs the
+// configuration's key bindings in common.Keys.
 func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
+	keys, err := opts.Config.ResolvedKeys()
+	if err != nil {
+		panic(err) // config.Load returns only configurations whose keys resolve
+	}
+	common.Keys = common.NewKeyMap(keys)
 	theme := common.NewTheme(false) // light until the terminal reports its background
 	m := Model{
 		backend:  backend,
@@ -528,17 +534,25 @@ func (m *Model) setError(err error) tea.Cmd { return m.setStatus(err.Error(), tr
 func (m Model) placeholder(s session.Session, ok bool) string {
 	switch {
 	case !ok:
-		return "Press n to start a session."
+		return noSession()
 	case m.busy[s.ID]:
 		return "Working…"
 	case s.Status == session.StatusLoading:
 		return "Starting " + session.ProgramName(s.Program) + "…"
 	case s.Status == session.StatusPaused:
-		return "Paused. The work is committed to " + s.Branch + ".\nPress r to resume."
+		return strings.TrimSpace("Paused. The work is committed to " + s.Branch + ".\n" + common.PressTo(common.Keys.List.Resume, "resume"))
 	case s.Status == session.StatusStopped:
-		return "The agent is no longer running.\nPress r to restart it in its worktree."
+		return strings.TrimSpace("The agent is no longer running.\n" + common.PressTo(common.Keys.List.Resume, "restart it in its worktree"))
 	}
 	return ""
+}
+
+// noSession is what the panes show when no session is selected.
+func noSession() string {
+	if press := common.PressTo(common.Keys.List.New, "start a session"); press != "" {
+		return press
+	}
+	return "No session."
 }
 
 // diffable reports whether s has a worktree in a state worth diffing.
@@ -1095,7 +1109,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					lines = append(lines[:5:5], fmt.Sprintf("… and %d more", len(lost.Commits)-5))
 				}
 				m.dialog = dialog.NewConfirm(m.theme,
-					fmt.Sprintf("Kill %q anyway? The commits below exist only on its detached HEAD and are lost with its worktree. To keep them, cancel, press t, and run git switch -c <branch>.", msg.session.Title),
+					fmt.Sprintf("Kill %q anyway? The commits below exist only on its detached HEAD and are lost with its worktree. To keep them, cancel, and run git switch -c <branch> in its worktree.", msg.session.Title),
 					common.ActionKillDiscardingCommits, msg.session.ID, lines...)
 				return m, nil
 			}
@@ -1355,7 +1369,7 @@ func (m *Model) refreshIssue() {
 	s, ok := m.selected()
 	switch {
 	case !ok:
-		m.issue = m.issue.SetPlaceholder("Press n to start a session.")
+		m.issue = m.issue.SetPlaceholder(noSession())
 		return
 	case m.grapesErr != nil:
 		m.issue = m.issue.SetPlaceholder("No issues to show: " + m.grapesErr.Error())
@@ -1374,10 +1388,10 @@ func (m *Model) refreshIssue() {
 	}
 	switch {
 	case len(rendered) == 0 && m.shownAgent != "":
-		m.issue = m.issue.SetPlaceholder("This subagent has changed no issue. Press i to browse issues.")
+		m.issue = m.issue.SetPlaceholder(strings.TrimSpace("This subagent has changed no issue. " + common.PressTo(common.Keys.List.Issues, "browse issues")))
 		return
 	case len(rendered) == 0:
-		m.issue = m.issue.SetPlaceholder("No issue linked. Press i to browse issues.")
+		m.issue = m.issue.SetPlaceholder(strings.TrimSpace("No issue linked. " + common.PressTo(common.Keys.List.Issues, "browse issues")))
 		return
 	}
 	rule := m.theme.StyleSeparator.Render(strings.Repeat("─", width))
@@ -1400,7 +1414,7 @@ func (m *Model) refreshRecap() {
 	}
 	switch {
 	case !ok:
-		m.recap = m.recap.SetPlaceholder("Press n to start a session.")
+		m.recap = m.recap.SetPlaceholder(noSession())
 		return
 	case !isClaude(s):
 		m.recap = m.recap.SetPlaceholder("Recaps come from Claude Code; this session runs " + session.ProgramName(s.Program) + ".")
@@ -1876,7 +1890,7 @@ func (m Model) runConfirmed(msg common.ConfirmedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "ctrl+c" {
+	if key.Matches(msg, common.Keys.Global.Quit) {
 		return m, tea.Quit
 	}
 	if m.dialog != nil {
@@ -1915,7 +1929,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	keys := common.ListKeyMap
+	keys := common.Keys.List
 	s, ok := m.selected()
 	switch {
 	case key.Matches(msg, keys.Quit):
@@ -1932,17 +1946,17 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		profiles := m.opts.Config.ResolvedProfiles()
 		i := slices.IndexFunc(profiles, func(p config.Profile) bool { return p.Name == "terminal" })
 		if i < 0 {
-			return m, m.setStatus("The terminal profile is disabled. Press C to enable it.", false)
+			return m, m.setStatus(strings.TrimSpace("The terminal profile is disabled. "+common.PressTo(keys.Config, "enable it")), false)
 		}
 		return m.createSession(common.NewSessionMsg{Title: "terminal", Profile: profiles[i]}, true)
-	case key.Matches(msg, keys.Tab, keys.PrevTab):
+	case key.Matches(msg, keys.NextTab, keys.PrevTab):
 		return m, m.switchTab(key.Matches(msg, keys.PrevTab))
 	case key.Matches(msg, keys.Config):
 		_, _, bodyHeight := m.layout()
 		m.settings = settings.New(m.opts.Config, m.opts.ConfigPath, m.opts.ConfigErr, m.theme).SetSize(m.width, bodyHeight)
 		m.configOpen = true
 		return m, nil
-	case key.Matches(msg, keys.Focus):
+	case key.Matches(msg, keys.Expand):
 		// The selected session's subagent rows come first, then the pane.
 		var expanded bool
 		if m.list, expanded = m.list.Expand(); !expanded && ok {
@@ -1954,70 +1968,28 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.Issues):
 		return m.showIssues(s, ok)
-	case key.Matches(msg, keys.Open) && m.tab == tabIssue:
-		// Grapes keeps its screen when closed: opened for no issue, it would
-		// show the last issue opened.
-		if !ok || len(m.shownIssues(s)) == 0 {
-			return m, nil
-		}
-		return m.showIssues(s, ok)
-	case key.Matches(msg, keys.Open) && m.tab == tabRecap:
-		if ok {
-			m.setFocus(focusPane)
-			m.setZoom(true)
-		}
-		return m, nil
+	case key.Matches(msg, keys.Open):
+		return m.open()
+	case key.Matches(msg, keys.Attach):
+		return m.attach()
+	case key.Matches(msg, keys.Shell):
+		return m.shell()
 	}
 
+	s, ok, cmd := m.ready()
 	if !ok {
-		return m, nil
-	}
-	if m.busy[s.ID] || s.Status == session.StatusLoading {
-		return m, m.setStatus(s.Title+" is busy.", false)
+		return m, cmd
 	}
 	switch {
-	case key.Matches(msg, keys.Open) && m.tab == tabDiff:
-		if !m.diffable(s) {
-			return m, m.setStatus(s.Title+" has no worktree to diff. Press r to resume it.", false)
-		}
-		backend, command, tree := m.backend, m.opts.Config.DiffCommand, m.agentTree
-		return m, func() tea.Msg {
-			if tree != "" { // the shown subagent's own worktree
-				cmd, err := backend.TreeDiffTool(tree, s, command)
-				return diffToolMsg{id: s.ID, cmd: cmd, err: err}
-			}
-			cmd, err := backend.DiffTool(s, command)
-			return diffToolMsg{id: s.ID, cmd: cmd, err: err}
-		}
-	case key.Matches(msg, keys.Shell), key.Matches(msg, keys.Open) && m.tab == tabTerminal:
-		if s.Status == session.StatusPaused {
-			return m, m.setStatus(s.Title+" is paused. Press r to resume it.", false)
-		}
-		backend := m.backend
-		w, h := m.agentSize()
-		return m, func() tea.Msg {
-			return shellReadyMsg{session: s, err: backend.EnsureShell(s, w, h)}
-		}
-	case key.Matches(msg, keys.Attach, keys.Open):
-		if !s.Status.Active() {
-			return m, m.setStatus(s.Title+" is not running. Press r to resume it.", false)
-		}
-		if a, ok := m.list.SelectedSubagent(); ok {
-			return m.openSubagent(s, a)
-		}
-		id := s.ID
-		return m, tea.Exec(m.backend.AttachCommand(s), func(err error) tea.Msg {
-			return attachDoneMsg{id: id, err: err}
-		})
 	case key.Matches(msg, keys.Kill):
 		text := fmt.Sprintf("Kill %q? Its worktree is deleted, uncommitted changes included. The branch is kept if it has commits.", s.Title)
 		if s.MainCheckout {
 			text = fmt.Sprintf("Kill %q? Its program stops; the main checkout is left as it is.", s.Title)
 		}
 		m.dialog = dialog.NewConfirm(m.theme, text, common.ActionKill, s.ID)
-	case key.Matches(msg, keys.Pause, keys.Push) && s.MainCheckout:
+	case key.Matches(msg, keys.Checkout, keys.Push) && s.MainCheckout:
 		return m, m.setStatus(s.Title+" runs in the main checkout, which Vineyard does not commit, check out, or push.", false)
-	case key.Matches(msg, keys.Pause):
+	case key.Matches(msg, keys.Checkout):
 		if s.Status == session.StatusPaused {
 			return m, nil
 		}
@@ -2038,7 +2010,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}, m.refreshShown())
 	case key.Matches(msg, keys.Push):
 		if s.Status == session.StatusPaused {
-			return m, m.setStatus(s.Title+" is paused. Press r to resume it before pushing.", false)
+			return m, m.setStatus(strings.TrimSpace(s.Title+" is paused. "+common.PressTo(keys.Resume, "resume it before pushing")), false)
 		}
 		m.dialog = dialog.NewConfirm(m.theme,
 			fmt.Sprintf("Commit all changes in %q and push %s to origin?", s.Title, s.Branch),
@@ -2055,6 +2027,91 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(write, m.setStatus("Auto-yes "+state+" for "+s.Title+".", false))
 	}
 	return m, nil
+}
+
+// ready returns the selected session if it can be acted on. When it cannot,
+// ok is false, and cmd reports a busy session.
+func (m *Model) ready() (s session.Session, ok bool, cmd tea.Cmd) {
+	s, ok = m.selected()
+	if ok && (m.busy[s.ID] || s.Status == session.StatusLoading) {
+		return s, false, m.setStatus(s.Title+" is busy.", false)
+	}
+	return s, ok, nil
+}
+
+// open opens the selected session's shown tab, as the open key does.
+func (m Model) open() (tea.Model, tea.Cmd) {
+	switch m.tab {
+	case tabIssue:
+		s, ok := m.selected()
+		// Grapes keeps its screen when closed: opened for no issue, it would
+		// show the last issue opened.
+		if !ok || len(m.shownIssues(s)) == 0 {
+			return m, nil
+		}
+		return m.showIssues(s, ok)
+	case tabRecap:
+		if _, ok := m.selected(); ok {
+			m.setFocus(focusPane)
+			m.setZoom(true)
+		}
+		return m, nil
+	case tabTerminal:
+		return m.shell()
+	case tabDiff:
+		s, ok, cmd := m.ready()
+		if !ok {
+			return m, cmd
+		}
+		if !m.diffable(s) {
+			return m, m.setStatus(strings.TrimSpace(s.Title+" has no worktree to diff. "+common.PressTo(common.Keys.List.Resume, "resume it")), false)
+		}
+		backend, command, tree := m.backend, m.opts.Config.DiffCommand, m.agentTree
+		return m, func() tea.Msg {
+			if tree != "" { // the shown subagent's own worktree
+				cmd, err := backend.TreeDiffTool(tree, s, command)
+				return diffToolMsg{id: s.ID, cmd: cmd, err: err}
+			}
+			cmd, err := backend.DiffTool(s, command)
+			return diffToolMsg{id: s.ID, cmd: cmd, err: err}
+		}
+	}
+	return m.attach()
+}
+
+// shell opens the selected session's shell, as the shell key does.
+func (m Model) shell() (tea.Model, tea.Cmd) {
+	s, ok, cmd := m.ready()
+	if !ok {
+		return m, cmd
+	}
+	if s.Status == session.StatusPaused {
+		return m, m.setStatus(strings.TrimSpace(s.Title+" is paused. "+common.PressTo(common.Keys.List.Resume, "resume it")), false)
+	}
+	backend := m.backend
+	w, h := m.agentSize()
+	return m, func() tea.Msg {
+		return shellReadyMsg{session: s, err: backend.EnsureShell(s, w, h)}
+	}
+}
+
+// attach hands the terminal to the selected session's agent, or opens the
+// selected subagent, as the attach key does.
+func (m Model) attach() (tea.Model, tea.Cmd) {
+	s, ok, cmd := m.ready()
+	if !ok {
+		return m, cmd
+	}
+	if !s.Status.Active() {
+		return m, m.setStatus(strings.TrimSpace(s.Title+" is not running. "+common.PressTo(common.Keys.List.Resume, "resume it")), false)
+	}
+	if a, ok := m.list.SelectedSubagent(); ok {
+		return m.openSubagent(s, a)
+	}
+	id := s.ID
+	return m, tea.Exec(m.backend.AttachCommand(s), func(err error) tea.Msg {
+		return attachDoneMsg{id: id, err: err}
+	})
 }
 
 // handleMouse handles clicks and the wheel. A double click on the list or
@@ -2101,9 +2158,9 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// The first click selected the row.
 		switch m.list.LineAt(mouse.Y - headerHeight) {
 		case list.LineSession:
-			return m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+			return m.open()
 		case list.LineSubagent:
-			return m.handleKey(tea.KeyPressMsg{Code: 'o', Text: "o"}) // open it on any tab
+			return m.attach() // open it on any tab
 		}
 		return m, nil // the first click expanded or collapsed the subagents
 	case mouse.X < listWidth:
@@ -2174,10 +2231,10 @@ func (m *Model) doubleClick(x, y int) (first clickAt, double bool) {
 	return last, double
 }
 
-// enter does what the enter key does in the list, for a double click.
+// enter does what the open key does in the list, for a double click.
 func (m Model) enter() (tea.Model, tea.Cmd) {
 	m.setFocus(focusList)
-	return m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	return m.open()
 }
 
 // moved returns the click or wheel event msg moved by dx and dy, to make its
@@ -2379,17 +2436,29 @@ func (m Model) renderStatusBar() string {
 	}
 
 	var hints [][2]string
+	pane, list, hint := common.Keys.Pane, common.Keys.List, common.Hint
 	switch {
 	case m.dialog != nil:
 		hints = m.dialog.Hints()
 	case m.configOpen:
 		hints = m.settings.Hints()
 	case m.focus == focusPane && m.tab == tabDiff:
-		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"]/[", "next/prev file"}, {"enter", "fold"}, {"c/e", "fold all/none"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
+		hints = [][2]string{
+			{hint(pane.Down, pane.Up), "scroll"}, {hint(pane.HalfDown, pane.HalfUp), "page"},
+			{hint(pane.NextFile, pane.PrevFile), "next/prev file"}, {hint(pane.Fold), "fold"},
+			{hint(pane.FoldAll, pane.UnfoldAll), "fold all/none"}, {hint(pane.Top, pane.Bottom), "top/bottom"},
+			{hint(pane.NextTab), tabNames[m.nextTab()]}, {hint(pane.Back), "back"},
+		}
 	case m.focus == focusPane && (m.tab == tabIssue || m.tab == tabRecap || m.tab == tabPreview && m.shownAgent != ""):
-		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"g/G", "top/bottom"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
+		hints = [][2]string{
+			{hint(pane.Down, pane.Up), "scroll"}, {hint(pane.HalfDown, pane.HalfUp), "page"},
+			{hint(pane.Top, pane.Bottom), "top/bottom"}, {hint(pane.NextTab), tabNames[m.nextTab()]}, {hint(pane.Back), "back"},
+		}
 	case m.focus == focusPane:
-		hints = [][2]string{{"j/k", "scroll"}, {"ctrl+d/u", "page"}, {"G", "live"}, {"tab", tabNames[m.nextTab()]}, {"esc", "back"}}
+		hints = [][2]string{
+			{hint(pane.Down, pane.Up), "scroll"}, {hint(pane.HalfDown, pane.HalfUp), "page"},
+			{hint(pane.Bottom), "live"}, {hint(pane.NextTab), tabNames[m.nextTab()]}, {hint(pane.Back), "back"},
+		}
 	default:
 		open, attach := openNames[m.tab], "attach"
 		if _, ok := m.list.SelectedSubagent(); ok {
@@ -2398,25 +2467,27 @@ func (m Model) renderStatusBar() string {
 				open = attach
 			}
 		}
-		hints = [][2]string{{"n", "new"}, {"N", "new from profile"}, {"enter", open}}
+		hints = [][2]string{{hint(list.New), "new"}, {hint(list.NewFromProfile), "new from profile"}, {hint(list.Open), open}}
 		if m.tab != tabPreview {
-			hints = append(hints, [2]string{"o", attach})
+			hints = append(hints, [2]string{hint(list.Attach), attach})
 		}
 		switch {
 		case m.list.Expandable():
-			hints = append(hints, [2]string{"→", "show subagents"})
+			hints = append(hints, [2]string{hint(list.Expand), "show subagents"})
 		case m.list.Collapsible():
-			hints = append(hints, [2]string{"←", "hide subagents"})
+			hints = append(hints, [2]string{hint(list.Collapse), "hide subagents"})
 		}
 		hints = append(hints, [][2]string{
-			{"t", "shell"}, {"T", "new terminal"}, {"s", "push"}, {"c", "checkout"}, {"r", "resume"}, {"D", "kill"},
-			{"a", "auto-yes"}, {"tab", tabNames[m.nextTab()]},
+			{hint(list.Shell), "shell"}, {hint(list.Terminal), "new terminal"}, {hint(list.Push), "push"},
+			{hint(list.Checkout), "checkout"}, {hint(list.Resume), "resume"}, {hint(list.Kill), "kill"},
+			{hint(list.AutoYes), "auto-yes"}, {hint(list.NextTab), tabNames[m.nextTab()]},
 		}...)
-		if !m.list.Expandable() { // otherwise l shows the subagents first
-			hints = append(hints, [2]string{"l", "scroll"})
+		if !m.list.Expandable() { // otherwise expand shows the subagents first
+			hints = append(hints, [2]string{hint(list.Expand), "scroll"})
 		}
-		hints = append(hints, [][2]string{{"i", "issues"}, {"C", "config"}, {"q", "quit"}}...)
+		hints = append(hints, [][2]string{{hint(list.Issues), "issues"}, {hint(list.Config), "config"}, {hint(list.Quit), "quit"}}...)
 	}
+	hints = slices.DeleteFunc(hints, func(h [2]string) bool { return h[0] == "" }) // unbound actions
 	dot := t.StyleFaint.Render(" · ")
 	var b strings.Builder
 	used := 0

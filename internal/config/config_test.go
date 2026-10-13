@@ -302,6 +302,7 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 		DisabledProfiles: []string{"terminal"},
 		WorktreeDir:      "../worktrees",
 		Templates:        []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},
+		Keys:             Keys{"list": {"kill": {"x"}, "auto_yes": {}}},
 	}
 	if err := Save(home, want); err != nil {
 		t.Fatal(err)

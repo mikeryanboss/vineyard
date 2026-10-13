@@ -1,6 +1,6 @@
 title = 'Make every key binding configurable in config.toml'
-status = 'in_progress'
+status = 'done'
 priority = 'medium'
 labels = ['feature', 'tui', 'config']
 created = 2026-10-13T11:34:00Z
-updated = 2026-10-13T11:34:00Z
+updated = 2026-10-13T11:47:00Z

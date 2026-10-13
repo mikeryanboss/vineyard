@@ -79,11 +79,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.viewport.ScrollDown(3)
 		}
 	case tea.KeyPressMsg:
-		keys := common.PaneKeyMap
+		keys := common.Keys.Pane
 		switch {
 		case key.Matches(msg, keys.Back):
 			return m, func() tea.Msg { return common.LeavePaneMsg{} }
-		case key.Matches(msg, keys.Tab, keys.PrevTab):
+		case key.Matches(msg, keys.NextTab, keys.PrevTab):
 			back := key.Matches(msg, keys.PrevTab)
 			return m, func() tea.Msg { return common.SwitchTabMsg{Back: back} }
 		case key.Matches(msg, keys.Up):
