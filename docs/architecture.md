@@ -176,9 +176,16 @@ knows each subagent's description, prompt, report, the files it edited, the
 subagents it started, and its status:
 
 - **Done** or **stopped** once a task notification for it, which Claude Code
-  queues in the conversation when a subagent stops, is newer than its
-  transcript's last message. `completed` is done; anything else, such as a
-  failure or a subagent the user stopped, is stopped.
+  queues in the conversation when a subagent stops, is newer than its last
+  message. `completed` is done; anything else, such as a failure or a
+  subagent stopped with `TaskStop`, is stopped. Its last message is the last
+  it wrote or was sent; tool results and `[Request interrupted by user…]`
+  markers do not count, since Claude Code writes them as it stops a
+  subagent, after it reports the stop.
+- **Stopped** too, at that line, when the conversation records
+  `agents_killed` (drawn as "All background agents stopped") no earlier than
+  its last message. Claude Code writes that line, and no task notification,
+  when it stops all background agents, as on ctrl+x ctrl+k.
 - **Stopped** too, at its last message, when its own transcript has not been
   written to since the session's Claude Code started (tmux's
   `session_created`, since the tmux session runs Claude Code itself).

@@ -428,3 +428,66 @@ func TestLoad_SubagentsOfAnExitedClaudeCodeStopped(t *testing.T) {
 		t.Errorf("status = %d, want stopped after its conversation was resumed", a.Status)
 	}
 }
+
+// killed is Claude Code recording that it stopped all background agents.
+func killed(t *testing.T, second int) string {
+	return jsonLine(t, map[string]any{"type": "system", "subtype": "agents_killed", "isMeta": false, "timestamp": at(second)})
+}
+
+// rejected is what Claude Code writes to a subagent's transcript as it stops
+// it during tool call id: the call's rejection and an interruption marker.
+func rejected(t *testing.T, second int, id string) string {
+	return returned(t, second, id, "The user doesn't want to proceed with this tool use.", true) +
+		jsonLine(t, map[string]any{"type": "user", "isSidechain": true, "timestamp": at(second),
+			"message": map[string]any{"role": "user", "content": []any{
+				map[string]any{"type": "text", "text": "[Request interrupted by user for tool use]"}}}})
+}
+
+func TestLoad_SubagentsTheUserStoppedStopped(t *testing.T) {
+	c := newTranscripts(t)
+	c.main(human(t, 0, "Go"), stopped(t, 6, "resumed2", "completed"), killed(t, 20))
+	// Claude Code writes to the subagents it stops after it records the stop.
+	c.agent("busy1", "one", "toolu_1",
+		asked(t, 1, "/repo", "", "Train it."),
+		called(t, 2, "toolu_b1", "Bash", map[string]any{"command": "train"}),
+		rejected(t, 21, "toolu_b1"))
+	// A subagent that completed with work of its own running resumes when
+	// that work reports.
+	c.agent("resumed2", "two", "toolu_2",
+		asked(t, 3, "/repo", "", "Plant it."),
+		said(t, 5, "Planted; the run reports later."),
+		called(t, 10, "toolu_b2", "Bash", map[string]any{"command": "plant"}),
+		rejected(t, 21, "toolu_b2"))
+	c.agent("later3", "three", "toolu_3", asked(t, 25, "/repo", "", "Start after the stop."))
+	c.agent("messaged4", "four", "toolu_4",
+		asked(t, 4, "/repo", "", "Wait."),
+		said(t, 5, "Waiting."),
+		asked(t, 22, "/repo", "coordinator", "Go on."))
+
+	agents := byID(load(t, NewReader(), c.dir, time.Time{}))
+	tests := []struct {
+		id     string
+		status Status
+		ended  time.Time
+	}{
+		{"busy1", Stopped, at(20)},
+		{"resumed2", Stopped, at(20)},
+		{"later3", Running, time.Time{}},
+		{"messaged4", Running, time.Time{}},
+	}
+	for _, tt := range tests {
+		if a := agents[tt.id]; a.Status != tt.status || !a.Ended.Equal(tt.ended) {
+			t.Errorf("%s: status %d, ended %v; want %d, %v", tt.id, a.Status, a.Ended, tt.status, tt.ended)
+		}
+	}
+
+	events, err := NewReader().Events(c.dir, "busy1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind == Prompt && e.Text != "Train it." {
+			t.Errorf("prompt event %q, want only the task: the interruption marker is no message", e.Text)
+		}
+	}
+}

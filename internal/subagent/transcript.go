@@ -196,6 +196,11 @@ func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 				a.Status = Done
 			}
 		}
+		// Claude Code reports none of the subagents it stops when it stops
+		// them all, as on ctrl+x ctrl+k.
+		if a.Status == Running && !conv.killed.IsZero() && !conv.killed.Before(t.last) {
+			a.Status, a.Ended = Stopped, conv.killed
+		}
 		if a.Status == Running && t.written.Before(started) {
 			a.Status, a.Ended = Stopped, t.last
 		}
@@ -305,12 +310,17 @@ type transcript struct {
 	prompted time.Time
 	// stops are the last reports of tasks that stopped, by task ID.
 	stops map[string]stop
+	// killed is when Claude Code last stopped all background agents.
+	killed time.Time
 	// launched are the IDs of the Agent tool uses that started subagents.
 	launched []string
 
 	// The rest describes a subagent's own transcript.
 	meta meta
-	// started and last are the times of its first and last messages.
+	// started is the time of its first message, and last that of the last
+	// that shows it at work: one it wrote, or one it was sent. Tool results
+	// and interruption markers do not count: Claude Code writes them as it
+	// stops a subagent, after it reports the stop.
 	started, last       time.Time
 	prompt, report, cwd string
 	cd                  string
@@ -372,6 +382,7 @@ func (r *Reader) update(path string, subagent bool) (*transcript, error) {
 type line struct {
 	Type      string          `json:"type"`
 	Operation string          `json:"operation"`
+	Subtype   string          `json:"subtype"`
 	Content   json.RawMessage `json:"content"`
 	Timestamp time.Time       `json:"timestamp"`
 	Cwd       string          `json:"cwd"`
@@ -398,7 +409,7 @@ type block struct {
 
 // Markers of the conversation lines Reader uses. Checking for them before
 // decoding skips the bulk of a conversation, which is tool output.
-var markers = [][]byte{[]byte(`"human"`), []byte("<task-notification>")}
+var markers = [][]byte{[]byte(`"human"`), []byte("<task-notification>"), []byte(`"agents_killed"`)}
 
 // add takes in one line of the transcript.
 func (t *transcript) add(raw []byte, subagent bool) error {
@@ -416,6 +427,8 @@ func (t *transcript) add(raw []byte, subagent bool) error {
 		t.notice(text(l.Message.Content), l.Timestamp)
 	case l.Type == "user" && l.Origin.Kind == "human":
 		t.prompted = l.Timestamp
+	case l.Type == "system" && l.Subtype == "agents_killed":
+		t.killed = l.Timestamp
 	}
 	if !subagent || (l.Type != "user" && l.Type != "assistant") {
 		return nil
@@ -423,7 +436,9 @@ func (t *transcript) add(raw []byte, subagent bool) error {
 	if t.started.IsZero() {
 		t.started = l.Timestamp
 	}
-	t.last = l.Timestamp
+	if l.Type == "assistant" {
+		t.last = l.Timestamp
+	}
 	if l.Cwd != "" {
 		t.cwd = l.Cwd
 	}
@@ -434,7 +449,7 @@ func (t *transcript) add(raw []byte, subagent bool) error {
 	var blocks []block
 	if err := json.Unmarshal(l.Message.Content, &blocks); err != nil {
 		if s := text(l.Message.Content); sent && s != "" { // a plain string
-			t.message(s)
+			t.message(s, l.Timestamp)
 		}
 		return nil
 	}
@@ -451,10 +466,10 @@ func (t *transcript) add(raw []byte, subagent bool) error {
 				Prompt string `json:"prompt"`
 			}
 			_ = json.Unmarshal(b.Input, &call) // a call without a prompt gives none
-			t.message(call.Prompt)
+			t.message(call.Prompt, l.Timestamp)
 		case b.Type == "text" && l.Type == "user":
 			if sent {
-				t.message(b.Text)
+				t.message(b.Text, l.Timestamp)
 			}
 		case b.Type == "text":
 			t.events = append(t.events, Event{Kind: Text, Text: b.Text})
@@ -468,8 +483,16 @@ func (t *transcript) add(raw []byte, subagent bool) error {
 	return nil
 }
 
-// message takes in a message the subagent was sent.
-func (t *transcript) message(s string) {
+// interrupted starts the messages Claude Code adds to a subagent's transcript
+// when it interrupts the subagent.
+const interrupted = "[Request interrupted by user"
+
+// message takes in a message the subagent was sent at time at.
+func (t *transcript) message(s string, at time.Time) {
+	if strings.HasPrefix(s, interrupted) {
+		return
+	}
+	t.last = at
 	if t.prompt == "" {
 		t.prompt = s
 	}
