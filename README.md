@@ -89,27 +89,29 @@ auto_yes = false
 worktree_dir = ".vineyard/worktrees"  # relative to the repository, absolute, or ~/...
 diff_command = "hunk diff {base} --watch"  # run by enter on the Diff tab
 
-[[profiles]]
-name = "claude"
-program = "claude"
+disabled_profiles = ["terminal"]     # built-in profiles not to offer
 
 [[profiles]]
 name = "codex"
 program = "codex"
 
 [[profiles]]
-name = "terminal"
-program = "$SHELL"
+name = "dev server"
+program = "npm run dev"
 main_checkout = true                  # run in the main checkout, not a new worktree
 ```
 
 A profile is a command a session runs: an agent, a shell, a dev server. `n`
-runs the default; `N` asks which one. Without `[[profiles]]`, Vineyard offers
-`claude` and `terminal`; a file's own profiles replace both. A profile with
-`main_checkout` runs in the repository's main checkout, with no worktree or
-branch of its own: `D` only stops its program, and `s` and `c` refuse it. On
-the config screen, `w` on a profile toggles `main_checkout`. An issue's
-session (`a` on an issue) is offered only profiles without it.
+runs the default; `N` asks which one. Two profiles are built in: `claude`, and
+`terminal`, which runs `$SHELL` in the main checkout. Every repository is
+offered them after its own `[[profiles]]`; a profile with a built-in one's
+name replaces it, and `disabled_profiles` stops offering it.
+
+A profile with `main_checkout` runs in the repository's main checkout, with no
+worktree or branch of its own: `D` only stops its program, and `s` and `c`
+refuse it. An issue's session (`a` on an issue) is offered only profiles
+without it. On the config screen, `w` on a profile toggles `main_checkout`,
+and `x` removes a profile, or disables or enables a built-in one.
 
 `diff_command` runs through `sh` in the session's worktree, with `{base}`
 replaced by the commit where the session's own work begins: where its branch

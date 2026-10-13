@@ -169,7 +169,6 @@ func TestIssues_GrapesSeesItsOwnWrites(t *testing.T) {
 
 func TestIssues_SessionsKeyWithNoSessionStartsOne(t *testing.T) {
 	m := grapesModel(t, []session.Session{{ID: "a", Title: "fix login", Status: session.StatusReady}})
-	m.opts.Config.Profiles = config.Defaults().Profiles
 	m = keys(m, "i")
 
 	m = send(m, embedded.SessionsMsg{IssueID: 7})
