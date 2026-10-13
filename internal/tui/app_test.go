@@ -847,17 +847,23 @@ func TestApp_ShiftTabSwitchesToThePreviousTab(t *testing.T) {
 	}
 }
 
-// The recap tab shows Claude Code's recaps of the selected session, newest
-// first, falls back to the last prompt, and says why other agents have none.
-func TestRecapTab_ShowsTheSelectedSessionsRecaps(t *testing.T) {
+// The recap tab shows the selected session's conversation, the user's
+// messages and Claude Code's recaps, oldest first and opened at its end, and
+// says why other agents have none.
+func TestRecapTab_ShowsTheSelectedSessionsConversation(t *testing.T) {
 	m, backend := newTestModel(t, testutil.Sessions())
 	at := time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC)
+	entries := []recap.Entry{{Time: at, Text: "fix the login redirect"}}
+	for i := range 30 {
+		entries = append(entries, recap.Entry{Time: at.Add(time.Duration(i) * time.Minute), Text: "and then?"})
+	}
+	entries = append(entries,
+		recap.Entry{Time: at.Add(time.Hour), Text: "now run the tests"},
+		recap.Entry{Time: at.Add(2 * time.Hour), Text: "The redirect is fixed. Next, run the tests.", Recap: true},
+	)
 	backend.recaps = map[string]recap.Recap{
-		"login-1": {Found: true, Title: "Login redirect fix", Entries: []recap.Entry{
-			{Time: at.Add(time.Hour), Text: "The redirect is fixed. Next, run the tests."},
-			{Time: at, Text: "I found the redirect bug."},
-		}},
-		"tests-2": {Found: true, Title: "Parser tests", LastPrompt: "add tests for the parser"},
+		"login-1": {Found: true, Title: "Login redirect fix", Entries: entries},
+		"tests-2": {Found: true, Title: "Parser tests"},
 	}
 
 	m = keys(m, "shift+tab")
@@ -865,14 +871,17 @@ func TestRecapTab_ShowsTheSelectedSessionsRecaps(t *testing.T) {
 		t.Fatalf("shift+tab from preview should reach the recap tab, got %v", m.tab)
 	}
 	got := screen(m)
-	newer, older := strings.Index(got, "The redirect is fixed"), strings.Index(got, "I found the redirect bug")
-	if !strings.Contains(got, "Login redirect fix") || newer < 0 || older < 0 || newer > older {
-		t.Fatalf("the recap tab should show the title and both recaps, newest first:\n%s", got)
+	message, summary := strings.Index(got, "now run the tests"), strings.Index(got, "The redirect is fixed")
+	if message < 0 || summary < 0 || message > summary || !strings.Contains(got, "You") || !strings.Contains(got, "Recap") {
+		t.Fatalf("the recap tab should show the last message, then the recap after it, each labelled:\n%s", got)
+	}
+	if strings.Contains(got, "fix the login redirect") {
+		t.Errorf("the recap tab should open at the end of a long conversation:\n%s", got)
 	}
 
 	m = keys(m, "j")
-	if got := screen(m); !strings.Contains(got, "No recap yet") || !strings.Contains(got, "add tests for the parser") {
-		t.Errorf("a session without recaps should show its last prompt:\n%s", got)
+	if got := screen(m); !strings.Contains(got, "Nothing said") {
+		t.Errorf("a session without messages should say so:\n%s", got)
 	}
 	m = keys(m, "j")
 	if got := screen(m); !strings.Contains(got, "this session runs codex") {
