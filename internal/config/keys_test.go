@@ -62,6 +62,8 @@ func TestLoad_RejectsKeysThatCannotWork(t *testing.T) {
 		{"[keys.global]\ndetach = []", "needs a key"},
 		{"[keys.global]\ndetach = [\"q\"]", "ctrl and a letter"},
 		{"[keys.global]\ndetach = [\"ctrl+m\"]", "sends it for enter"},
+		{"[keys.global]\nstatus_bar = [\"f1\"]", "ctrl and a letter"},
+		{"[keys.global]\nstatus_bar = [\"ctrl+q\"]", "bound to global detach"},
 	} {
 		cfg, err := Load(writeConfig(t, "auto_yes = true\n"+c.toml))
 		if err == nil || !strings.Contains(err.Error(), c.want) {

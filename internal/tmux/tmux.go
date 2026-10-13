@@ -18,6 +18,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/mikeryanboss/vineyard/internal/session"
 )
 
 // DefaultSocket is the tmux socket name Vineyard's sessions live on.
@@ -191,28 +193,46 @@ func (c *Client) Kill(name string) error {
 }
 
 // AttachCommand builds the command that hands the terminal to the session
-// until the user presses one of the detach keys, each ctrl and a letter such
-// as "ctrl+q".
+// until the user presses one of the detach keys. The status line, which says
+// how to detach, shows as how asks, and its toggle keys show and hide it;
+// tmux has no session list for its peers.
 //
 // The window is switched back to following the client's size first: Resize
 // pins detached windows to the preview size, which would otherwise leave the
-// attached view the size of the preview pane. The detach keys are bound in a
-// key table named after them, which the session reads first, so that
-// Vineyards configured with other keys, sharing the server, each attach with
-// their own. TMUX is removed from the environment so attaching works when
-// Vineyard itself runs inside tmux.
-func (c *Client) AttachCommand(name string, detach []string) *exec.Cmd {
+// attached view the size of the preview pane. The detach and toggle keys are
+// bound in a key table named after them, which the session reads first, so
+// that Vineyards configured with other keys, sharing the server, each attach
+// with their own. TMUX is removed from the environment so attaching works
+// when Vineyard itself runs inside tmux.
+func (c *Client) AttachCommand(name string, how session.Attachment) *exec.Cmd {
 	args := []string{"-L", c.socket, "set-option", "-w", "-t", exact(name) + ":", "window-size", "latest", ";"}
+	// tmux quotes a backslash in a table's name where it shows the name.
+	named := func(k string) string { return "-" + strings.ReplaceAll(tmuxKey(k), "\\", "backslash") }
 	table := "vineyard-detach"
-	for _, k := range detach {
-		table += "-" + tmuxKey(k)
+	for _, k := range how.Detach {
+		table += named(k)
 	}
-	for _, k := range detach {
+	if len(how.ToggleBar) > 0 {
+		table += "-bar"
+		for _, k := range how.ToggleBar {
+			table += named(k)
+		}
+	}
+	for _, k := range how.Detach {
 		args = append(args, "bind-key", "-T", table, tmuxKey(k), "detach-client", ";")
+	}
+	for _, k := range how.ToggleBar {
+		args = append(args, "bind-key", "-T", table, tmuxKey(k),
+			"if-shell", "-F", "#{==:#{status},off}", "set-option status on", "set-option status off", ";")
+	}
+	status := "off"
+	if how.ShowBar {
+		status = "on"
 	}
 	args = append(args,
 		"set-option", "-t", exact(name)+":", "key-table", table, ";",
-		"set-option", "-t", exact(name)+":", "status-right", " "+strings.Join(detach, " or ")+": back to vineyard ", ";",
+		"set-option", "-t", exact(name)+":", "status", status, ";",
+		"set-option", "-t", exact(name)+":", "status-right", " "+strings.Join(how.Detach, " or ")+": back to vineyard ", ";",
 		"attach-session", "-t", exact(name),
 	)
 	cmd := exec.Command("tmux", args...)
@@ -221,12 +241,12 @@ func (c *Client) AttachCommand(name string, detach []string) *exec.Cmd {
 }
 
 // Attach is AttachCommand as a command Bubble Tea runs.
-func (c *Client) Attach(name string, detach []string) tea.ExecCommand {
-	return execCommand{c.AttachCommand(name, detach)}
+func (c *Client) Attach(name string, how session.Attachment) tea.ExecCommand {
+	return execCommand{c.AttachCommand(name, how)}
 }
 
-// tmuxKey names a key that is ctrl and a letter, such as "ctrl+q", as tmux
-// does: "C-q".
+// tmuxKey names a key that is ctrl and a letter or ctrl+\, such as "ctrl+q",
+// as tmux does: "C-q".
 func tmuxKey(k string) string { return "C-" + strings.TrimPrefix(k, "ctrl+") }
 
 // execCommand runs an *exec.Cmd on the terminal Bubble Tea gives it.

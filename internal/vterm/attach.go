@@ -33,13 +33,14 @@ var inputModes = []ansi.Mode{
 // size is the size of the user's terminal, in cells.
 type size struct{ Width, Height int }
 
-// attach draws t on the user's terminal, given as in and out, and passes what
-// the user types to its program, until the user types one of the detach
-// bytes, the program exits, or stop is closed. env is the user's
-// environment, which says what their terminal supports. The terminal takes
-// the user's terminal's size, first initial and then each one resized
-// receives.
-func attach(t *terminal, in, out *os.File, env []string, detach []byte, initial size, resized <-chan size, stop <-chan struct{}) error {
+// attach draws t on the user's terminal, given as in and out, with the
+// status bar b under it while b is shown, and passes what the user types to
+// its program, until the user types one of b's detach keys, the program
+// exits, or stop is closed. b's toggle keys show and hide b. env is the
+// user's environment, which says what their terminal supports. The terminal
+// takes the user's terminal's size less b's rows, first initial and then each
+// one resized receives. b lists terminals of s.
+func attach(s *Server, t *terminal, b *bar, in, out *os.File, env []string, initial size, resized <-chan size, stop <-chan struct{}) error {
 	if !term.IsTerminal(in.Fd()) {
 		return errors.New("attaching needs a terminal")
 	}
@@ -48,9 +49,12 @@ func attach(t *terminal, in, out *os.File, env []string, detach []byte, initial 
 		return err
 	}
 	defer term.Restore(in.Fd(), state)
-	if err := t.resize(initial.Width, initial.Height); err != nil {
+	user := initial
+	fit := func() error { return t.resize(user.Width, b.fit(user.Height)) }
+	if err := fit(); err != nil {
 		return err
 	}
+	detach, toggle := keyBytes(b.detach), keyBytes(b.toggle)
 
 	input, err := cancelreader.NewReader(in)
 	if err != nil {
@@ -79,48 +83,65 @@ func attach(t *terminal, in, out *os.File, env []string, detach []byte, initial 
 
 	changed, unwatch := t.watch()
 	defer unwatch()
-	s := newScreen(out, env)
+	b.sample(s)
+	scr := newScreen(out, env)
 	t.mu.Lock()
-	err = s.open(t)
+	err = scr.open(t, b)
 	t.mu.Unlock()
-	defer s.close()
+	defer scr.close()
 	if err != nil {
 		return err
 	}
 
 	ticker := time.NewTicker(frame)
 	defer ticker.Stop()
+	sampler := time.NewTicker(sampleEvery)
+	defer sampler.Stop()
 	dirty := false
 	for {
 		select {
-		case b, ok := <-typed:
+		case typedBytes, ok := <-typed:
 			if !ok {
 				return nil
 			}
-			i := bytes.IndexAny(b, string(detach))
-			if i < 0 {
-				i = len(b)
+			for len(typedBytes) > 0 {
+				i := bytes.IndexAny(typedBytes, string(detach)+string(toggle))
+				if i < 0 {
+					i = len(typedBytes)
+				}
+				if _, err := t.emu.InputPipe().Write(typedBytes[:i]); err != nil {
+					return err
+				}
+				if i == len(typedBytes) {
+					break
+				}
+				if bytes.IndexByte(detach, typedBytes[i]) >= 0 {
+					return nil
+				}
+				b.shown = !b.shown
+				if err := fit(); err != nil {
+					return err
+				}
+				dirty = true
+				typedBytes = typedBytes[i+1:]
 			}
-			if _, err := t.emu.InputPipe().Write(b[:i]); err != nil {
-				return err
-			}
-			if i < len(b) {
-				return nil
-			}
-		case sz := <-resized:
-			if err := t.resize(sz.Width, sz.Height); err != nil {
+		case user = <-resized:
+			if err := fit(); err != nil {
 				return err
 			}
 			dirty = true
 		case <-changed:
 			dirty = true
+		case <-sampler.C:
+			b.sample(s)
+			dirty = dirty || b.visible
 		case <-ticker.C:
 			if !dirty {
 				continue
 			}
 			dirty = false
 			t.mu.Lock()
-			err := s.draw(t)
+			err := scr.draw(t, b)
 			t.mu.Unlock()
 			if err != nil {
 				return err
@@ -131,6 +152,16 @@ func attach(t *terminal, in, out *os.File, env []string, detach []byte, initial 
 			return nil
 		}
 	}
+}
+
+// keyBytes returns the bytes the user's terminal sends for keys, each ctrl
+// and a letter or ctrl+\.
+func keyBytes(keys []string) []byte {
+	var out []byte
+	for _, k := range keys {
+		out = append(out, k[len("ctrl+")]&0x1f)
+	}
+	return out
 }
 
 // screen draws a terminal's emulator on the user's terminal, sending only
@@ -150,21 +181,25 @@ func newScreen(out io.Writer, env []string) *screen {
 
 // open takes over the user's terminal with the alternate screen and draws
 // the first frame. Hold t.mu.
-func (s *screen) open(t *terminal) error {
+func (s *screen) open(t *terminal, b *bar) error {
 	s.renderer.EnterAltScreen()
-	return s.draw(t)
+	return s.draw(t, b)
 }
 
 // draw sends the changes since the last frame, and the cursor, to the user's
-// terminal. Hold t.mu.
-func (s *screen) draw(t *terminal) error {
+// terminal: t's screen, and b under it while b is visible. Hold t.mu.
+func (s *screen) draw(t *terminal, b *bar) error {
 	if err := s.syncModes(t); err != nil {
 		return err
 	}
 	width, height := t.emu.Width(), t.emu.Height()
-	if s.buf == nil || s.buf.Width() != width || s.buf.Height() != height {
-		s.buf = uv.NewRenderBuffer(width, height)
-		s.renderer.Resize(width, height)
+	rows := height
+	if b.visible {
+		rows++
+	}
+	if s.buf == nil || s.buf.Width() != width || s.buf.Height() != rows {
+		s.buf = uv.NewRenderBuffer(width, rows)
+		s.renderer.Resize(width, rows)
 		s.renderer.Erase()
 	}
 	for y := range height {
@@ -176,6 +211,9 @@ func (s *screen) draw(t *terminal) error {
 				x += cell.Width - 1
 			}
 		}
+	}
+	if b.visible {
+		b.draw(s.buf, height)
 	}
 	s.renderer.Render(s.buf)
 	cursor := t.emu.CursorPosition()

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mikeryanboss/vineyard/internal/session"
 )
 
 // recorder is a Runner that records commands and replies with canned errors.
@@ -75,7 +77,7 @@ func TestCapture_MissingSessionReportsErrNoSession(t *testing.T) {
 
 func TestAttachCommand_DropsTMUXAndRestoresWindowSizing(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-1000/default,1,0")
-	cmd := New("test").AttachCommand("s1", []string{"ctrl+q"})
+	cmd := New("test").AttachCommand("s1", session.Attachment{Detach: []string{"ctrl+q"}})
 	args := strings.Join(cmd.Args, " ")
 	if !strings.Contains(args, "-L test") || !strings.Contains(args, "window-size latest ;") || !strings.HasSuffix(args, "attach-session -t =s1") {
 		t.Errorf("attach args = %q", args)
@@ -87,15 +89,18 @@ func TestAttachCommand_DropsTMUXAndRestoresWindowSizing(t *testing.T) {
 	}
 }
 
-// The detach keys are bound in a key table of the session's own, named after
-// them, so Vineyards with other detach keys sharing the server keep theirs.
+// The detach and status bar keys are bound in a key table of the session's
+// own, named after them, so Vineyards with other keys sharing the server
+// keep theirs.
 func TestAttachCommand_BindsTheDetachKeysForTheSession(t *testing.T) {
-	cmd := New("test").AttachCommand("s1", []string{"ctrl+g", "ctrl+x"})
+	cmd := New("test").AttachCommand("s1", session.Attachment{Detach: []string{"ctrl+g", "ctrl+x"}, ToggleBar: []string{"ctrl+\\"}})
 	args := strings.Join(cmd.Args, " ")
 	for _, want := range []string{
-		"bind-key -T vineyard-detach-C-g-C-x C-g detach-client ;",
-		"bind-key -T vineyard-detach-C-g-C-x C-x detach-client ;",
-		"set-option -t =s1: key-table vineyard-detach-C-g-C-x ;",
+		"bind-key -T vineyard-detach-C-g-C-x-bar-C-backslash C-g detach-client ;",
+		"bind-key -T vineyard-detach-C-g-C-x-bar-C-backslash C-x detach-client ;",
+		"bind-key -T vineyard-detach-C-g-C-x-bar-C-backslash C-\\ if-shell -F #{==:#{status},off} set-option status on set-option status off ;",
+		"set-option -t =s1: key-table vineyard-detach-C-g-C-x-bar-C-backslash ;",
+		"set-option -t =s1: status off ;",
 		"status-right  ctrl+g or ctrl+x: back to vineyard  ;",
 	} {
 		if !strings.Contains(args, want) {
@@ -151,13 +156,17 @@ func TestLiveSession(t *testing.T) {
 
 	// Attaching needs a terminal; the commands before attach-session must
 	// run on a real server.
-	attach := New(socket).AttachCommand("live", []string{"ctrl+g"})
+	attach := New(socket).AttachCommand("live", session.Attachment{Detach: []string{"ctrl+g"}, ToggleBar: []string{"ctrl+\\"}, ShowBar: true})
 	setup := attach.Args[:len(attach.Args)-4] // drop "; attach-session -t =live"
 	if out, err := exec.Command(setup[0], setup[1:]...).CombinedOutput(); err != nil {
 		t.Fatalf("attach setup %q: %v: %s", setup, err, out)
 	}
-	if out, _ := exec.Command("tmux", "-L", socket, "show-options", "-t", "=live:", "key-table").Output(); string(out) != "key-table vineyard-detach-C-g\n" {
+	if out, _ := exec.Command("tmux", "-L", socket, "show-options", "-t", "=live:", "key-table").Output(); string(out) != "key-table vineyard-detach-C-g-bar-C-backslash\n" {
 		t.Errorf("session key-table = %q after the attach setup", out)
+	}
+	keys, _ := exec.Command("tmux", "-L", socket, "list-keys", "-T", "vineyard-detach-C-g-bar-C-backslash").Output()
+	if !strings.Contains(string(keys), "if-shell -F") || !strings.Contains(string(keys), "detach-client") {
+		t.Errorf("the detach and status bar keys are not bound:\n%s", keys)
 	}
 
 	if err := c.Kill("live"); err != nil {

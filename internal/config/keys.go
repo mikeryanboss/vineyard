@@ -20,7 +20,8 @@ type Keys map[string]map[string][]string
 // are:
 //
 //   - global: quit and back, to the session list, work everywhere; detach
-//     returns from an attached terminal
+//     returns from an attached terminal, and status_bar shows or hides its
+//     status bar
 //   - list: the session list
 //   - pane: the preview, diff, issue, terminal, or recap pane once it has focus
 //   - settings: the config screen
@@ -33,6 +34,8 @@ func DefaultKeys() Keys {
 			"quit":   {"ctrl+c"},
 			"back":   {"ctrl+q"},
 			"detach": {"ctrl+q"},
+			// ctrl+\ is one of the few ctrl keys Claude Code leaves free.
+			"status_bar": {"ctrl+\\"},
 		},
 		"list": {
 			"up":               {"k", "up"},
@@ -112,7 +115,8 @@ func DefaultKeys() Keys {
 // in their place, and an error when the configuration names a mode or
 // action that does not exist, a key Bubble Tea never reports, a key two
 // actions of a mode share, a key of the global quit or back that a mode also
-// binds, or a detach key that is not ctrl and a letter.
+// binds, or a detach or status bar key that is not ctrl and a letter or
+// ctrl+\.
 func (c Config) ResolvedKeys() (Keys, error) {
 	keys := DefaultKeys()
 	for _, mode := range slices.Sorted(maps.Keys(c.Keys)) {
@@ -133,8 +137,18 @@ func (c Config) ResolvedKeys() (Keys, error) {
 			actions[action] = names
 		}
 	}
-	if err := checkDetach(keys["global"]["detach"]); err != nil {
-		return nil, fmt.Errorf("keys.global.detach: %w", err)
+	if len(keys["global"]["detach"]) == 0 {
+		return nil, errors.New("keys.global.detach: needs a key, or an attached terminal could not be left")
+	}
+	for _, action := range []string{"detach", "status_bar"} {
+		if err := checkAttached(keys["global"][action]); err != nil {
+			return nil, fmt.Errorf("keys.global.%s: %w", action, err)
+		}
+	}
+	for _, name := range keys["global"]["status_bar"] {
+		if slices.Contains(keys["global"]["detach"], name) {
+			return nil, fmt.Errorf("keys.global.status_bar: %q is bound to global detach, which comes first", name)
+		}
 	}
 	for _, mode := range slices.Sorted(maps.Keys(keys)) {
 		if mode == "global" { // detach acts only where quit and back do not
@@ -207,17 +221,15 @@ func checkKey(name string) error {
 	return nil
 }
 
-// checkDetach returns an error unless names are one or more detach keys,
-// each ctrl and a letter: both multiplexers find those in what the user's
-// terminal sends, as one byte. ctrl+i and ctrl+m send tab and enter.
-func checkDetach(names []string) error {
-	if len(names) == 0 {
-		return errors.New("needs a key, or an attached terminal could not be left")
-	}
+// checkAttached returns an error unless names are keys an attached terminal
+// can act on, each ctrl and a letter, or ctrl+\: both multiplexers find those
+// in what the user's terminal sends, as one byte. ctrl+i and ctrl+m send tab
+// and enter.
+func checkAttached(names []string) error {
 	for _, name := range names {
 		letter, ok := strings.CutPrefix(name, "ctrl+")
-		if !ok || len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {
-			return fmt.Errorf("%q: a detach key is ctrl and a letter, such as ctrl+q", name)
+		if !ok || len(letter) != 1 || (letter[0] < 'a' || letter[0] > 'z') && letter != "\\" {
+			return fmt.Errorf("%q: want ctrl and a letter, such as ctrl+q, or ctrl+\\", name)
 		}
 		switch letter {
 		case "i":

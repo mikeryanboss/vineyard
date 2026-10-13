@@ -1069,7 +1069,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{write, m.refreshShown()}
 		if msg.attach {
 			id := started.ID
-			cmds = append(cmds, tea.Exec(m.backend.AttachCommand(started), func(err error) tea.Msg {
+			cmds = append(cmds, tea.Exec(m.backend.AttachCommand(started, m.attachment(started, false)), func(err error) tea.Msg {
 				return attachDoneMsg{id: id, err: err}
 			}))
 		}
@@ -1140,7 +1140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setError(msg.err)
 		}
 		id := msg.session.ID
-		return m, tea.Exec(m.backend.ShellAttachCommand(msg.session), func(err error) tea.Msg {
+		return m, tea.Exec(m.backend.ShellAttachCommand(msg.session, m.attachment(msg.session, true)), func(err error) tea.Msg {
 			return attachDoneMsg{id: id, err: err, shell: true}
 		})
 
@@ -1170,7 +1170,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = ""
 		id := msg.id
-		return m, tea.Exec(m.backend.AttachCommand(m.sessions[i]), func(err error) tea.Msg {
+		return m, tea.Exec(m.backend.AttachCommand(m.sessions[i], m.attachment(m.sessions[i], false)), func(err error) tea.Msg {
 			return attachDoneMsg{id: id, err: err}
 		})
 
@@ -2125,9 +2125,26 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 		return m.openSubagent(s, a)
 	}
 	id := s.ID
-	return m, tea.Exec(m.backend.AttachCommand(s), func(err error) tea.Msg {
+	return m, tea.Exec(m.backend.AttachCommand(s, m.attachment(s, false)), func(err error) tea.Msg {
 		return attachDoneMsg{id: id, err: err}
 	})
+}
+
+// attachment says how to attach to s's agent, or its shell: with the
+// configured keys and status bar, which lists the active sessions in s's
+// multiplexer, those its server can sample, but for the agent attached to.
+func (m Model) attachment(s session.Session, shell bool) session.Attachment {
+	how := session.Attachment{
+		Detach:    common.Keys.Global.Detach.Keys(),
+		ToggleBar: common.Keys.Global.StatusBar.Keys(),
+		ShowBar:   m.opts.Config.StatusBar,
+	}
+	for _, p := range m.sessions {
+		if (p.ID != s.ID || shell) && p.Multiplexer == s.Multiplexer && p.Status.Active() {
+			how.Peers = append(how.Peers, session.Peer{Terminal: p.TmuxName, Title: p.Title, Running: p.Status == session.StatusRunning})
+		}
+	}
+	return how
 }
 
 // handleMouse handles clicks and the wheel. A double click on the list or

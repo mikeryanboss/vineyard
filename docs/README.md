@@ -43,6 +43,7 @@ main.go
 | tmux commands | `internal/tmux/tmux.go` | `Terminal` in `internal/tui/backend.go` |
 | A session's multiplexer | `terminal` in `internal/session/manager.go` and `internal/tui/backend.go` | `multiplexers` in `main.go`; Multiplexers per Session in `architecture.md` |
 | Vineyard's server | `internal/vterm/daemon.go`, `client.go` | `vterm.go`, `attach.go`; Vineyard's Server in `architecture.md` |
+| Status bar of an attached terminal | `internal/vterm/bar.go`, `attach.go` | `attachment` in `internal/tui/app.go`; `AttachCommand` in `internal/tmux/tmux.go` |
 | Diff collection | `internal/git/diff.go` | |
 | Diff parsing, changed-word ranges | `internal/diff/diff.go` | |
 | Diff rendering | `internal/tui/diffview/` | `spans.go` for highlighting and wrapping |
