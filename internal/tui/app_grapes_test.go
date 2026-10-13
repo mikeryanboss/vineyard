@@ -115,12 +115,27 @@ func TestIssues_OpenAndCloseKeepsSelection(t *testing.T) {
 	}
 }
 
-func TestIssues_EnterOnTheIssueTabOpensGrapes(t *testing.T) {
-	m := grapesModel(t, []session.Session{{ID: "a", Title: "fix login", Status: session.StatusReady}})
+// Enter opens the issue the tab shows. Grapes keeps its screen when closed, so
+// opening it for a session without an issue would show the last issue opened.
+func TestIssues_EnterOnTheIssueTabOpensOnlyTheSessionsIssue(t *testing.T) {
+	m := grapesModel(t, []session.Session{
+		{ID: "a", Title: "embed", Status: session.StatusReady, Issue: 8},
+		{ID: "b", Title: "fix login", Status: session.StatusReady},
+	})
 	m = keys(m, "tab", "tab", "enter")
+	if !m.issuesOpen || !strings.Contains(screen(m), "Pick a session") || strings.Contains(screen(m), "Embed grapes") {
+		t.Fatalf("enter on the issue tab should open #8's detail:\n%s", screen(m))
+	}
 
-	if !m.issuesOpen {
-		t.Errorf("enter on the issue tab should open grapes, as i does:\n%s", screen(m))
+	m = keys(m, "q", "j", "enter")
+	if m.issuesOpen {
+		t.Errorf("enter on a session without an issue opened grapes:\n%s", screen(m))
+	}
+
+	m = grapesModel(t, nil)
+	m = keys(m, "tab", "tab", "enter")
+	if m.issuesOpen {
+		t.Errorf("enter without a session opened grapes:\n%s", screen(m))
 	}
 }
 

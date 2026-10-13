@@ -1937,7 +1937,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Collapse):
 		m.list = m.list.Collapse()
 		return m, nil
-	case key.Matches(msg, keys.Issues), key.Matches(msg, keys.Open) && m.tab == tabIssue:
+	case key.Matches(msg, keys.Issues):
+		return m.showIssues(s, ok)
+	case key.Matches(msg, keys.Open) && m.tab == tabIssue:
+		// Grapes keeps its screen when closed: opened for no issue, it would
+		// show the last issue opened.
+		if !ok || len(m.shownIssues(s)) == 0 {
+			return m, nil
+		}
 		return m.showIssues(s, ok)
 	case key.Matches(msg, keys.Open) && m.tab == tabRecap:
 		if ok {
