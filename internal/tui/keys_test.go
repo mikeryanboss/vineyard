@@ -40,7 +40,7 @@ func quits(m Model, msg tea.KeyPressMsg) bool {
 func TestApp_ConfiguredKeysReplaceTheDefaults(t *testing.T) {
 	ctrlG := tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}
 	m, _ := newModelWithKeys(t, testutil.Sessions(), config.Keys{
-		"global": {"quit": {"ctrl+g"}},
+		"global": {"quit": {"ctrl+g"}, "back": {"ctrl+b"}},
 		"list":   {"kill": {"x"}, "auto_yes": {}},
 	})
 
@@ -57,7 +57,12 @@ func TestApp_ConfiguredKeysReplaceTheDefaults(t *testing.T) {
 	if m = keys(m, "x"); m.dialog == nil || !strings.Contains(screen(m), "Kill \"Fix login redirect\"?") {
 		t.Fatalf("x should ask to kill:\n%s", screen(m))
 	}
-	m = keys(m, "esc")
+	if m = keys(m, "ctrl+q"); m.dialog == nil {
+		t.Fatal("ctrl+q unbound must not leave the dialog")
+	}
+	if m = send(m, tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}); m.dialog != nil {
+		t.Fatal("ctrl+b should return to the list in place of ctrl+q")
+	}
 	if quits(m, testutil.Key("ctrl+c")) || !quits(m, ctrlG) {
 		t.Error("ctrl+g should quit in place of ctrl+c")
 	}

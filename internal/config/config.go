@@ -31,6 +31,8 @@ type Profile struct {
 	// MainCheckout runs the program in the repository's main checkout instead
 	// of a new worktree and branch, as for a terminal beside the agents.
 	MainCheckout bool `toml:"main_checkout,omitempty"`
+	// Multiplexer runs the profile's sessions, instead of Config.Multiplexer.
+	Multiplexer string `toml:"multiplexer,omitempty"`
 }
 
 // Config is the user configuration.
@@ -59,13 +61,21 @@ type Config struct {
 	// Templates are prompt templates for sessions started from an issue,
 	// beside those in the templates directory.
 	Templates []Template `toml:"templates,omitempty"`
-	// Multiplexer runs the agents: MultiplexerTmux or MultiplexerVineyard.
-	// Empty means tmux when it is installed, otherwise Vineyard's server. It
-	// takes effect when Vineyard starts.
+	// Multiplexer runs new sessions whose profile names none:
+	// MultiplexerVineyard or MultiplexerTmux. Each session keeps running in
+	// the multiplexer it started in.
 	Multiplexer string `toml:"multiplexer"`
 	// Keys replace the default keys of the actions they name
 	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
 	Keys Keys `toml:"keys,omitempty"`
+}
+
+// MultiplexerFor returns the multiplexer that runs sessions of profile p.
+func (c Config) MultiplexerFor(p Profile) string {
+	if p.Multiplexer != "" {
+		return p.Multiplexer
+	}
+	return c.Multiplexer
 }
 
 // The multiplexers that can run agents.
@@ -82,6 +92,7 @@ func Defaults() Config {
 		BranchPrefix:   defaultBranchPrefix(),
 		WorktreeDir:    filepath.Join(DirName, "worktrees"),
 		DiffCommand:    "hunk diff {base} --watch",
+		Multiplexer:    MultiplexerVineyard,
 	}
 }
 
@@ -260,8 +271,29 @@ func Load(dir string) (Config, error) {
 	if len(cfg.ResolvedProfiles()) == 0 {
 		return Defaults(), fmt.Errorf("%s: every profile is disabled", Path(dir))
 	}
+	// An empty multiplexer is the "auto" files saved before Vineyard's server
+	// became the default hold.
+	if cfg.Multiplexer == "" {
+		cfg.Multiplexer = MultiplexerVineyard
+	}
+	for _, m := range append([]string{cfg.Multiplexer}, profileMultiplexers(cfg.Profiles)...) {
+		if m != MultiplexerVineyard && m != MultiplexerTmux {
+			return Defaults(), fmt.Errorf("%s: multiplexer %q: want %q or %q", Path(dir), m, MultiplexerVineyard, MultiplexerTmux)
+		}
+	}
 	if _, err := cfg.ResolvedKeys(); err != nil {
 		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)
 	}
 	return cfg, nil
+}
+
+// profileMultiplexers returns the multiplexers profiles name.
+func profileMultiplexers(profiles []Profile) []string {
+	var names []string
+	for _, p := range profiles {
+		if p.Multiplexer != "" {
+			names = append(names, p.Multiplexer)
+		}
+	}
+	return names
 }

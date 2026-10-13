@@ -52,8 +52,12 @@ type Session struct {
 	// git records where each worktree is, and Restore asks it, so a moved
 	// repository does not leave sessions pointing at old paths.
 	WorktreePath string `json:"-"`
-	// TmuxName is the session's name on Vineyard's tmux server.
+	// TmuxName names the session's terminal in its multiplexer. It kept the
+	// name from when tmux was the only multiplexer.
 	TmuxName string `json:"tmux_name"`
+	// Multiplexer names the multiplexer that runs the session's terminals,
+	// such as "tmux" or "vineyard" (see session.Manager.Terminals).
+	Multiplexer string `json:"multiplexer"`
 	// Status is the last known lifecycle state.
 	Status Status `json:"status"`
 	// AutoYes accepts the agent's permission prompts automatically.

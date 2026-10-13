@@ -10,7 +10,7 @@
                     │                                                                    │                   │
  ○ Docs pass        │  Profile                                                           │                   │
    ⑂ mboss/docs-pass│  ‹ claude ›                                                        │                   │
-                    │  Runs claude in a new worktree.                                    │                   │
+                    │  Runs claude in a new worktree, on Vineyard's server.              │                   │
  × Cache layer      │                                                                    │                   │
    ⑂ mboss/cache-lay│  Title                                                             │                   │
                     │  What is this session for?                                         │                   │

@@ -61,7 +61,7 @@ func newTestManager(t *testing.T) (*Manager, *fakeTerminal) {
 		t.Fatal(err)
 	}
 	term := newFakeTerminal()
-	m := NewManager(repo, term, "shop-1a2b3c4d")
+	m := NewManager(repo, map[string]Terminal{"vineyard": term}, "vineyard", "shop-1a2b3c4d")
 	m.now = func() time.Time { return time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC) }
 	return m, term
 }
@@ -127,7 +127,7 @@ func moveRepo(t *testing.T, m *Manager) *Manager {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next := NewManager(repo, m.Terminal, m.Project)
+	next := NewManager(repo, m.Terminals, m.Default, m.Project)
 	next.now = m.now
 	return next
 }
@@ -754,5 +754,71 @@ func TestSlug(t *testing.T) {
 		if got := Slug(in, "fallback"); got != want {
 			t.Errorf("Slug(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Sessions of one manager run in different multiplexers: each operation goes
+// to the session's own.
+func TestSessionsRunInTheirOwnMultiplexer(t *testing.T) {
+	m, vineyard := newTestManager(t)
+	tmux := newFakeTerminal()
+	m.Terminals["tmux"] = tmux
+
+	s, err := m.Start(m.New(NewOptions{Title: "on tmux", Program: "claude", WorktreeDir: worktrees(m), Multiplexer: "tmux"}), 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := startSession(t, m, "on vineyard")
+	if !tmux.Exists(s.TmuxName) || vineyard.Exists(s.TmuxName) || !vineyard.Exists(other.TmuxName) {
+		t.Fatalf("tmux runs %v, vineyard runs %v", tmux.live, vineyard.live)
+	}
+	if err := m.EnsureShell(s, 80, 24); err != nil || !tmux.Exists(s.ShellName()) {
+		t.Errorf("shell: %v; tmux runs %v", err, tmux.live)
+	}
+	if _, err := m.Kill(s, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(tmux.live) != 0 || !vineyard.Exists(other.TmuxName) {
+		t.Errorf("after kill, tmux runs %v and vineyard %v", tmux.live, vineyard.live)
+	}
+}
+
+// Restore records the multiplexer running each session, wherever the session
+// thought it ran; one that recorded none and runs nowhere gets the default.
+func TestRestore_FindsEachSessionsMultiplexer(t *testing.T) {
+	m, vineyard := newTestManager(t)
+	tmux := newFakeTerminal()
+	m.Terminals["tmux"] = tmux
+	tmux.live["moved"], tmux.live["legacy-live"], vineyard.live["home"] = "/x", "/x", "/x"
+	got := restore(t, m,
+		Session{TmuxName: "moved", Multiplexer: "vineyard"},
+		Session{TmuxName: "legacy-live"},
+		Session{TmuxName: "legacy-gone"},
+		Session{TmuxName: "home", Multiplexer: "vineyard"},
+		Session{TmuxName: "tmux-gone", Multiplexer: "tmux"},
+	)
+	want := []struct {
+		multiplexer string
+		status      Status
+	}{{"tmux", StatusReady}, {"tmux", StatusReady}, {"vineyard", StatusStopped}, {"vineyard", StatusReady}, {"tmux", StatusStopped}}
+	for i, w := range want {
+		if got[i].Multiplexer != w.multiplexer || got[i].Status != w.status {
+			t.Errorf("%s: %s, %s; want %s, %s", got[i].TmuxName, got[i].Multiplexer, got[i].Status, w.multiplexer, w.status)
+		}
+	}
+}
+
+// A session in tmux when tmux is not installed cannot start, but can be
+// killed: nothing of it runs.
+func TestUnavailableMultiplexer(t *testing.T) {
+	m, _ := newTestManager(t)
+	_, err := m.Start(m.New(NewOptions{Title: "on tmux", Program: "claude", WorktreeDir: worktrees(m), Multiplexer: "tmux"}), 80, 24)
+	if err == nil || !strings.Contains(err.Error(), "tmux, which is not installed") {
+		t.Errorf("start: err = %v, want one saying tmux is not installed", err)
+	}
+	s := startSession(t, m, "was on tmux")
+	s.Multiplexer = "tmux"
+	if _, err := m.Kill(s, false); err != nil {
+		t.Errorf("kill: %v", err)
 	}
 }

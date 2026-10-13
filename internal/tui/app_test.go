@@ -264,7 +264,7 @@ func newTestModel(t *testing.T, sessions []session.Session) (Model, *fakeBackend
 	tick = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
 	backend := &fakeBackend{screen: "✻ Thinking…\n\n> fix the redirect", diff: sampleDiff, file: slices.Clone(sessions)}
 	m := NewModel(backend, sessions, Options{
-		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/", WorktreeDir: ".vineyard/worktrees"},
+		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/", WorktreeDir: ".vineyard/worktrees", Multiplexer: config.MultiplexerVineyard},
 		RepoName:   "shop",
 		RepoRoot:   "/src/shop",
 		Version:    "0.1.0",

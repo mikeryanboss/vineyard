@@ -58,6 +58,7 @@ func TestLoad_RejectsKeysThatCannotWork(t *testing.T) {
 		{"[keys.list]\nkill = [\" \"]", "neither one character nor a key name"},
 		{"[keys.list]\nkill = [\"n\"]", `"n" is bound to both kill and new`},
 		{"[keys.pane]\nback = [\"ctrl+c\"]", "bound to global quit"},
+		{"[keys.list]\nkill = [\"ctrl+q\"]", "bound to global back"},
 		{"[keys.global]\ndetach = []", "needs a key"},
 		{"[keys.global]\ndetach = [\"q\"]", "ctrl and a letter"},
 		{"[keys.global]\ndetach = [\"ctrl+m\"]", "sends it for enter"},

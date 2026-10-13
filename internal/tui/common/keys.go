@@ -23,10 +23,11 @@ type KeyMap struct {
 	Pick     PickKeys
 }
 
-// GlobalKeys act everywhere: Quit before any other key, Detach in an
-// attached terminal.
+// GlobalKeys act everywhere: Quit and Back before any other key, Detach in
+// an attached terminal.
 type GlobalKeys struct {
 	Quit   key.Binding
+	Back   key.Binding
 	Detach key.Binding
 }
 
@@ -83,8 +84,10 @@ type SettingsKeys struct {
 	Edit     key.Binding
 	Remove   key.Binding
 	Where    key.Binding
-	Save     key.Binding
-	Back     key.Binding
+	// Multiplexer cycles a profile's multiplexer.
+	Multiplexer key.Binding
+	Save        key.Binding
+	Back        key.Binding
 }
 
 // FormKeys act while typing into the new-session dialog or a config value.
@@ -129,6 +132,7 @@ func NewKeyMap(keys config.Keys) KeyMap {
 	m := KeyMap{
 		Global: GlobalKeys{
 			Quit:   b("global", "quit"),
+			Back:   b("global", "back"),
 			Detach: b("global", "detach"),
 		},
 		List: ListKeys{
@@ -170,16 +174,17 @@ func NewKeyMap(keys config.Keys) KeyMap {
 			Back:      b("pane", "back"),
 		},
 		Settings: SettingsKeys{
-			Up:       b("settings", "up"),
-			Down:     b("settings", "down"),
-			Left:     b("settings", "left"),
-			Right:    b("settings", "right"),
-			NextPane: b("settings", "next_pane"),
-			Edit:     b("settings", "edit"),
-			Remove:   b("settings", "remove"),
-			Where:    b("settings", "where"),
-			Save:     b("settings", "save"),
-			Back:     b("settings", "back"),
+			Up:          b("settings", "up"),
+			Down:        b("settings", "down"),
+			Left:        b("settings", "left"),
+			Right:       b("settings", "right"),
+			NextPane:    b("settings", "next_pane"),
+			Edit:        b("settings", "edit"),
+			Remove:      b("settings", "remove"),
+			Where:       b("settings", "where"),
+			Multiplexer: b("settings", "multiplexer"),
+			Save:        b("settings", "save"),
+			Back:        b("settings", "back"),
 		},
 		Form: FormKeys{
 			Submit:     b("form", "submit"),

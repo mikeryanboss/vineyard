@@ -19,15 +19,16 @@ issue tracker, embedded, and links each issue to the sessions working on it.
 ```text
 main.go
   -> find the repository, load .vineyard/config.toml
-  -> pick the multiplexer: tmux or Vineyard's server (multiplexer in config.toml)
-  -> reconcile sessions.json with git worktrees and live terminals, under its lock
+  -> make the multiplexers: Vineyard's server, and tmux when installed
+  -> reconcile sessions.json with git worktrees and live terminals, under its lock;
+     each session runs in the multiplexer it records
   -> load grapes for the repository's .grapes directory, if any
   -> run the root TUI model (internal/tui/app.go)
-       polls the multiplexer: selected screen (150ms), all screens (1s) -> running/ready
+       polls each session's multiplexer: selected screen (150ms), all screens (1s) -> running/ready
        reloads sessions.json (1s): other Vineyards on the repository change it
        polls git: selected diff, others' line counts (2s)
        runs lifecycle operations in commands -> result messages -> state
-  -> sessions keep running in the multiplexer after exit
+  -> sessions keep running in their multiplexers after exit
 ```
 
 ## Where to Look
@@ -40,7 +41,7 @@ main.go
 | Several Vineyards on one repository | Several Vineyards in `architecture.md` | `adopt` in `internal/tui/app.go` |
 | Running/ready detection, prompts | `internal/session/screen.go` | `applyStatus` in `internal/tui/app.go` |
 | tmux commands | `internal/tmux/tmux.go` | `Terminal` in `internal/tui/backend.go` |
-| Choosing tmux or Vineyard's server | `multiplexers` in `main.go` | Choosing a Multiplexer in `architecture.md` |
+| A session's multiplexer | `terminal` in `internal/session/manager.go` and `internal/tui/backend.go` | `multiplexers` in `main.go`; Multiplexers per Session in `architecture.md` |
 | Vineyard's server | `internal/vterm/daemon.go`, `client.go` | `vterm.go`, `attach.go`; Vineyard's Server in `architecture.md` |
 | Diff collection | `internal/git/diff.go` | |
 | Diff parsing, changed-word ranges | `internal/diff/diff.go` | |

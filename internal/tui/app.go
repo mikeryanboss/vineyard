@@ -1828,10 +1828,15 @@ func (m *Model) showTab(t tab) tea.Cmd {
 }
 
 func (m Model) profiles() []config.Profile {
+	profiles := m.opts.Config.ResolvedProfiles()
 	if m.opts.Program != "" {
-		return []config.Profile{{Name: session.ProgramName(m.opts.Program), Program: m.opts.Program}}
+		profiles = []config.Profile{{Name: session.ProgramName(m.opts.Program), Program: m.opts.Program}}
 	}
-	return m.opts.Config.ResolvedProfiles()
+	// Each names its multiplexer, which the new session dialog shows.
+	for i, p := range profiles {
+		profiles[i].Multiplexer = m.opts.Config.MultiplexerFor(p)
+	}
+	return profiles
 }
 
 // createSession creates and starts the session msg asks for, attaching to
@@ -1850,6 +1855,7 @@ func (m Model) createSession(msg common.NewSessionMsg, attach bool) (tea.Model, 
 		WorktreeDir:  worktreeDir,
 		Issue:        msg.Issue,
 		MainCheckout: msg.Profile.MainCheckout,
+		Multiplexer:  msg.Profile.Multiplexer,
 	})
 	m.issuesOpen = false // show the new session, even when started from an issue
 	m.sessions = append(m.sessions, s)
@@ -1890,8 +1896,18 @@ func (m Model) runConfirmed(msg common.ConfirmedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if key.Matches(msg, common.Keys.Global.Quit) {
+	switch {
+	case key.Matches(msg, common.Keys.Global.Quit):
 		return m, tea.Quit
+	case key.Matches(msg, common.Keys.Global.Back):
+		// Returns to the session list from anywhere, as the detach key does
+		// from an attached agent or shell. On the list it does nothing.
+		m.dialog = nil
+		m.configOpen = false
+		m.issuesOpen = false
+		m.setFocus(focusList)
+		m.setZoom(false)
+		return m, nil
 	}
 	if m.dialog != nil {
 		var cmd tea.Cmd

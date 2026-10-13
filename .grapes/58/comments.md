@@ -9,3 +9,9 @@
 
 ### 2026-10-13T13:56
 [DONE] Files: internal/config/keys.go (new), config.go, tui/common/keys.go, tui/app.go, backend.go, dialog, settings, list, preview, textview, diffview, tmux, vterm (protocol 2), README, docs. Out of scope: bubbles' text-editing keys, grapes' keys, editing keys on the config screen.
+
+### 2026-10-13T14:30
+[PROGRESS] Merged main after #46 (ctrl+q back to the list) and #48 (per-session multiplexer) landed. Their hard-coded keys became actions: `global.back` (ctrl+q, checked against every mode like `global.quit`) and `settings.multiplexer` (m). The `unavailable` multiplexer's `Attach` takes the detach keys.
+
+### 2026-10-13T14:32
+[VERIFY] `gofmt -l .` empty; `go vet ./...` clean; `go test -count=1 ./...` PASS, including #46's `TestApp_CtrlQReturnsToTheList` and new cases for a rebound back key and a back-key clash. Manual: with `back = ["ctrl+b"]` and `multiplexer = ["M"]`, the config screen's hints showed `M multiplexer`, ctrl+q left it open, ctrl+b returned to the list. PASS.

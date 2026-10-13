@@ -26,14 +26,14 @@ cd /tmp/vy/demo && VINEYARD_SOCKET=vy-dev /tmp/vy/vineyard -p bash
 `-p bash` makes every session a plain shell, which is enough to exercise
 creation, preview, attach, diff, and lifecycle without starting real agents.
 
-To exercise Vineyard's own server instead of tmux, set it in the throwaway
-repository's configuration:
+New sessions run on Vineyard's own server. To exercise tmux, set it in the
+throwaway repository's configuration, or on one profile:
 
 ```sh
-printf 'multiplexer = "vineyard"\n' >> /tmp/vy/demo/.vineyard/config.toml
+printf 'multiplexer = "tmux"\n' >> /tmp/vy/demo/.vineyard/config.toml
 ```
 
-Its server outlives the development build, and a rebuilt Vineyard of another
+Vineyard's server outlives the development build, and a rebuilt Vineyard of another
 `protocol` refuses to use it. `vineyard debug` prints its socket; the server
 stops by itself once its agents end and no Vineyard runs, or end it with
 `pkill -f 'vineyard server'`.

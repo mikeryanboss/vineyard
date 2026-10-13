@@ -64,9 +64,9 @@ type field struct {
 
 var categories = []string{"General", "Profiles"}
 
-// autoMultiplexer is the multiplexer option that leaves it unset: tmux when it
-// is installed, otherwise Vineyard's server.
-const autoMultiplexer = "auto"
+// profileMultiplexers are the multiplexers m cycles a profile through: the
+// configured default (""), then each one.
+var profileMultiplexers = []string{"", config.MultiplexerTmux, config.MultiplexerVineyard}
 
 type editMode int
 
@@ -158,7 +158,7 @@ func (m Model) fields() []field {
 			{id: idAutoYes, label: "Auto-yes for new sessions", kind: fieldEnum, options: []string{"off", "on"}},
 			{id: idWorktreeDir, label: "Worktree directory", kind: fieldText},
 			{id: idDiffCommand, label: "Diff tool", kind: fieldText},
-			{id: idMultiplexer, label: "Multiplexer (on restart)", kind: fieldEnum, options: []string{autoMultiplexer, config.MultiplexerTmux, config.MultiplexerVineyard}},
+			{id: idMultiplexer, label: "Multiplexer", kind: fieldEnum, options: []string{config.MultiplexerVineyard, config.MultiplexerTmux}},
 		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
@@ -192,9 +192,6 @@ func (m Model) value(f field) string {
 	case idDiffCommand:
 		return m.cfg.DiffCommand
 	case idMultiplexer:
-		if m.cfg.Multiplexer == "" {
-			return autoMultiplexer
-		}
 		return m.cfg.Multiplexer
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
@@ -215,10 +212,7 @@ func (m *Model) setValue(f field, v string) {
 	case idDiffCommand:
 		m.cfg.DiffCommand = v
 	case idMultiplexer:
-		m.cfg.Multiplexer = ""
-		if v != autoMultiplexer {
-			m.cfg.Multiplexer = v
-		}
+		m.cfg.Multiplexer = v
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}
@@ -331,6 +325,12 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		if f, ok := m.currentField(); ok && f.kind == fieldProfile {
 			p := &m.cfg.Profiles[f.profile]
 			p.MainCheckout = !p.MainCheckout
+		}
+	case key.Matches(msg, keys.Multiplexer):
+		if f, ok := m.currentField(); ok && f.kind == fieldProfile {
+			p := &m.cfg.Profiles[f.profile]
+			i := slices.Index(profileMultiplexers, p.Multiplexer)
+			p.Multiplexer = profileMultiplexers[(i+1)%len(profileMultiplexers)]
 		}
 	}
 	return m, nil
@@ -597,7 +597,7 @@ func (m Model) Hints() [][2]string {
 		case config.IsBuiltin(name):
 			remove = "disable"
 		}
-		hints = append(hints, [2]string{hint(keys.Where), "worktree/main checkout"}, [2]string{hint(keys.Remove), remove})
+		hints = append(hints, [2]string{hint(keys.Where), "worktree/main checkout"}, [2]string{hint(keys.Multiplexer), "multiplexer"}, [2]string{hint(keys.Remove), remove})
 	}
 	return append(hints, [2]string{hint(keys.Save), "save"}, [2]string{hint(keys.Back), "back"})
 }
@@ -668,6 +668,9 @@ func (m Model) View() string {
 		}
 		if f.kind == fieldProfile && m.cfg.Profiles[f.profile].MainCheckout {
 			value += t.StyleFaint.Render("  in the main checkout")
+		}
+		if f.kind == fieldProfile && m.cfg.Profiles[f.profile].Multiplexer != "" {
+			value += t.StyleFaint.Render("  in " + m.cfg.Profiles[f.profile].Multiplexer)
 		}
 		if f.kind == fieldProfile && m.cfg.Disabled(m.cfg.Profiles[f.profile].Name) {
 			value += t.StyleFaint.Render("  disabled")

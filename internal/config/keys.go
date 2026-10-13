@@ -19,7 +19,8 @@ type Keys map[string]map[string][]string
 // DefaultKeys returns the key bindings of every mode and action. The modes
 // are:
 //
-//   - global: quit works everywhere; detach returns from an attached terminal
+//   - global: quit and back, to the session list, work everywhere; detach
+//     returns from an attached terminal
 //   - list: the session list
 //   - pane: the preview, diff, issue, terminal, or recap pane once it has focus
 //   - settings: the config screen
@@ -30,6 +31,7 @@ func DefaultKeys() Keys {
 	return Keys{
 		"global": {
 			"quit":   {"ctrl+c"},
+			"back":   {"ctrl+q"},
 			"detach": {"ctrl+q"},
 		},
 		"list": {
@@ -71,16 +73,17 @@ func DefaultKeys() Keys {
 			"back":       {"esc", "h", "left", "q"},
 		},
 		"settings": {
-			"up":        {"k", "up"},
-			"down":      {"j", "down"},
-			"left":      {"h", "left"},
-			"right":     {"l", "right"},
-			"next_pane": {"tab"},
-			"edit":      {"enter"},
-			"remove":    {"x", "delete"},
-			"where":     {"w"},
-			"save":      {"ctrl+s"},
-			"back":      {"esc"},
+			"up":          {"k", "up"},
+			"down":        {"j", "down"},
+			"left":        {"h", "left"},
+			"right":       {"l", "right"},
+			"next_pane":   {"tab"},
+			"edit":        {"enter"},
+			"remove":      {"x", "delete"},
+			"where":       {"w"},
+			"multiplexer": {"m"},
+			"save":        {"ctrl+s"},
+			"back":        {"esc"},
 		},
 		"form": {
 			"submit":      {"enter"},
@@ -108,8 +111,8 @@ func DefaultKeys() Keys {
 // ResolvedKeys returns the default keys with those the configuration sets
 // in their place, and an error when the configuration names a mode or
 // action that does not exist, a key Bubble Tea never reports, a key two
-// actions of a mode share, a key of the global quit that a mode also binds,
-// or a detach key that is not ctrl and a letter.
+// actions of a mode share, a key of the global quit or back that a mode also
+// binds, or a detach key that is not ctrl and a letter.
 func (c Config) ResolvedKeys() (Keys, error) {
 	keys := DefaultKeys()
 	for _, mode := range slices.Sorted(maps.Keys(c.Keys)) {
@@ -133,9 +136,8 @@ func (c Config) ResolvedKeys() (Keys, error) {
 	if err := checkDetach(keys["global"]["detach"]); err != nil {
 		return nil, fmt.Errorf("keys.global.detach: %w", err)
 	}
-	quit := keys["global"]["quit"]
 	for _, mode := range slices.Sorted(maps.Keys(keys)) {
-		if mode == "global" { // quit and detach never act at the same time
+		if mode == "global" { // detach acts only where quit and back do not
 			continue
 		}
 		bound := map[string]string{} // key to the action bound to it
@@ -144,8 +146,10 @@ func (c Config) ResolvedKeys() (Keys, error) {
 				if other, ok := bound[name]; ok {
 					return nil, fmt.Errorf("keys.%s: %q is bound to both %s and %s", mode, name, other, action)
 				}
-				if slices.Contains(quit, name) {
-					return nil, fmt.Errorf("keys.%s.%s: %q is bound to global quit, which comes first", mode, action, name)
+				for _, global := range []string{"quit", "back"} {
+					if slices.Contains(keys["global"][global], name) {
+						return nil, fmt.Errorf("keys.%s.%s: %q is bound to global %s, which comes first", mode, action, name, global)
+					}
 				}
 				bound[name] = action
 			}
