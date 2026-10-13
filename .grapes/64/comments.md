@@ -6,3 +6,6 @@
 
 ### 2026-10-13T16:56
 [VERIFY] gofmt -l . (no output), go vet ./... clean, go test ./... PASS. New: TestBarSuitsTheBackground (254 light, 238 dark, "no other sessions"), dark case in TestApp_AttachListsTheOtherSessionsInTheStatusBar. Real app in tmux, which reports no background, so the TUI is light: the bar is drawn with 48;5;254 and the render on a Solarized light canvas reads well (.grapes/64/tmp/light-{running,finished}.png). PASS
+
+### 2026-10-13T17:10
+[FINDINGS] Correction: the user's terminal is VS Code's integrated terminal with a white background, not Solarized light. The kitty theme.conf I read belongs to the kitty that launched VS Code; its KITTY_* variables leaked into VS Code's environment. The fix holds: the light bar (254) on white renders well (.grapes/64/tmp/white-{running,finished}.png).

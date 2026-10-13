@@ -4,7 +4,7 @@ too, and says so when there is nothing to list.
 
 ## Description
 The bar has one fixed palette: background 238 (#444444) with light text. On
-a light terminal, such as the user's Solarized light, it reads as a dark grey
+a light terminal, such as the user's white VS Code terminal, it reads as a dark grey
 stripe ("it's just like a gray bar"). With no other sessions to list, it shows
 only the key hints at the far right, so it looks empty.
 
