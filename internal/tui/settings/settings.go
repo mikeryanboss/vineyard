@@ -49,6 +49,7 @@ const (
 	idAutoYes
 	idWorktreeDir
 	idDiffCommand
+	idMultiplexer
 	idProfile
 	idAddProfile
 )
@@ -62,6 +63,10 @@ type field struct {
 }
 
 var categories = []string{"General", "Profiles"}
+
+// autoMultiplexer is the multiplexer option that leaves it unset: tmux when it
+// is installed, otherwise Vineyard's server.
+const autoMultiplexer = "auto"
 
 type editMode int
 
@@ -153,6 +158,7 @@ func (m Model) fields() []field {
 			{id: idAutoYes, label: "Auto-yes for new sessions", kind: fieldEnum, options: []string{"off", "on"}},
 			{id: idWorktreeDir, label: "Worktree directory", kind: fieldText},
 			{id: idDiffCommand, label: "Diff tool", kind: fieldText},
+			{id: idMultiplexer, label: "Multiplexer (on restart)", kind: fieldEnum, options: []string{autoMultiplexer, config.MultiplexerTmux, config.MultiplexerVineyard}},
 		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
@@ -185,6 +191,11 @@ func (m Model) value(f field) string {
 		return m.cfg.WorktreeDir
 	case idDiffCommand:
 		return m.cfg.DiffCommand
+	case idMultiplexer:
+		if m.cfg.Multiplexer == "" {
+			return autoMultiplexer
+		}
+		return m.cfg.Multiplexer
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
 	}
@@ -203,6 +214,11 @@ func (m *Model) setValue(f field, v string) {
 		m.cfg.WorktreeDir = v
 	case idDiffCommand:
 		m.cfg.DiffCommand = v
+	case idMultiplexer:
+		m.cfg.Multiplexer = ""
+		if v != autoMultiplexer {
+			m.cfg.Multiplexer = v
+		}
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}

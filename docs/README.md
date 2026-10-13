@@ -6,11 +6,11 @@ links only as far as the task requires.
 ## What Vineyard Is
 
 A Go terminal application that runs coding agents in parallel. A session is one
-agent program in a detached tmux session (or, without tmux, on a pseudo-terminal
-inside Vineyard), working in its own git worktree and
-branch. The TUI lists sessions, mirrors the selected agent's screen, shows its
-diff, its issue, and its conversation with Claude Code's recaps, lists Claude Code's
-subagents under it with their status, and hands the terminal to tmux when the user
+agent program in a detached terminal of a multiplexer, tmux or Vineyard's own
+server, working in its own git worktree and branch. The TUI lists sessions,
+mirrors the selected agent's screen, shows its diff, its issue, and its
+conversation with Claude Code's recaps, lists Claude Code's subagents under it
+with their status, and hands the terminal to the multiplexer when the user
 attaches. Its issues screen is the [grapes](https://github.com/Mibokess/grapes)
 issue tracker, embedded, and links each issue to the sessions working on it.
 
@@ -19,14 +19,15 @@ issue tracker, embedded, and links each issue to the sessions working on it.
 ```text
 main.go
   -> find the repository, load .vineyard/config.toml
-  -> reconcile sessions.json with git worktrees and live tmux sessions, under its lock
+  -> pick the multiplexer: tmux or Vineyard's server (multiplexer in config.toml)
+  -> reconcile sessions.json with git worktrees and live terminals, under its lock
   -> load grapes for the repository's .grapes directory, if any
   -> run the root TUI model (internal/tui/app.go)
-       polls tmux: selected screen (150ms), all screens (1s) -> running/ready
+       polls the multiplexer: selected screen (150ms), all screens (1s) -> running/ready
        reloads sessions.json (1s): other Vineyards on the repository change it
        polls git: selected diff, others' line counts (2s)
        runs lifecycle operations in commands -> result messages -> state
-  -> sessions keep running in tmux after exit
+  -> sessions keep running in the multiplexer after exit
 ```
 
 ## Where to Look
@@ -39,7 +40,8 @@ main.go
 | Several Vineyards on one repository | Several Vineyards in `architecture.md` | `adopt` in `internal/tui/app.go` |
 | Running/ready detection, prompts | `internal/session/screen.go` | `applyStatus` in `internal/tui/app.go` |
 | tmux commands | `internal/tmux/tmux.go` | `Terminal` in `internal/tui/backend.go` |
-| Agents without tmux | `internal/vterm/vterm.go` | `attach.go`; Without tmux in `architecture.md` |
+| Choosing tmux or Vineyard's server | `multiplexers` in `main.go` | Choosing a Multiplexer in `architecture.md` |
+| Vineyard's server | `internal/vterm/daemon.go`, `client.go` | `vterm.go`, `attach.go`; Vineyard's Server in `architecture.md` |
 | Diff collection | `internal/git/diff.go` | |
 | Diff parsing, changed-word ranges | `internal/diff/diff.go` | |
 | Diff rendering | `internal/tui/diffview/` | `spans.go` for highlighting and wrapping |
@@ -67,14 +69,14 @@ main.go                    CLI and TUI bootstrap
 internal/config/           config schema, defaults, data directory layout
 internal/git/              git CLI wrapper: worktrees, commits, pushes, diffs
 internal/tmux/             tmux client on Vineyard's private socket
-internal/vterm/            agents on pseudo-terminals in this process, when tmux is missing
+internal/vterm/            Vineyard's own multiplexer: background server and its client
 internal/session/          session model, lifecycle manager, store, screen detection
 internal/diff/             unified diff parser
 internal/recap/            Claude Code transcripts: a session's title, messages, and recaps
 internal/subagent/         Claude Code's subagents: read from its transcripts and screen, opened by its keys
 internal/prompt/           rendering an issue session's prompt from a template
 internal/tui/app.go        root Bubble Tea model
-internal/tui/backend.go    the root model's seam to tmux, git, and storage
+internal/tui/backend.go    the root model's seam to the multiplexer, git, and storage
 internal/tui/list/         session list view
 internal/tui/preview/      terminal mirror view
 internal/tui/diffview/     diff view
@@ -113,10 +115,12 @@ doc/                       README demo GIF and its VHS tape
   in every Vineyard.
 - Never press Esc in Claude Code unless the screen shows its agent list
   focused: anywhere else Esc interrupts the agent.
-- Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_TMUX_SOCKET`), so
-  its key bindings never reach the user's own tmux server.
-- Without tmux, the Vineyard holds the lead from startup and refuses to start
-  when another leads: no other process can see its agents.
+- Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_SOCKET`), so
+  its key bindings never reach the user's own tmux server. Vineyard's server
+  uses the same name.
+- Change `protocol` in `internal/vterm/daemon.go` with any change to the
+  server's calls: a running server outlives the Vineyard that started it, so
+  a newer Vineyard may meet an older server.
 
 ## Verify a Change
 

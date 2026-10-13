@@ -6,8 +6,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mikeryanboss/vineyard/internal/config"
+	"github.com/mikeryanboss/vineyard/internal/session"
+	"github.com/mikeryanboss/vineyard/internal/tui"
+	"github.com/mikeryanboss/vineyard/internal/vterm"
 )
 
 func TestRun_CommandsAndUsageErrors(t *testing.T) {
@@ -91,5 +97,42 @@ func TestRun_DebugPrintsPaths(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".vineyard")); !os.IsNotExist(err) {
 		t.Error("debug created .vineyard")
+	}
+}
+
+// Unset, the multiplexer is tmux when tmux is installed, otherwise Vineyard's
+// server; tmux without tmux installed, or an unknown one, is an error.
+func TestMultiplexers_WithoutTmux(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	chosen, other, err := multiplexers("")
+	if _, ok := chosen.(*vterm.Client); !ok || other != nil || err != nil {
+		t.Errorf("unset: %T, %v, %v; want Vineyard's server alone", chosen, other, err)
+	}
+	for _, configured := range []string{config.MultiplexerTmux, "screen"} {
+		if _, _, err := multiplexers(configured); err == nil {
+			t.Errorf("%q without tmux was accepted", configured)
+		}
+	}
+}
+
+// liveIn is a multiplexer in which the named terminals exist.
+type liveIn struct {
+	tui.Terminal
+	names []string
+}
+
+func (l liveIn) Exists(name string) bool { return slices.Contains(l.names, name) }
+
+// A session still running in the multiplexer not configured would look
+// stopped, and resuming it would run a second agent in its worktree.
+func TestRunningElsewhere_RefusesSessionsAliveInTheOtherMultiplexer(t *testing.T) {
+	saved := []session.Session{{Title: "fix parser", TmuxName: "vy-a"}, {Title: "docs", TmuxName: "vy-b"}}
+	if err := runningElsewhere(saved, liveIn{names: []string{"other"}}); err != nil {
+		t.Errorf("no saved session runs there, but: %v", err)
+	}
+	err := runningElsewhere(saved, liveIn{names: []string{"vy-b-shell"}})
+	if err == nil || !strings.Contains(err.Error(), "docs") || strings.Contains(err.Error(), "fix parser") {
+		t.Errorf("err = %v, want one naming docs alone", err)
 	}
 }

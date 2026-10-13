@@ -19,7 +19,7 @@ Set TypingSpeed 50ms
 
 # Off camera: create the repository and start agents on issues #2 and #3.
 Hide
-Type "doc/vhs/demo-repo.sh /tmp/vineyard-demo && cd /tmp/vineyard-demo && export VINEYARD_TMUX_SOCKET=vineyard-demo"
+Type "doc/vhs/demo-repo.sh /tmp/vineyard-demo && cd /tmp/vineyard-demo && export VINEYARD_SOCKET=vineyard-demo"
 Enter
 Sleep 1s
 Type "$OLDPWD/doc/vhs/demo-submit.sh 240 & vineyard -y -i 2"

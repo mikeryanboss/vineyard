@@ -18,19 +18,14 @@ model, rebuilt on Bubble Tea v2.
 - **Issues.** Vineyard embeds the [grapes](https://github.com/Mibokess/grapes)
   issue tracker. Start an agent from an issue, and see which session works on
   which issue.
-- **Persistent.** Agents keep running in tmux after you quit; the next launch
-  picks them up. This needs tmux; see Install.
+- **Persistent.** Agents keep running after you quit, in tmux or in Vineyard's
+  own terminal server; the next launch picks them up.
 
 ## Install
 
-Requires git 2.48 or newer, and tmux for the full feature set. Vineyard runs
-agents in tmux whenever tmux is installed. Without it, Vineyard falls back to a
-built-in terminal, and these need tmux:
-
-- Agents that keep running after Vineyard quits. Without tmux they stop, and
-  resuming one continues its Claude Code conversation.
-- Several Vineyards on one repository. Without tmux a second one refuses to
-  start.
+Requires git 2.48 or newer. tmux is optional: Vineyard runs agents in tmux
+when it is installed, and otherwise in its own terminal server. Set
+`multiplexer` in the configuration to choose.
 
 Download a Linux or macOS build from the
 [releases](https://github.com/mikeryanboss/vineyard/releases), or build with
@@ -88,6 +83,7 @@ branch_prefix = "mboss/"              # defaults to your username
 auto_yes = false
 worktree_dir = ".vineyard/worktrees"  # relative to the repository, absolute, or ~/...
 diff_command = "hunk diff {base} --watch"  # run by enter on the Diff tab
+multiplexer = "vineyard"              # or "tmux"; unset: tmux if installed
 
 disabled_profiles = ["terminal"]     # built-in profiles not to offer
 
@@ -118,6 +114,11 @@ replaced by the commit where the session's own work begins: where its branch
 forks from `origin/HEAD`, even after a rebase or merge. The default is
 [Hunk](https://github.com/modem-dev/hunk). When the command is empty or its
 program is not installed, `enter` shows Vineyard's own diff full-screen instead.
+
+`multiplexer` chooses what runs the agents, from the next launch: `tmux`, or
+`vineyard` for Vineyard's own terminal server. Vineyard refuses to start while
+a session still runs in the multiplexer it is not set to; end it there, or
+set `multiplexer` back.
 
 ### Prompt templates
 
@@ -171,10 +172,11 @@ ls`). The preview mirrors the agent's screen with `tmux capture-pane`. An agent
 whose screen keeps changing is working; one whose screen is still is waiting
 for you. Attaching hands the terminal to tmux.
 
-Without tmux, Vineyard runs each agent on a pseudo-terminal of its own and
-mirrors it with a built-in terminal emulator. Attaching and ctrl-q work the
-same, but the agents end when Vineyard quits, and only one Vineyard can run on
-a repository.
+Without tmux, or with `multiplexer = "vineyard"`, Vineyard starts its own
+terminal server in the background, which works like tmux's: it runs each agent
+on a pseudo-terminal, mirrors it with a built-in terminal emulator, and keeps
+running after Vineyard quits until its last agent ends. Attaching and ctrl-q
+work the same; `vineyard debug` prints the server's socket.
 
 You can run several Vineyards on one repository, for example one per terminal
 window; they share the session list and show each other's changes within a

@@ -1,5 +1,5 @@
-// Command vineyard runs coding agents side by side, each in its own tmux
-// session and git worktree, and shows them in one terminal UI.
+// Command vineyard runs coding agents side by side, each in its own terminal
+// and git worktree, and shows them in one terminal UI.
 package main
 
 import (
@@ -77,6 +77,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	rest := flags.Args()
+	if len(rest) == 2 && rest[0] == "server" {
+		// Vineyard starts its terminal server this way; see vterm.Client.
+		if err := vterm.Serve(rest[1]); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if len(rest) > 1 {
 		fmt.Fprintf(stderr, "%s does not accept arguments\n\n", rest[0])
 		writeHelp(stderr)
@@ -126,27 +134,16 @@ func runTUI(program string, autoYes bool, issue int) error {
 	if err != nil {
 		return fmt.Errorf("worktree directory: %w", err)
 	}
-	// Without tmux, agents run in this process, which no other Vineyard can
-	// see, so this one must be the only Vineyard on the repository. It holds
-	// the lead from before Restore, which stops the sessions it finds running.
 	leader := session.NewLeader(dir)
-	var terminals tui.Terminal = tmux.New(tmuxSocket())
-	var notice string
-	if _, err := exec.LookPath("tmux"); err != nil {
-		lead, err := leader.Lead()
-		if err != nil {
-			return err
-		}
-		if !lead {
-			return errors.New("another Vineyard is running on this repository; running several at once needs tmux")
-		}
-		builtin := vterm.New()
-		defer builtin.Close()
-		terminals = builtin
-		notice = "tmux not found. Keeping agents running after quit, and several Vineyards per repository, need tmux."
+	terminals, other, err := multiplexers(cfg.Multiplexer)
+	if err != nil {
+		return err
 	}
 	manager := session.NewManager(repo, terminals, config.ProjectName(repo.Root))
 	sessions, err := store.Update(func(saved []session.Session) ([]session.Session, error) {
+		if err := runningElsewhere(saved, other); err != nil {
+			return nil, err
+		}
 		return manager.Restore(saved, worktreeDir)
 	})
 	if err != nil {
@@ -176,7 +173,6 @@ func runTUI(program string, autoYes bool, issue int) error {
 		Grapes:     grapes,
 		GrapesErr:  grapesErr,
 		Issue:      issue,
-		Notice:     notice,
 	}
 	model := tui.NewModel(tui.LiveBackend{Manager: manager, Terminal: terminals, Store: store, Leader: leader, Transcripts: subagent.NewReader(), Dir: dir}, sessions, opts)
 
@@ -227,10 +223,78 @@ func terminal() (in, out *os.File, closeTTY func(), err error) {
 	}, nil
 }
 
-// tmuxSocket returns the tmux socket for agent sessions. VINEYARD_TMUX_SOCKET
-// overrides it, which keeps development runs away from real sessions.
-func tmuxSocket() string {
-	if socket := os.Getenv("VINEYARD_TMUX_SOCKET"); socket != "" {
+// multiplexers returns the multiplexer configured to run agents, and the
+// other one, or nil when the other is tmux and tmux is not installed.
+func multiplexers(configured string) (chosen, other tui.Terminal, err error) {
+	_, err = exec.LookPath("tmux")
+	hasTmux := err == nil
+	if configured == "" {
+		configured = config.MultiplexerVineyard
+		if hasTmux {
+			configured = config.MultiplexerTmux
+		}
+	}
+	server, err := vineyardServer()
+	if err != nil {
+		return nil, nil, err
+	}
+	switch configured {
+	case config.MultiplexerTmux:
+		if !hasTmux {
+			return nil, nil, fmt.Errorf("config.toml sets multiplexer = %q, but tmux is not installed", configured)
+		}
+		return tmux.New(socketName()), server, nil
+	case config.MultiplexerVineyard:
+		if hasTmux {
+			return server, tmux.New(socketName()), nil
+		}
+		return server, nil, nil
+	}
+	return nil, nil, fmt.Errorf("config.toml sets multiplexer = %q; want %q, %q, or nothing", configured, config.MultiplexerTmux, config.MultiplexerVineyard)
+}
+
+// vineyardServer returns a client of Vineyard's own terminal server, which
+// this executable runs.
+func vineyardServer() (*vterm.Client, error) {
+	socket, err := vterm.SocketPath(socketName())
+	if err != nil {
+		return nil, err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	return vterm.NewClient(socket, exe, "server", socket), nil
+}
+
+// runningElsewhere fails when a saved session still runs in other, the
+// multiplexer not configured: Restore would find it stopped, and resuming it
+// would start a second agent in its worktree.
+func runningElsewhere(saved []session.Session, other tui.Terminal) error {
+	if other == nil {
+		return nil
+	}
+	var titles []string
+	for _, s := range saved {
+		if other.Exists(s.TmuxName) || other.Exists(s.ShellName()) {
+			titles = append(titles, s.Title)
+		}
+	}
+	if len(titles) == 0 {
+		return nil
+	}
+	name := config.MultiplexerTmux
+	if _, ok := other.(*vterm.Client); ok {
+		name = config.MultiplexerVineyard
+	}
+	return fmt.Errorf("sessions %s still run in %s, which config.toml does not set as multiplexer; set multiplexer = %q, or end them there", strings.Join(titles, ", "), name, name)
+}
+
+// socketName names the socket of the multiplexer that runs agents, tmux's or
+// Vineyard's own server's. VINEYARD_SOCKET overrides it, which keeps
+// development runs away from real sessions.
+func socketName() string {
+	if socket := os.Getenv("VINEYARD_SOCKET"); socket != "" {
 		return socket
 	}
 	return tmux.DefaultSocket
@@ -239,9 +303,14 @@ func tmuxSocket() string {
 func runDebug(stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "version:     %s\n", version)
 	if _, err := exec.LookPath("tmux"); err != nil {
-		fmt.Fprintf(stdout, "tmux socket: none, tmux not found; agents run inside Vineyard\n")
+		fmt.Fprintf(stdout, "tmux socket: none, tmux not found\n")
 	} else {
-		fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", tmuxSocket(), tmuxSocket())
+		fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", socketName(), socketName())
+	}
+	if server, err := vineyardServer(); err == nil {
+		fmt.Fprintf(stdout, "server:      %s\n", server.Socket())
+	} else {
+		fmt.Fprintf(stdout, "server:      %v\n", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -261,6 +330,11 @@ func runDebug(stdout, stderr io.Writer) int {
 	if cfgErr != nil {
 		fmt.Fprintf(stdout, "             unreadable, using defaults: %v\n", cfgErr)
 	}
+	multiplexer := cfg.Multiplexer
+	if multiplexer == "" {
+		multiplexer = "tmux if installed, otherwise vineyard"
+	}
+	fmt.Fprintf(stdout, "multiplexer: %s\n", multiplexer)
 	fmt.Fprintf(stdout, "sessions:    %s\n", session.NewStore(dir).Path())
 	if worktrees, err := config.ResolveWorktreeDir(repo.Root, cfg.WorktreeDir); err == nil {
 		fmt.Fprintf(stdout, "worktrees:   %s\n", worktrees)
@@ -287,10 +361,11 @@ COMMANDS:
   version                   Print the version
   help                      Show this help
 
-Sessions keep running in tmux after vineyard exits; the next launch picks them up.
+Sessions keep running after vineyard exits, in tmux or in Vineyard's own terminal
+server (multiplexer in config.toml); the next launch picks them up.
 Each repository keeps its configuration and sessions in .vineyard/ in its main checkout;
 only .vineyard/config.toml is meant to be committed.
-Agent sessions run on the tmux socket "vineyard" (override with VINEYARD_TMUX_SOCKET).
+Agent sessions run on the socket "vineyard" (override with VINEYARD_SOCKET).
 `)
 }
 

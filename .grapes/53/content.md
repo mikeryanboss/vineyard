@@ -58,19 +58,19 @@ Planned:
   `Options.Notice`).
 
 ## Acceptance Criteria
-- [ ] With `multiplexer = "vineyard"`, an agent started by one Vineyard keeps
+- [x] With `multiplexer = "vineyard"`, an agent started by one Vineyard keeps
       running after it quits, and the next Vineyard shows it running.
-- [ ] Two Vineyards on one repository both run with Vineyard's server.
-- [ ] Attaching through the server draws the agent, passes keys, resizes with
+- [x] Two Vineyards on one repository both run with Vineyard's server.
+- [x] Attaching through the server draws the agent, passes keys, resizes with
       the user's terminal, and detaches on ctrl-q.
-- [ ] Two racing clients start a single server; a stale socket is replaced.
-- [ ] The server exits once it has no terminals and no connections.
-- [ ] A server of another protocol version fails with an error naming its PID.
-- [ ] Unset `multiplexer` picks tmux when installed, otherwise Vineyard's
+- [x] Two racing clients start a single server; a stale socket is replaced.
+- [x] The server exits once it has no terminals and no connections.
+- [x] A server of another protocol version fails with an error naming its PID.
+- [x] Unset `multiplexer` picks tmux when installed, otherwise Vineyard's
       server; `multiplexer = "tmux"` without tmux fails explicitly.
-- [ ] Startup refuses to run when a saved session is alive in the other
+- [x] Startup refuses to run when a saved session is alive in the other
       multiplexer.
-- [ ] `VINEYARD_SOCKET` names both sockets; docs describe the server.
+- [x] `VINEYARD_SOCKET` names both sockets; docs describe the server.
 
 ## Verify
 Run from the worktree root:
