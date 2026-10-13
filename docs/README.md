@@ -24,7 +24,7 @@ main.go
      each session runs in the multiplexer it records
   -> load grapes for the repository's .grapes directory, if any
   -> run the root TUI model (internal/tui/app.go)
-       polls each session's multiplexer: selected screen (150ms), all screens (1s) -> running/ready
+       polls each session's multiplexer: selected screen (150ms), all screens (1s, quicker after a detach) -> running/ready
        reloads sessions.json (1s): other Vineyards on the repository change it
        polls git: selected diff, others' line counts (2s)
        runs lifecycle operations in commands -> result messages -> state

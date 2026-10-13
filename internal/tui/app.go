@@ -39,10 +39,17 @@ import (
 const (
 	// previewInterval paces captures of the selected session's screen.
 	previewInterval = 150 * time.Millisecond
-	// statusInterval paces the running/ready check of every session. Agents
-	// animate continuously while working, so a screen unchanged for this
-	// long means the agent is waiting.
+	// statusInterval paces the running/ready check of every session.
 	statusInterval = time.Second
+	// stillFor is how long a screen must stay unchanged to show that its
+	// agent waits. Agents animate continuously while working: running Claude
+	// Code agents were measured to change their screens at least every 0.45s.
+	stillFor = 600 * time.Millisecond
+	// quickChecks status checks, quickInterval apart, follow a detach. No
+	// check runs while the user is attached, so the list shows the statuses
+	// from before, and a second apart they would take seconds to catch up.
+	quickChecks   = 10
+	quickInterval = 100 * time.Millisecond
 	// diffInterval paces diff refreshes.
 	diffInterval = 2 * time.Second
 	// statusMessageDuration is how long a status message stays up.
@@ -58,6 +65,13 @@ const (
 	minWidth        = 60
 	minHeight       = 12
 )
+
+// seenScreen is a session's screen fingerprint and when a status check first
+// saw it.
+type seenScreen struct {
+	hash  uint64
+	since time.Time
+}
 
 type focus int
 
@@ -80,6 +94,7 @@ const (
 type (
 	previewTickMsg struct{}
 	statusTickMsg  struct{}
+	quickStatusMsg struct{}
 	diffTickMsg    struct{}
 	screenMsg      struct {
 		id     string
@@ -106,6 +121,8 @@ type (
 	}
 	statusMsg struct {
 		results []screenStatus
+		// at is when the screens were captured.
+		at time.Time
 		// lead reports whether this process leads, and so types into agents.
 		lead bool
 		err  error
@@ -260,10 +277,10 @@ type Model struct {
 
 	sessions []session.Session
 	stats    map[string]git.Stat
-	hashes   map[string]uint64 // last screen fingerprint per session
-	busy     map[string]bool   // sessions with a lifecycle operation in flight
-	sizes    map[string][2]int // tmux window size last applied per session
-	shownID  string            // session whose screen and diff are displayed
+	hashes   map[string]seenScreen // last screen fingerprint per session
+	busy     map[string]bool       // sessions with a lifecycle operation in flight
+	sizes    map[string][2]int     // tmux window size last applied per session
+	shownID  string                // session whose screen and diff are displayed
 	// subagents are the running subagents Claude Code lists on each
 	// session's screen, as of the last status poll that is believed.
 	// Opening one needs its place there.
@@ -277,8 +294,11 @@ type Model struct {
 
 	previewInFlight bool
 	statusInFlight  bool
-	reloadInFlight  bool
-	diffInFlight    bool
+	// quickChecks counts the quick status checks still to run; each one
+	// schedules the next.
+	quickChecks    int
+	reloadInFlight bool
+	diffInFlight   bool
 	// writes counts changes to the saved sessions this process has issued,
 	// and pendingWrites those not yet finished. A reload is only started with
 	// none pending, and dropped if another was issued while it ran.
@@ -354,7 +374,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		theme:    theme,
 		sessions: sessions,
 		stats:    map[string]git.Stat{},
-		hashes:   map[string]uint64{},
+		hashes:   map[string]seenScreen{},
 		busy:     map[string]bool{},
 		sizes:    map[string][2]int{},
 		list:     list.New(theme),
@@ -770,6 +790,7 @@ func (m Model) statusCmd() tea.Cmd {
 		if err != nil {
 			err = fmt.Errorf("claiming the lead: %w", err)
 		}
+		at := now()
 		results := make([]screenStatus, len(active))
 		done := make(chan struct{}, len(active))
 		for i, s := range active {
@@ -799,7 +820,7 @@ func (m Model) statusCmd() tea.Cmd {
 		for range active {
 			<-done
 		}
-		return statusMsg{results: results, lead: lead, err: err}
+		return statusMsg{results: results, at: at, lead: lead, err: err}
 	}
 }
 
@@ -1036,6 +1057,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case quickStatusMsg:
+		if m.quickChecks == 0 {
+			return m, nil
+		}
+		m.quickChecks--
+		next := tick(quickInterval, func(time.Time) tea.Msg { return quickStatusMsg{} })
+		if m.statusInFlight {
+			return m, next
+		}
+		m.statusInFlight = true
+		return m, tea.Batch(next, m.statusCmd())
+
 	case statusMsg:
 		m.statusInFlight = false
 		return m.applyStatus(msg)
@@ -1190,6 +1223,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s, ok := m.selected(); ok && s.Status.Active() {
 			cmds = append(cmds, m.captureCmd(s))
 		}
+		if m.quickChecks == 0 { // else the quick checks of a detach before still run
+			cmds = append(cmds, func() tea.Msg { return quickStatusMsg{} })
+		}
+		m.quickChecks = quickChecks
 		return m, tea.Batch(cmds...)
 
 	case subagentOpenedMsg:
@@ -1783,11 +1820,15 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 		}
 		m.conversations[s.ID] = r.conversation
 		previous, seen := m.hashes[s.ID]
-		m.hashes[s.ID] = r.hash
-		// Only a screen seen twice unchanged proves the agent is waiting. The
-		// saved status may be stale, for example right after a restart.
-		still := seen && previous == r.hash
-		if seen && !still {
+		same := seen && previous.hash == r.hash
+		if !same {
+			m.hashes[s.ID] = seenScreen{hash: r.hash, since: msg.at}
+		}
+		// Only a screen seen unchanged for stillFor proves the agent is
+		// waiting. The saved status may be stale, for example right after a
+		// restart.
+		still := same && msg.at.Sub(previous.since) >= stillFor
+		if seen && !same {
 			s.Status = session.StatusRunning
 		} else if still {
 			s.Status = session.StatusReady
