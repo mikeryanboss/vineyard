@@ -38,7 +38,7 @@ var ListKeyMap = ListKeys{
 	Resume:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resume")),
 	Push:           key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "push")),
 	AutoYes:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
-	Tab:            key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
+	Tab:            key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/terminal/recap")),
 	PrevTab:        key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
 	Focus:          key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "show subagents or scroll pane")),
 	Collapse:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "hide subagents")),
@@ -77,7 +77,7 @@ var PaneKeyMap = PaneKeys{
 	Toggle:   key.NewBinding(key.WithKeys("enter", "o"), key.WithHelp("enter", "fold file")),
 	Collapse: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "collapse all")),
 	Expand:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "expand all")),
-	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
+	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/terminal/recap")),
 	PrevTab:  key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
 	Back:     key.NewBinding(key.WithKeys("esc", "h", "left", "q"), key.WithHelp("esc", "back")),
 }

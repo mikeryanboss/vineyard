@@ -36,6 +36,11 @@ type Backend interface {
 	Paste(s session.Session, text string) error
 	AttachCommand(s session.Session) tea.ExecCommand
 	ShellAttachCommand(s session.Session) tea.ExecCommand
+	// CaptureShell, CaptureShellHistory, and ResizeShell are Capture,
+	// CaptureHistory, and Resize for the session's shell.
+	CaptureShell(s session.Session) (string, error)
+	CaptureShellHistory(s session.Session, lines int) (string, error)
+	ResizeShell(s session.Session, width, height int) error
 	// OpenSubagent makes s show the view of the subagent at position in
 	// Claude Code's list, which must still hold total subagents.
 	OpenSubagent(s session.Session, position, total int) error
@@ -150,6 +155,18 @@ func (b LiveBackend) AttachCommand(s session.Session) tea.ExecCommand {
 
 func (b LiveBackend) ShellAttachCommand(s session.Session) tea.ExecCommand {
 	return b.Terminal.Attach(s.ShellName())
+}
+
+func (b LiveBackend) CaptureShell(s session.Session) (string, error) {
+	return b.Terminal.Capture(s.ShellName())
+}
+
+func (b LiveBackend) CaptureShellHistory(s session.Session, lines int) (string, error) {
+	return b.Terminal.CaptureHistory(s.ShellName(), lines)
+}
+
+func (b LiveBackend) ResizeShell(s session.Session, width, height int) error {
+	return b.Terminal.Resize(s.ShellName(), width, height)
 }
 
 func (b LiveBackend) OpenSubagent(s session.Session, position, total int) error {

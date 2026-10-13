@@ -70,6 +70,7 @@ const (
 	tabPreview tab = iota
 	tabDiff
 	tabIssue
+	tabTerminal
 	tabRecap
 )
 
@@ -83,6 +84,8 @@ type (
 		screen string
 		size   [2]int
 		err    error
+		// shell marks a screen of the session's shell, not of its agent.
+		shell bool
 	}
 	screenStatus struct {
 		id         string
@@ -158,8 +161,9 @@ type (
 		err     error
 	}
 	attachDoneMsg struct {
-		id  string
-		err error
+		id    string
+		err   error
+		shell bool
 	}
 	// subagentOpenedMsg reports that a session shows a subagent's view, ready
 	// to attach to, or why it does not.
@@ -180,6 +184,7 @@ type (
 		id      string
 		history string
 		err     error
+		shell   bool
 	}
 	promptSentMsg struct {
 		id  string
@@ -283,6 +288,10 @@ type Model struct {
 	dialog  dialog.Dialog
 	focus   focus
 	tab     tab
+	// terminal mirrors the selected session's shell on the terminal tab,
+	// and shellSizes is sizes for the sessions' shells.
+	terminal   preview.Model
+	shellSizes map[string][2]int
 	// zoomed shows the pane in place of the list and pane.
 	zoomed bool
 	// recapShown is the latest recap fetched for the shown session, kept to
@@ -341,6 +350,8 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		recap:    textview.New(theme),
 
 		transcript: textview.New(theme),
+		terminal:   preview.New(theme),
+		shellSizes: map[string][2]int{},
 
 		subagents:     map[string]subagent.List{},
 		fewer:         map[string]bool{},
@@ -468,6 +479,7 @@ func (m *Model) applySizes() {
 	w, h := m.paneContentSize()
 	m.list = m.list.SetSize(listWidth, bodyHeight)
 	m.preview = m.preview.SetSize(m.agentSize())
+	m.terminal = m.terminal.SetSize(m.agentSize())
 	m.diff = m.diff.SetSize(w, h)
 	m.issue = m.issue.SetSize(w, h)
 	m.recap = m.recap.SetSize(w, h)
@@ -478,6 +490,7 @@ func (m *Model) applySizes() {
 func (m *Model) applyTheme() {
 	m.list = m.list.SetTheme(m.theme)
 	m.preview = m.preview.SetTheme(m.theme)
+	m.terminal = m.terminal.SetTheme(m.theme)
 	m.diff = m.diff.SetTheme(m.theme)
 	m.issue = m.issue.SetTheme(m.theme)
 	m.recap = m.recap.SetTheme(m.theme)
@@ -490,6 +503,7 @@ func (m *Model) setFocus(f focus) {
 	m.list = m.list.SetFocused(f == focusList)
 	if f == focusList {
 		m.preview = m.preview.ExitScroll()
+		m.terminal = m.terminal.ExitScroll()
 	}
 }
 
@@ -544,19 +558,24 @@ func (m *Model) refreshShown() tea.Cmd {
 	if s.ID == m.shownID && a.ID == m.shownAgent {
 		return nil
 	}
+	otherSession := s.ID != m.shownID
 	m.shownID, m.shownAgent, m.agentTree = s.ID, a.ID, ""
 	m.preview = m.preview.ExitScroll()
+	if otherSession { // its shell is another
+		m.terminal = m.terminal.SetPlaceholder("")
+	}
 	m.transcript = m.transcript.SetPlaceholder("Reading the transcript…")
 	m.diff = m.diff.SetDiff("")
 	m.issue = m.issue.GotoTop()
 	m.refreshIssue()
 	m.recap = m.recap.GotoTop()
 	m.refreshRecap()
+	shellCmd := m.shellCmd()
 	if !ok {
-		return nil
+		return shellCmd
 	}
 	m.diffInFlight = true
-	cmds := []tea.Cmd{m.diffCmd(), m.recapCmd()}
+	cmds := []tea.Cmd{m.diffCmd(), m.recapCmd(), shellCmd}
 	switch {
 	case a.ID != "":
 		m.transcriptInFlight = true
@@ -668,6 +687,36 @@ func (m Model) captureCmd(s session.Session) tea.Cmd {
 		}
 		screen, err := backend.Capture(s)
 		return screenMsg{id: s.ID, screen: screen, size: size, err: err}
+	}
+}
+
+// shellCmd mirrors the selected session's shell while the terminal tab is
+// shown, starting the shell if it is not running. Without a worktree to run
+// it in, the tab shows why instead.
+func (m *Model) shellCmd() tea.Cmd {
+	if m.tab != tabTerminal {
+		return nil
+	}
+	s, ok := m.selected()
+	if !ok || !m.diffable(s) {
+		m.terminal = m.terminal.SetPlaceholder(m.placeholder(s, ok))
+		return nil
+	}
+	backend := m.backend
+	w, h := m.agentSize()
+	applied := m.shellSizes[s.ID]
+	return func() tea.Msg {
+		if err := backend.EnsureShell(s, w, h); err != nil {
+			return screenMsg{id: s.ID, err: err, shell: true}
+		}
+		size := applied
+		if size != [2]int{w, h} {
+			if err := backend.ResizeShell(s, w, h); err == nil {
+				size = [2]int{w, h}
+			}
+		}
+		screen, err := backend.CaptureShell(s)
+		return screenMsg{id: s.ID, screen: screen, size: size, err: err, shell: true}
 	}
 }
 
@@ -875,6 +924,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case previewTickMsg:
 		next := tick(previewInterval, func(time.Time) tea.Msg { return previewTickMsg{} })
+		if m.tab == tabTerminal {
+			if m.previewInFlight || m.terminal.Scrolling() {
+				return m, next
+			}
+			cmd := m.shellCmd()
+			m.previewInFlight = cmd != nil
+			return m, tea.Batch(next, cmd)
+		}
 		if m.shownAgent != "" {
 			if m.transcriptInFlight {
 				return m, next
@@ -903,6 +960,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screenMsg:
 		m.previewInFlight = false
+		if msg.shell {
+			switch {
+			case msg.id != m.shownID || m.terminal.Scrolling():
+			case msg.err != nil:
+				m.terminal = m.terminal.SetPlaceholder(msg.err.Error())
+			default:
+				m.shellSizes[msg.id] = msg.size
+				m.terminal = m.terminal.SetScreen(msg.screen)
+			}
+			return m, nil
+		}
 		if msg.err == nil {
 			m.sizes[msg.id] = msg.size
 			if msg.id == m.shownID && !m.preview.Scrolling() {
@@ -1053,13 +1121,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		id := msg.session.ID
 		return m, tea.Exec(m.backend.ShellAttachCommand(msg.session), func(err error) tea.Msg {
-			return attachDoneMsg{id: id, err: err}
+			return attachDoneMsg{id: id, err: err, shell: true}
 		})
 
 	case attachDoneMsg:
 		// The window followed the attached client's size; restore the preview size.
-		delete(m.sizes, msg.id)
-		var cmds []tea.Cmd
+		if msg.shell {
+			delete(m.shellSizes, msg.id)
+		} else {
+			delete(m.sizes, msg.id)
+		}
+		cmds := []tea.Cmd{m.shellCmd()}
 		if msg.err != nil {
 			cmds = append(cmds, m.setError(fmt.Errorf("attach: %w", msg.err)))
 		}
@@ -1107,6 +1179,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setError(msg.err)
 		}
 		if msg.id != m.shownID {
+			return m, nil
+		}
+		if msg.shell {
+			m.terminal = m.terminal.SetScrollback(msg.history)
 			return m, nil
 		}
 		if m.preview = m.preview.SetScrollback(msg.history); !m.preview.Scrolling() {
@@ -1218,10 +1294,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case common.ScrollbackRequestMsg:
 		s, ok := m.selected()
+		backend := m.backend
+		if m.tab == tabTerminal {
+			if !ok || !m.diffable(s) {
+				return m, nil
+			}
+			return m, func() tea.Msg {
+				history, err := backend.CaptureShellHistory(s, scrollbackLines)
+				return scrollbackMsg{id: s.ID, history: history, err: err, shell: true}
+			}
+		}
 		if !ok || !s.Status.Active() {
 			return m, nil
 		}
-		backend := m.backend
 		return m, func() tea.Msg {
 			history, err := backend.CaptureHistory(s, scrollbackLines)
 			return scrollbackMsg{id: s.ID, history: history, err: err}
@@ -1675,10 +1760,10 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 }
 
 // tabNames are the pane tabs' names, as the status bar offers them.
-var tabNames = map[tab]string{tabPreview: "preview", tabDiff: "diff", tabIssue: "issue", tabRecap: "recap"}
+var tabNames = map[tab]string{tabPreview: "preview", tabDiff: "diff", tabIssue: "issue", tabTerminal: "terminal", tabRecap: "recap"}
 
 // openNames say what enter does on each tab.
-var openNames = map[tab]string{tabPreview: "attach", tabDiff: "full diff", tabIssue: "issues", tabRecap: "full recap"}
+var openNames = map[tab]string{tabPreview: "attach", tabDiff: "full diff", tabIssue: "issues", tabTerminal: "shell", tabRecap: "full recap"}
 
 // nextTab is the tab that the tab key switches to.
 func (m Model) nextTab() tab { return (m.tab + 1) % tab(len(tabNames)) }
@@ -1694,14 +1779,15 @@ func (m *Model) switchTab(back bool) tea.Cmd {
 	return m.showTab(m.nextTab())
 }
 
-// showTab shows tab t in the pane, and fetches the recap if it is the recap
-// tab.
+// showTab shows tab t in the pane, and fetches the recap or the shell's
+// screen if t shows it.
 func (m *Model) showTab(t tab) tea.Cmd {
 	m.tab = t
 	m.preview = m.preview.ExitScroll()
+	m.terminal = m.terminal.ExitScroll()
 	m.refreshIssue()
 	m.refreshRecap()
-	return m.recapCmd()
+	return tea.Batch(m.recapCmd(), m.shellCmd())
 }
 
 func (m Model) profiles() []config.Profile {
@@ -1792,6 +1878,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.issue, cmd = m.issue.Update(msg)
 		case tabRecap:
 			m.recap, cmd = m.recap.Update(msg)
+		case tabTerminal:
+			m.terminal, cmd = m.terminal.Update(msg)
 		case tabPreview:
 			if m.shownAgent != "" {
 				m.transcript, cmd = m.transcript.Update(msg)
@@ -1862,6 +1950,15 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			cmd, err := backend.DiffTool(s, command)
 			return diffToolMsg{id: s.ID, cmd: cmd, err: err}
 		}
+	case key.Matches(msg, keys.Shell), key.Matches(msg, keys.Open) && m.tab == tabTerminal:
+		if s.Status == session.StatusPaused {
+			return m, m.setStatus(s.Title+" is paused. Press r to resume it.", false)
+		}
+		backend := m.backend
+		w, h := m.agentSize()
+		return m, func() tea.Msg {
+			return shellReadyMsg{session: s, err: backend.EnsureShell(s, w, h)}
+		}
 	case key.Matches(msg, keys.Attach, keys.Open):
 		if !s.Status.Active() {
 			return m, m.setStatus(s.Title+" is not running. Press r to resume it.", false)
@@ -1873,15 +1970,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Exec(m.backend.AttachCommand(s), func(err error) tea.Msg {
 			return attachDoneMsg{id: id, err: err}
 		})
-	case key.Matches(msg, keys.Shell):
-		if s.Status == session.StatusPaused {
-			return m, m.setStatus(s.Title+" is paused. Press r to resume it.", false)
-		}
-		backend := m.backend
-		w, h := m.agentSize()
-		return m, func() tea.Msg {
-			return shellReadyMsg{session: s, err: backend.EnsureShell(s, w, h)}
-		}
 	case key.Matches(msg, keys.Kill):
 		text := fmt.Sprintf("Kill %q? Its worktree is deleted, uncommitted changes included. The branch is kept if it has commits.", s.Title)
 		if s.MainCheckout {
@@ -2013,6 +2101,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.issue, cmd = m.issue.Update(content)
 	case tabRecap:
 		m.recap, cmd = m.recap.Update(content)
+	case tabTerminal:
+		m.terminal, cmd = m.terminal.Update(content)
 	case tabPreview:
 		if m.shownAgent != "" {
 			m.transcript, cmd = m.transcript.Update(content)
@@ -2164,7 +2254,7 @@ func (m Model) tabLabels() []tabLabel {
 			issueLabel += fmt.Sprintf(" #%d", id)
 		}
 	}
-	texts := map[tab]string{tabPreview: "Preview", tabDiff: diffLabel, tabIssue: issueLabel, tabRecap: "Recap"}
+	texts := map[tab]string{tabPreview: "Preview", tabDiff: diffLabel, tabIssue: issueLabel, tabTerminal: "Terminal", tabRecap: "Recap"}
 	var labels []tabLabel
 	for which := range tab(len(texts)) {
 		style := t.StyleTabInactive
@@ -2201,7 +2291,7 @@ func (m Model) renderPane() string {
 
 	info := ""
 	switch {
-	case m.tab == tabPreview && m.preview.Scrolling():
+	case m.tab == tabPreview && m.preview.Scrolling(), m.tab == tabTerminal && m.terminal.Scrolling():
 		info = "scrollback · G returns to live"
 	case m.tab == tabDiff && len(m.diff.Files()) > 0:
 		if i := m.diff.CurrentFile(); i >= 0 {
@@ -2227,6 +2317,8 @@ func (m Model) renderPane() string {
 		}
 	case tabIssue:
 		content = m.issue.View()
+	case tabTerminal:
+		content = m.terminal.View()
 	case tabRecap:
 		content = m.recap.View()
 	}
