@@ -6,7 +6,8 @@ links only as far as the task requires.
 ## What Vineyard Is
 
 A Go terminal application that runs coding agents in parallel. A session is one
-agent program in a detached tmux session, working in its own git worktree and
+agent program in a detached tmux session (or, without tmux, on a pseudo-terminal
+inside Vineyard), working in its own git worktree and
 branch. The TUI lists sessions, mirrors the selected agent's screen, shows its
 diff, its issue, and Claude Code's recaps of it, lists Claude Code's
 subagents under it with their status, and hands the terminal to tmux when the user
@@ -37,7 +38,8 @@ main.go
 | Session fields, persistence, locking | `internal/session/session.go`, `store.go` | `leader.go`, `lock_unix.go` |
 | Several Vineyards on one repository | Several Vineyards in `architecture.md` | `adopt` in `internal/tui/app.go` |
 | Running/ready detection, prompts | `internal/session/screen.go` | `applyStatus` in `internal/tui/app.go` |
-| tmux commands | `internal/tmux/tmux.go` | |
+| tmux commands | `internal/tmux/tmux.go` | `Terminal` in `internal/tui/backend.go` |
+| Agents without tmux | `internal/vterm/vterm.go` | `attach.go`; Without tmux in `architecture.md` |
 | Diff collection | `internal/git/diff.go` | |
 | Diff parsing, changed-word ranges | `internal/diff/diff.go` | |
 | Diff rendering | `internal/tui/diffview/` | `spans.go` for highlighting and wrapping |
@@ -64,6 +66,7 @@ main.go                    CLI and TUI bootstrap
 internal/config/           config schema, defaults, data directory layout
 internal/git/              git CLI wrapper: worktrees, commits, pushes, diffs
 internal/tmux/             tmux client on Vineyard's private socket
+internal/vterm/            agents on pseudo-terminals in this process, when tmux is missing
 internal/session/          session model, lifecycle manager, store, screen detection
 internal/diff/             unified diff parser
 internal/recap/            Claude Code transcripts: a session's recaps, title, last prompt
@@ -111,6 +114,8 @@ doc/                       README demo GIF and its VHS tape
   focused: anywhere else Esc interrupts the agent.
 - Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_TMUX_SOCKET`), so
   its key bindings never reach the user's own tmux server.
+- Without tmux, the Vineyard holds the lead from startup and refuses to start
+  when another leads: no other process can see its agents.
 
 ## Verify a Change
 

@@ -20,7 +20,7 @@ Its `Status` is one of:
 | `stopped` | tmux session gone, worktree still on disk |
 
 `session.Manager` performs lifecycle operations against git and a `Terminal`
-(implemented by `*tmux.Client`):
+(implemented by `*tmux.Client`, or `*vterm.Server` without tmux):
 
 - `New` names the branch from the branch prefix passed in by the TUI and the
   title. The TUI passes the prefix from its current config, so a prefix saved
@@ -328,6 +328,34 @@ The TUI reads from standard input and output when they are terminals and
 falls back to `tea.OpenTTY` otherwise. Attached tmux clients inherit these
 files, and tmux rejects a descriptor opened through `/dev/tty`.
 
+## Without tmux
+
+When `tmux` is not on `PATH`, `main` gives the backend a `*vterm.Server`
+instead of a `*tmux.Client`; both implement `tui.Terminal`. The server runs
+each program through `$SHELL -c` on a pseudo-terminal (`creack/pty`) with
+`TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`
+emulator, which keeps 10000 lines of scrollback as tmux does.
+
+- **Preview**: the emulator's screen rendered with ANSI styles. Resizing
+  resizes the emulator and the pseudo-terminal; lines do not reflow.
+- **Keys and prompts**: go through the emulator, which encodes keys for the
+  program's cursor-key mode and brackets pastes when the program asked for
+  that. The emulator answers the program's terminal queries itself. One
+  goroutine copies both to the program, so none of them may block on `mu`.
+- **Attach**: a `tea.ExecCommand` that puts the user's terminal in raw mode,
+  enters the alternate screen, and redraws the emulator on it with
+  ultraviolet's diffing renderer, at most 60 times a second. Typed input goes
+  to the program until ctrl-q. The program's output never reaches the user's
+  terminal directly, so modes it sets there are only those that change input
+  (cursor keys, mouse, focus, bracketed paste), set and reset as the program
+  does and reset on detach.
+- **Exit**: a terminal ends when its program exits. Kill and quitting
+  Vineyard hang up the program's process group. `Restore` then finds the
+  sessions stopped; resuming relaunches Claude Code in its conversation.
+
+Only one Vineyard can see these agents, so without tmux `main` claims the lead
+before `Restore` and exits if another Vineyard holds it.
+
 ## Status Detection
 
 There is no structured channel from the agent, so status is inferred from the
@@ -439,10 +467,11 @@ never pile up.
 ## Package Dependency Direction
 
 ```text
-main -> config, git, session, tmux, tui, grapes/embedded
+main -> config, git, session, tmux, vterm, tui, grapes/embedded
 tui -> session, subagent, git, config, diff (via diffview), tui/*, grapes/embedded
 tui/* -> tui/common, and data packages
 subagent -> session
 session -> git
 git, tmux, diff, config -> standard library and format libraries
+vterm -> pty, vt, ultraviolet
 ```

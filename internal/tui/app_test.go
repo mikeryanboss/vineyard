@@ -96,9 +96,9 @@ func (f *fakeBackend) Push(s session.Session) (session.Session, error)         {
 func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error           { return nil }
 func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, nil }
 func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
-func (f *fakeBackend) AttachCommand(s session.Session) *exec.Cmd {
+func (f *fakeBackend) AttachCommand(s session.Session) tea.ExecCommand {
 	f.attaches++
-	return exec.Command("true")
+	return nil
 }
 
 func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
@@ -111,7 +111,7 @@ func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, er
 	return cmd, err
 }
 
-func (f *fakeBackend) ShellAttachCommand(s session.Session) *exec.Cmd { return exec.Command("true") }
+func (f *fakeBackend) ShellAttachCommand(s session.Session) tea.ExecCommand { return nil }
 
 func (f *fakeBackend) OpenSubagent(s session.Session, position, total int) error {
 	f.mu.Lock()

@@ -236,6 +236,8 @@ type Options struct {
 	// Issue, when set, is a grapes issue to act on at startup as if the user
 	// pressed the sessions key on it. Grapes must know the issue.
 	Issue int
+	// Notice, when set, is shown in the status line at startup.
+	Notice string
 }
 
 // Model is the root TUI model.
@@ -345,6 +347,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		conversations: map[string]subagent.Conversation{},
 		startIssue:    opts.Issue,
 	}
+	m.status = opts.Notice
 	if opts.ConfigErr != nil {
 		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
 	}
@@ -1049,7 +1052,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setError(msg.err)
 		}
 		id := msg.session.ID
-		return m, tea.ExecProcess(m.backend.ShellAttachCommand(msg.session), func(err error) tea.Msg {
+		return m, tea.Exec(m.backend.ShellAttachCommand(msg.session), func(err error) tea.Msg {
 			return attachDoneMsg{id: id, err: err}
 		})
 
@@ -1075,7 +1078,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = ""
 		id := msg.id
-		return m, tea.ExecProcess(m.backend.AttachCommand(m.sessions[i]), func(err error) tea.Msg {
+		return m, tea.Exec(m.backend.AttachCommand(m.sessions[i]), func(err error) tea.Msg {
 			return attachDoneMsg{id: id, err: err}
 		})
 
@@ -1867,7 +1870,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.openSubagent(s, a)
 		}
 		id := s.ID
-		return m, tea.ExecProcess(m.backend.AttachCommand(s), func(err error) tea.Msg {
+		return m, tea.Exec(m.backend.AttachCommand(s), func(err error) tea.Msg {
 			return attachDoneMsg{id: id, err: err}
 		})
 	case key.Matches(msg, keys.Shell):
