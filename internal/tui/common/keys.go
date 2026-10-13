@@ -11,6 +11,7 @@ type ListKeys struct {
 	Open           key.Binding
 	Attach         key.Binding
 	Shell          key.Binding
+	Terminal       key.Binding
 	Kill           key.Binding
 	Pause          key.Binding
 	Resume         key.Binding
@@ -33,6 +34,7 @@ var ListKeyMap = ListKeys{
 	Open:           key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open the shown tab")),
 	Attach:         key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "attach")),
 	Shell:          key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "shell")),
+	Terminal:       key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "new terminal")),
 	Kill:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "kill")),
 	Pause:          key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "checkout")),
 	Resume:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resume")),

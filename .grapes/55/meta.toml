@@ -1,0 +1,6 @@
+title = 'T starts a terminal session and attaches to it'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'feature']
+created = 2026-10-13T11:23:00Z
+updated = 2026-10-13T11:25:00Z
