@@ -34,8 +34,8 @@ func DefaultKeys() Keys {
 			"quit":   {"ctrl+c"},
 			"back":   {"ctrl+q"},
 			"detach": {"ctrl+q"},
-			// ctrl+\ is one of the few ctrl keys Claude Code leaves free.
-			"status_bar": {"ctrl+\\"},
+			// One of the few ctrl keys Claude Code leaves free.
+			"status_bar": {"ctrl+k"},
 		},
 		"list": {
 			"up":               {"k", "up"},
