@@ -5,6 +5,7 @@ package dialog
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 
@@ -240,10 +241,7 @@ func (d *NewSession) click(x, y int) tea.Cmd {
 func (d *NewSession) submit() tea.Cmd {
 	title := strings.TrimSpace(d.title.Value())
 	if title == "" {
-		d.err = "A title is required."
-		d.focus = fieldTitle
-		d.prompt.Blur()
-		return d.title.Focus()
+		title = randomTitle()
 	}
 	msg := common.NewSessionMsg{Title: title, Issue: d.issue}
 	if d.withPrompt {
@@ -252,6 +250,27 @@ func (d *NewSession) submit() tea.Cmd {
 	msg.Profile = d.profiles[d.profile]
 	return func() tea.Msg { return msg }
 }
+
+// randomTitle names a session the user left untitled: an adjective and a
+// grape variety, such as "amber riesling".
+func randomTitle() string {
+	return adjectives[rand.N(len(adjectives))] + " " + grapes[rand.N(len(grapes))]
+}
+
+var (
+	adjectives = []string{
+		"amber", "bold", "brisk", "bright", "crisp", "dry", "dusky", "early",
+		"fresh", "golden", "jammy", "late", "lively", "mellow", "oaky", "plump",
+		"ripe", "robust", "rosy", "ruby", "silky", "smoky", "spicy", "sunny",
+		"supple", "sweet", "tart", "tawny", "velvet", "young", "zesty",
+	}
+	grapes = []string{
+		"barbera", "cabernet", "carmenere", "chardonnay", "chenin", "gamay",
+		"grenache", "malbec", "merlot", "mourvedre", "muscat", "nebbiolo",
+		"pinot", "primitivo", "riesling", "sangiovese", "semillon", "syrah",
+		"tempranillo", "verdejo", "viognier", "zinfandel",
+	}
+)
 
 // Update handles input. Clicks are relative to the dialog box.
 func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
