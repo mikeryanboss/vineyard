@@ -26,6 +26,13 @@ cd /tmp/vy/demo && VINEYARD_TMUX_SOCKET=vy-dev /tmp/vy/vineyard -p bash
 `-p bash` makes every session a plain shell, which is enough to exercise
 creation, preview, attach, diff, and lifecycle without starting real agents.
 
+To exercise running without tmux, give Vineyard a `PATH` without `tmux`:
+
+```sh
+mkdir -p /tmp/vy/path && ln -sf /usr/bin/* /tmp/vy/path/ && rm /tmp/vy/path/tmux
+cd /tmp/vy/demo && PATH=/tmp/vy/path /tmp/vy/vineyard -p bash
+```
+
 ## TUI Testing
 
 Grapes' three test styles are used here:
@@ -78,6 +85,12 @@ the pane. Replace the resets with explicit colours before rendering:
 sed -e 's/\x1b\[0m/\x1b[0m\x1b[38;5;235m\x1b[48;5;231m/g' -e 's/\x1b\[39m/\x1b[38;5;235m/g' \
   -e 's/\x1b\[49m/\x1b[48;5;231m/g' -e 's/^/\x1b[38;5;235m\x1b[48;5;231m/' shot.ansi > shot.fixed.ansi
 ```
+
+If the PNG's borders do not line up, `freeze` fell back to a proportional
+font; pass a monospace one, such as
+`--font.file /usr/share/fonts/adwaita-mono-fonts/AdwaitaMono-Regular.ttf`.
+tmux keeps the tabs Bubble Tea moves the cursor with, so expand those with
+their column, skipping escape sequences, before rendering.
 
 Look at each PNG before publishing it. The [pr skill](../.agents/skills/pr/SKILL.md)
 publishes the images and embeds them in the PR.

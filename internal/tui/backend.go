@@ -6,17 +6,18 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/subagent"
-	"github.com/mikeryanboss/vineyard/internal/tmux"
 )
 
 // Backend is everything the TUI does outside its own process. The root model
 // calls it only from commands, never from Update, except for the attach
-// commands, which merely build an *exec.Cmd.
+// commands, which merely build a command and run nothing.
 //
 // Tests substitute a fake to drive the model without tmux or git.
 type Backend interface {
@@ -33,8 +34,8 @@ type Backend interface {
 	Resize(s session.Session, width, height int) error
 	SendEnter(s session.Session) error
 	Paste(s session.Session, text string) error
-	AttachCommand(s session.Session) *exec.Cmd
-	ShellAttachCommand(s session.Session) *exec.Cmd
+	AttachCommand(s session.Session) tea.ExecCommand
+	ShellAttachCommand(s session.Session) tea.ExecCommand
 	// OpenSubagent makes s show the view of the subagent at position in
 	// Claude Code's list, which must still hold total subagents.
 	OpenSubagent(s session.Session, position, total int) error
@@ -79,12 +80,32 @@ type Backend interface {
 	Templates(inline []config.Template) ([]config.Template, error)
 }
 
-// LiveBackend is the Backend backed by tmux, git, and the session store.
+// Terminal runs agents and shells in named terminals: on Vineyard's tmux
+// server (*tmux.Client), or in this process when tmux is not installed
+// (*vterm.Server).
+type Terminal interface {
+	session.Terminal
+	// Created returns when the named terminal started its program, to the
+	// second or better.
+	Created(name string) (time.Time, error)
+	Capture(name string) (string, error)
+	CaptureHistory(name string, lines int) (string, error)
+	Resize(name string, width, height int) error
+	SendEnter(name string) error
+	// SendKeys presses keys named as tmux names them, such as Down.
+	SendKeys(name string, keys ...string) error
+	Paste(name, text string) error
+	// Attach hands the user's terminal to the named terminal until the user
+	// presses ctrl-q.
+	Attach(name string) tea.ExecCommand
+}
+
+// LiveBackend is the Backend backed by a Terminal, git, and the session store.
 type LiveBackend struct {
 	*session.Manager
-	Tmux   *tmux.Client
-	Store  session.Store
-	Leader *session.Leader
+	Terminal Terminal
+	Store    session.Store
+	Leader   *session.Leader
 	// Transcripts reads Claude Code's transcripts, remembering where it left
 	// off in each.
 	Transcripts *subagent.Reader
@@ -106,33 +127,33 @@ func (b LiveBackend) Load(worktreeDir string) ([]session.Session, error) {
 }
 
 func (b LiveBackend) Capture(s session.Session) (string, error) {
-	return b.Tmux.Capture(s.TmuxName)
+	return b.Terminal.Capture(s.TmuxName)
 }
 
 func (b LiveBackend) CaptureHistory(s session.Session, lines int) (string, error) {
-	return b.Tmux.CaptureHistory(s.TmuxName, lines)
+	return b.Terminal.CaptureHistory(s.TmuxName, lines)
 }
 
 func (b LiveBackend) Resize(s session.Session, width, height int) error {
-	return b.Tmux.Resize(s.TmuxName, width, height)
+	return b.Terminal.Resize(s.TmuxName, width, height)
 }
 
-func (b LiveBackend) SendEnter(s session.Session) error { return b.Tmux.SendEnter(s.TmuxName) }
+func (b LiveBackend) SendEnter(s session.Session) error { return b.Terminal.SendEnter(s.TmuxName) }
 
 func (b LiveBackend) Paste(s session.Session, text string) error {
-	return b.Tmux.Paste(s.TmuxName, text)
+	return b.Terminal.Paste(s.TmuxName, text)
 }
 
-func (b LiveBackend) AttachCommand(s session.Session) *exec.Cmd {
-	return b.Tmux.AttachCommand(s.TmuxName)
+func (b LiveBackend) AttachCommand(s session.Session) tea.ExecCommand {
+	return b.Terminal.Attach(s.TmuxName)
 }
 
-func (b LiveBackend) ShellAttachCommand(s session.Session) *exec.Cmd {
-	return b.Tmux.AttachCommand(s.ShellName())
+func (b LiveBackend) ShellAttachCommand(s session.Session) tea.ExecCommand {
+	return b.Terminal.Attach(s.ShellName())
 }
 
 func (b LiveBackend) OpenSubagent(s session.Session, position, total int) error {
-	return subagent.Open(tmuxScreen{b.Tmux, s.TmuxName}, position, total)
+	return subagent.Open(terminalScreen{b.Terminal, s.TmuxName}, position, total)
 }
 
 func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error) {
@@ -140,12 +161,12 @@ func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error)
 	if err != nil {
 		return subagent.Conversation{}, err
 	}
-	// The tmux session runs Claude Code itself, so it started with it. tmux
+	// The terminal runs Claude Code itself, so it started with it. tmux
 	// counts whole seconds; an exiting Claude Code, as on a pause, writes
 	// until the moment its successor starts, which may be within that
 	// second, while the successor needs longer than a second to start and be
 	// sent a prompt before it writes. So the second after counts as the start.
-	created, err := b.Tmux.Created(s.TmuxName)
+	created, err := b.Terminal.Created(s.TmuxName)
 	if err != nil {
 		return subagent.Conversation{}, err
 	}
@@ -188,14 +209,14 @@ func treeBase(root string, s session.Session) (string, error) {
 	return git.StackedBase(root, onto)
 }
 
-// tmuxScreen is a session's tmux window as subagent.Open drives it.
-type tmuxScreen struct {
-	tmux *tmux.Client
-	name string
+// terminalScreen is a session's terminal as subagent.Open drives it.
+type terminalScreen struct {
+	terminal Terminal
+	name     string
 }
 
-func (w tmuxScreen) Capture() (string, error)      { return w.tmux.Capture(w.name) }
-func (w tmuxScreen) SendKeys(keys ...string) error { return w.tmux.SendKeys(w.name, keys...) }
+func (w terminalScreen) Capture() (string, error)      { return w.terminal.Capture(w.name) }
+func (w terminalScreen) SendKeys(keys ...string) error { return w.terminal.SendKeys(w.name, keys...) }
 
 func (b LiveBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
 	base, err := git.Base(s.WorktreePath, s.BaseCommit)

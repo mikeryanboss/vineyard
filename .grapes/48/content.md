@@ -37,16 +37,16 @@ Planned:
   another Vineyard already runs on the repository, saying that needs tmux.
 
 ## Acceptance Criteria
-- [ ] With tmux on PATH, behaviour is unchanged.
-- [ ] Without tmux on PATH, Vineyard starts, and a new session's agent runs,
+- [x] With tmux on PATH, behaviour is unchanged.
+- [x] Without tmux on PATH, Vineyard starts, and a new session's agent runs,
   shows in the preview with colours, has scrollback, receives prompts, and
   can be attached to and left with ctrl-q.
-- [ ] The shell key opens a shell in the session's worktree without tmux.
-- [ ] Without tmux, a second Vineyard on the same repository exits with an
+- [x] The shell key opens a shell in the session's worktree without tmux.
+- [x] Without tmux, a second Vineyard on the same repository exits with an
   error that says several Vineyards need tmux.
-- [ ] Without tmux, quitting Vineyard ends its agents; on the next start they
+- [x] Without tmux, quitting Vineyard ends its agents; on the next start they
   show as stopped and resume.
-- [ ] Tests cover the built-in terminal: start, capture, keys, paste, exit, kill.
+- [x] Tests cover the built-in terminal: start, capture, keys, paste, exit, kill.
 
 ## Verify
 Run from the worktree:

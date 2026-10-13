@@ -10,11 +10,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // DefaultSocket is the tmux socket name Vineyard's sessions live on.
@@ -206,6 +209,18 @@ func (c *Client) AttachCommand(name string) *exec.Cmd {
 	cmd.Env = withoutEnv(os.Environ(), "TMUX")
 	return cmd
 }
+
+// Attach is AttachCommand as a command Bubble Tea runs.
+func (c *Client) Attach(name string) tea.ExecCommand {
+	return execCommand{c.AttachCommand(name)}
+}
+
+// execCommand runs an *exec.Cmd on the terminal Bubble Tea gives it.
+type execCommand struct{ *exec.Cmd }
+
+func (c execCommand) SetStdin(r io.Reader)  { c.Stdin = r }
+func (c execCommand) SetStdout(w io.Writer) { c.Stdout = w }
+func (c execCommand) SetStderr(w io.Writer) { c.Stderr = w }
 
 func withoutEnv(env []string, key string) []string {
 	out := make([]string, 0, len(env))

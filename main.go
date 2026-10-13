@@ -22,6 +22,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/subagent"
 	"github.com/mikeryanboss/vineyard/internal/tmux"
 	"github.com/mikeryanboss/vineyard/internal/tui"
+	"github.com/mikeryanboss/vineyard/internal/vterm"
 )
 
 // version is the release version. GoReleaser stamps it in with -X, which sets
@@ -106,9 +107,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func runTUI(program string, autoYes bool, issue int) error {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		return errors.New("vineyard needs tmux; install it and try again")
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -128,8 +126,26 @@ func runTUI(program string, autoYes bool, issue int) error {
 	if err != nil {
 		return fmt.Errorf("worktree directory: %w", err)
 	}
-	client := tmux.New(tmuxSocket())
-	manager := session.NewManager(repo, client, config.ProjectName(repo.Root))
+	// Without tmux, agents run in this process, which no other Vineyard can
+	// see, so this one must be the only Vineyard on the repository. It holds
+	// the lead from before Restore, which stops the sessions it finds running.
+	leader := session.NewLeader(dir)
+	var terminals tui.Terminal = tmux.New(tmuxSocket())
+	var notice string
+	if _, err := exec.LookPath("tmux"); err != nil {
+		lead, err := leader.Lead()
+		if err != nil {
+			return err
+		}
+		if !lead {
+			return errors.New("another Vineyard is running on this repository; running several at once needs tmux")
+		}
+		builtin := vterm.New()
+		defer builtin.Close()
+		terminals = builtin
+		notice = "tmux not found: agents run inside Vineyard and stop when it quits. Resume them after a restart."
+	}
+	manager := session.NewManager(repo, terminals, config.ProjectName(repo.Root))
 	sessions, err := store.Update(func(saved []session.Session) ([]session.Session, error) {
 		return manager.Restore(saved, worktreeDir)
 	})
@@ -160,8 +176,9 @@ func runTUI(program string, autoYes bool, issue int) error {
 		Grapes:     grapes,
 		GrapesErr:  grapesErr,
 		Issue:      issue,
+		Notice:     notice,
 	}
-	model := tui.NewModel(tui.LiveBackend{Manager: manager, Tmux: client, Store: store, Leader: session.NewLeader(dir), Transcripts: subagent.NewReader(), Dir: dir}, sessions, opts)
+	model := tui.NewModel(tui.LiveBackend{Manager: manager, Terminal: terminals, Store: store, Leader: leader, Transcripts: subagent.NewReader(), Dir: dir}, sessions, opts)
 
 	in, out, closeTTY, err := terminal()
 	if err != nil {
@@ -221,7 +238,11 @@ func tmuxSocket() string {
 
 func runDebug(stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "version:     %s\n", version)
-	fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", tmuxSocket(), tmuxSocket())
+	if _, err := exec.LookPath("tmux"); err != nil {
+		fmt.Fprintf(stdout, "tmux socket: none, tmux not found; agents run inside Vineyard\n")
+	} else {
+		fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", tmuxSocket(), tmuxSocket())
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)

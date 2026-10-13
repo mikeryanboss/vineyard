@@ -19,11 +19,13 @@ model, rebuilt on Bubble Tea v2.
   issue tracker. Start an agent from an issue, and see which session works on
   which issue.
 - **Persistent.** Agents keep running in tmux after you quit; the next launch
-  picks them up.
+  picks them up. Without tmux, agents run inside Vineyard and stop when it
+  quits; resuming one continues its Claude Code conversation.
 
 ## Install
 
-Requires git 2.48 or newer and tmux.
+Requires git 2.48 or newer. tmux is optional: with it, agents outlive Vineyard
+and several Vineyards can run on one repository.
 
 Download a Linux or macOS build from the
 [releases](https://github.com/mikeryanboss/vineyard/releases), or build with
@@ -150,6 +152,11 @@ in a detached tmux session on Vineyard's own tmux server (`tmux -L vineyard
 ls`). The preview mirrors the agent's screen with `tmux capture-pane`. An agent
 whose screen keeps changing is working; one whose screen is still is waiting
 for you. Attaching hands the terminal to tmux.
+
+Without tmux, Vineyard runs each agent on a pseudo-terminal of its own and
+mirrors it with a built-in terminal emulator. Attaching and ctrl-q work the
+same, but the agents end when Vineyard quits, and only one Vineyard can run on
+a repository.
 
 You can run several Vineyards on one repository, for example one per terminal
 window; they share the session list and show each other's changes within a
