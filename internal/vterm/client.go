@@ -243,16 +243,22 @@ func (c *Client) Kill(name string) error {
 }
 
 // Attach returns the command that hands the user's terminal to the named
-// terminal until the user presses ctrl-q or its program exits. As tmux's
-// client does, it passes the user's terminal to the server, which draws the
-// terminal's screen on it and reads the user's input from it.
-func (c *Client) Attach(name string) tea.ExecCommand {
-	return &attachment{client: c, name: name}
+// terminal until the user presses one of the detach keys, each ctrl and a
+// letter such as "ctrl+q", or its program exits. As tmux's client does, it
+// passes the user's terminal to the server, which draws the terminal's
+// screen on it and reads the user's input from it.
+func (c *Client) Attach(name string, detach []string) tea.ExecCommand {
+	a := &attachment{client: c, name: name}
+	for _, k := range detach {
+		a.detach = append(a.detach, k[len("ctrl+")]-'a'+1) // the byte the terminal sends
+	}
+	return a
 }
 
 type attachment struct {
 	client *Client
 	name   string
+	detach []byte
 	in     io.Reader
 	out    io.Writer
 }
@@ -288,7 +294,7 @@ func (a *attachment) Run() error {
 		return err
 	}
 	enc := gob.NewEncoder(conn)
-	req := AttachRequest{Name: a.name, Env: os.Environ(), Width: width, Height: height}
+	req := AttachRequest{Name: a.name, Env: os.Environ(), Width: width, Height: height, Detach: a.detach}
 	if err := enc.Encode(req); err != nil {
 		return err
 	}

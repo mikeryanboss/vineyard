@@ -14,10 +14,6 @@ import (
 	"github.com/muesli/cancelreader"
 )
 
-// detachKey is ctrl-q, which returns from an attached terminal to Vineyard,
-// as it does from Vineyard's tmux sessions.
-const detachKey = 0x11
-
 // frame is the shortest time between two redraws of an attached terminal.
 const frame = time.Second / 60
 
@@ -38,11 +34,12 @@ var inputModes = []ansi.Mode{
 type size struct{ Width, Height int }
 
 // attach draws t on the user's terminal, given as in and out, and passes what
-// the user types to its program, until the user presses ctrl-q, the program
-// exits, or stop is closed. env is the user's environment, which says what
-// their terminal supports. The terminal takes the user's terminal's size,
-// first initial and then each one resized receives.
-func attach(t *terminal, in, out *os.File, env []string, initial size, resized <-chan size, stop <-chan struct{}) error {
+// the user types to its program, until the user types one of the detach
+// bytes, the program exits, or stop is closed. env is the user's
+// environment, which says what their terminal supports. The terminal takes
+// the user's terminal's size, first initial and then each one resized
+// receives.
+func attach(t *terminal, in, out *os.File, env []string, detach []byte, initial size, resized <-chan size, stop <-chan struct{}) error {
 	if !term.IsTerminal(in.Fd()) {
 		return errors.New("attaching needs a terminal")
 	}
@@ -100,11 +97,14 @@ func attach(t *terminal, in, out *os.File, env []string, initial size, resized <
 			if !ok {
 				return nil
 			}
-			before, _, detach := bytes.Cut(b, []byte{detachKey})
-			if _, err := t.emu.InputPipe().Write(before); err != nil {
+			i := bytes.IndexAny(b, string(detach))
+			if i < 0 {
+				i = len(b)
+			}
+			if _, err := t.emu.InputPipe().Write(b[:i]); err != nil {
 				return err
 			}
-			if detach {
+			if i < len(b) {
 				return nil
 			}
 		case sz := <-resized:

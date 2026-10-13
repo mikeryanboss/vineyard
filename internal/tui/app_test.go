@@ -1103,7 +1103,7 @@ func TestApp_SubagentsSurviveAPollCatchingARedraw(t *testing.T) {
 func TestApp_ArrowsFoldSubagentsBeforeThePane(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
 	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}}})
-	if !contains(screen(m), "→ show subagents") {
+	if !contains(screen(m), "l show subagents") {
 		t.Errorf("the status bar should offer to show the subagents:\n%s", screen(m))
 	}
 	m = keys(m, "l")

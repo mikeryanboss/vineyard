@@ -303,6 +303,7 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 		WorktreeDir:      "../worktrees",
 		Templates:        []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},
 		Multiplexer:      MultiplexerTmux,
+		Keys:             Keys{"list": {"kill": {"x"}, "auto_yes": {}}},
 	}
 	if err := Save(home, want); err != nil {
 		t.Fatal(err)

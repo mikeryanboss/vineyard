@@ -65,6 +65,9 @@ type Config struct {
 	// MultiplexerVineyard or MultiplexerTmux. Each session keeps running in
 	// the multiplexer it started in.
 	Multiplexer string `toml:"multiplexer"`
+	// Keys replace the default keys of the actions they name
+	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
+	Keys Keys `toml:"keys,omitempty"`
 }
 
 // MultiplexerFor returns the multiplexer that runs sessions of profile p.
@@ -277,6 +280,9 @@ func Load(dir string) (Config, error) {
 		if m != MultiplexerVineyard && m != MultiplexerTmux {
 			return Defaults(), fmt.Errorf("%s: multiplexer %q: want %q or %q", Path(dir), m, MultiplexerVineyard, MultiplexerTmux)
 		}
+	}
+	if _, err := cfg.ResolvedKeys(); err != nil {
+		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)
 	}
 	return cfg, nil
 }

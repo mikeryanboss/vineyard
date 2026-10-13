@@ -195,7 +195,7 @@ func TestServerOfAnotherVersionIsAnError(t *testing.T) {
 
 // Attaching through the server draws the agent's screen on the user's
 // terminal, passes typed keys to it, follows the user's terminal's size, and
-// returns on ctrl-q without passing that on.
+// returns on the detach key, here ctrl-g, without passing that on.
 func TestAttachThroughTheServer(t *testing.T) {
 	socket, server := serverSocket(t)
 	c := NewClient(socket, server...)
@@ -220,13 +220,13 @@ func TestAttachThroughTheServer(t *testing.T) {
 		close(copied)
 	}()
 
-	a := c.Attach("a")
+	a := c.Attach("a", []string{"ctrl+g"})
 	a.SetStdin(tty)
 	a.SetStdout(tty)
 	done := make(chan error)
 	go func() { done <- a.Run() }()
 
-	user.Write([]byte("echo typed\r"))
+	user.Write([]byte("\x11echo typed\r")) // ctrl-q, the default detach key, does not detach
 	waitFor(t, capture, "typed")
 	if err := pty.Setsize(tty, &pty.Winsize{Cols: 60, Rows: 15}); err != nil {
 		t.Fatal(err)
@@ -247,18 +247,18 @@ func TestAttachThroughTheServer(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	user.Write([]byte("echo more\r\x11echo ignored\r"))
+	user.Write([]byte("echo more\r\x07echo ignored\r"))
 	select {
 	case err := <-done:
 		if err != nil {
 			t.Fatal(err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("ctrl-q did not detach")
+		t.Fatal("ctrl-g did not detach")
 	}
 	got := waitFor(t, capture, "more")
-	if strings.Contains(got, "ignored") || strings.Contains(got, "^Q") {
-		t.Errorf("input after ctrl-q reached the agent: %q", got)
+	if strings.Contains(got, "ignored") || strings.Contains(got, "^G") {
+		t.Errorf("input after ctrl-g reached the agent: %q", got)
 	}
 	tty.Close()
 	user.Close()

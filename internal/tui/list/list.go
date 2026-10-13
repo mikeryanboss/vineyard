@@ -261,9 +261,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, common.ListKeyMap.Up):
+		case key.Matches(msg, common.Keys.List.Up):
 			return m.move(-1), nil
-		case key.Matches(msg, common.ListKeyMap.Down):
+		case key.Matches(msg, common.Keys.List.Down):
 			return m.move(1), nil
 		}
 		return m, nil

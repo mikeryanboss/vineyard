@@ -101,12 +101,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	keys := common.PaneKeyMap
+	keys := common.Keys.Pane
 	switch {
 	case key.Matches(keyMsg, keys.Back):
 		m.scrolling = false
 		return m, func() tea.Msg { return common.LeavePaneMsg{} }
-	case key.Matches(keyMsg, keys.Tab, keys.PrevTab):
+	case key.Matches(keyMsg, keys.NextTab, keys.PrevTab):
 		back := key.Matches(keyMsg, keys.PrevTab)
 		return m, func() tea.Msg { return common.SwitchTabMsg{Back: back} }
 	}

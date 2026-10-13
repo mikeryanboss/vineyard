@@ -16,7 +16,7 @@ import (
 
 // protocol is the version of the calls between Vineyards and the server.
 // Change it with any change to the calls, their arguments, or attaching.
-const protocol = 1
+const protocol = 2
 
 // idleGrace is how long a new server runs before it may stop when idle,
 // unless a terminal starts sooner.
@@ -248,6 +248,8 @@ type AttachRequest struct {
 	// Env is the user's environment, which says what their terminal supports.
 	Env           []string
 	Width, Height int
+	// Detach are the bytes that end the attachment, one per detach key.
+	Detach []byte
 }
 
 // AttachResult ends an attachment: Err is empty when the user detached or the
@@ -279,7 +281,7 @@ func (d *daemon) attach(conn *net.UnixConn, in, out *os.File) error {
 				resized <- sz
 			}
 		}()
-		err = attach(t, in, out, req.Env, size{req.Width, req.Height}, resized, hungUp)
+		err = attach(t, in, out, req.Env, req.Detach, size{req.Width, req.Height}, resized, hungUp)
 	}
 	var result AttachResult
 	if err != nil {

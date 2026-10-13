@@ -36,8 +36,8 @@ func TestStart_SizesSessionAndConfiguresServer(t *testing.T) {
 	if got != want {
 		t.Errorf("new-session args = %q, want %q", got, want)
 	}
-	if config := strings.Join(r.calls[1], " "); !strings.Contains(config, "bind-key -n C-q detach-client") {
-		t.Errorf("server config does not bind the detach key: %q", config)
+	if config := strings.Join(r.calls[1], " "); !strings.Contains(config, "mouse on") {
+		t.Errorf("server config does not turn the mouse on: %q", config)
 	}
 }
 
@@ -75,15 +75,35 @@ func TestCapture_MissingSessionReportsErrNoSession(t *testing.T) {
 
 func TestAttachCommand_DropsTMUXAndRestoresWindowSizing(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-1000/default,1,0")
-	cmd := New("test").AttachCommand("s1")
+	cmd := New("test").AttachCommand("s1", []string{"ctrl+q"})
 	args := strings.Join(cmd.Args, " ")
-	if !strings.Contains(args, "-L test") || !strings.Contains(args, "window-size latest ; attach-session -t =s1") {
+	if !strings.Contains(args, "-L test") || !strings.Contains(args, "window-size latest ;") || !strings.HasSuffix(args, "attach-session -t =s1") {
 		t.Errorf("attach args = %q", args)
 	}
 	for _, kv := range cmd.Env {
 		if strings.HasPrefix(kv, "TMUX=") {
 			t.Error("TMUX must be removed so attaching works from inside tmux")
 		}
+	}
+}
+
+// The detach keys are bound in a key table of the session's own, named after
+// them, so Vineyards with other detach keys sharing the server keep theirs.
+func TestAttachCommand_BindsTheDetachKeysForTheSession(t *testing.T) {
+	cmd := New("test").AttachCommand("s1", []string{"ctrl+g", "ctrl+x"})
+	args := strings.Join(cmd.Args, " ")
+	for _, want := range []string{
+		"bind-key -T vineyard-detach-C-g-C-x C-g detach-client ;",
+		"bind-key -T vineyard-detach-C-g-C-x C-x detach-client ;",
+		"set-option -t =s1: key-table vineyard-detach-C-g-C-x ;",
+		"status-right  ctrl+g or ctrl+x: back to vineyard  ;",
+	} {
+		if !strings.Contains(args, want) {
+			t.Errorf("attach args lack %q: %q", want, args)
+		}
+	}
+	if strings.Contains(args, "C-q") {
+		t.Errorf("attach args bind the default detach key: %q", args)
 	}
 }
 
@@ -127,6 +147,17 @@ func TestLiveSession(t *testing.T) {
 	screen, _ := c.Capture("live")
 	if lines := strings.Count(screen, "\n"); lines != 8 {
 		t.Errorf("captured %d lines after resize, want 8", lines)
+	}
+
+	// Attaching needs a terminal; the commands before attach-session must
+	// run on a real server.
+	attach := New(socket).AttachCommand("live", []string{"ctrl+g"})
+	setup := attach.Args[:len(attach.Args)-4] // drop "; attach-session -t =live"
+	if out, err := exec.Command(setup[0], setup[1:]...).CombinedOutput(); err != nil {
+		t.Fatalf("attach setup %q: %v: %s", setup, err, out)
+	}
+	if out, _ := exec.Command("tmux", "-L", socket, "show-options", "-t", "=live:", "key-table").Output(); string(out) != "key-table vineyard-detach-C-g\n" {
+		t.Errorf("session key-table = %q after the attach setup", out)
 	}
 
 	if err := c.Kill("live"); err != nil {

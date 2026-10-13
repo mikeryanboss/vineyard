@@ -182,11 +182,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.viewport.ScrollDown(3)
 		}
 	case tea.KeyPressMsg:
-		keys := common.PaneKeyMap
+		keys := common.Keys.Pane
 		switch {
 		case key.Matches(msg, keys.Back):
 			return m, func() tea.Msg { return common.LeavePaneMsg{} }
-		case key.Matches(msg, keys.Tab, keys.PrevTab):
+		case key.Matches(msg, keys.NextTab, keys.PrevTab):
 			back := key.Matches(msg, keys.PrevTab)
 			return m, func() tea.Msg { return common.SwitchTabMsg{Back: back} }
 		case key.Matches(msg, keys.Up):
@@ -201,17 +201,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.viewport.GotoTop()
 		case key.Matches(msg, keys.Bottom):
 			m.viewport.GotoBottom()
-		case key.Matches(msg, keys.Toggle):
+		case key.Matches(msg, keys.Fold):
 			if i := m.CurrentFile(); i >= 0 {
 				return m.toggle(i, i), nil
 			}
-		case key.Matches(msg, keys.Collapse):
+		case key.Matches(msg, keys.FoldAll):
 			collapsed := make(map[string]bool, len(m.files))
 			for _, f := range m.files {
 				collapsed[f.Path()] = true
 			}
 			return m.fold(max(m.CurrentFile(), 0), collapsed), nil
-		case key.Matches(msg, keys.Expand):
+		case key.Matches(msg, keys.UnfoldAll):
 			return m.fold(m.CurrentFile(), map[string]bool{}), nil
 		case key.Matches(msg, keys.NextFile):
 			for _, start := range m.fileStarts {

@@ -87,9 +87,10 @@ The root model owns one `embedded.Model` for the life of the program:
   commands, so their results arrive in vineyard's `Update`; every message the
   root does not handle is forwarded to grapes. Dropping them stops grapes from
   reloading.
-- Keys and mouse events go to grapes only while `issuesOpen`; `ctrl+c` still
-  quits vineyard, and `ctrl+q` returns to the session list, as it does from
-  every screen. Grapes then draws the whole screen, dialogs aside.
+- Keys and mouse events go to grapes only while `issuesOpen`; the global quit
+  key, `ctrl+c`, still quits vineyard, and the global back key, `ctrl+q`,
+  returns to the session list, as it does from every screen. Grapes then draws
+  the whole screen, dialogs aside.
 - Grapes sends two messages for vineyard instead of acting itself:
   `embedded.CloseMsg` when the user presses quit, and `embedded.SessionsMsg`
   when the user asks for an issue's sessions.
@@ -326,9 +327,9 @@ a hash of its path, because one tmux server serves every repository.
 ## tmux
 
 All agent sessions live on one private tmux server (`tmux -L vineyard`). After
-each session start, server options are applied: scrollback, mouse, a status
-hint, and `ctrl-q` bound to detach. They are reapplied every time because the
-server forgets them when its last session ends.
+each session start, server options are applied: scrollback and mouse. They
+are reapplied every time because the server forgets them when its last
+session ends.
 
 - **Preview**: `capture-pane -p -e` of the visible screen, with ANSI colours.
   Detached windows are resized to the preview's content size, so the agent lays
@@ -336,8 +337,13 @@ server forgets them when its last session ends.
 - **Attach**: `tea.ExecProcess` runs `tmux attach-session` and Bubble Tea gives up
   the terminal until it exits. The window is first switched back to following
   the client's size, and `TMUX` is removed from the environment so attaching
-  works when Vineyard runs inside tmux. After detaching, the preview size is
-  reapplied.
+  works when Vineyard runs inside tmux. The same tmux command binds the detach
+  keys in a key table named after them (`vineyard-detach-C-q`), sets it as the
+  session's `key-table` with a status hint naming the keys, then attaches.
+  tmux looks a key up in the session's table first and falls back to the root
+  table, so other keys reach the program. Binding at attach time, per
+  session, lets Vineyards with different detach keys share the server. After
+  detaching, the preview size is reapplied.
 - **Prompts**: initial prompts are sent as a bracketed paste (`set-buffer` and
   `paste-buffer -p`) followed by Enter, so multi-line text is submitted once.
 
@@ -401,10 +407,10 @@ them.
 - **Attach**: as tmux's client does, the client passes the user's terminal to
   the server: an `a` connection whose first byte carries the input and output
   file descriptors (`SCM_RIGHTS`), then an `AttachRequest` with the user's
-  environment and terminal size. The server puts that terminal in raw mode,
+  environment, terminal size, and the detach keys' bytes. The server puts that terminal in raw mode,
   enters the alternate screen, and redraws the emulator on it with
   ultraviolet's diffing renderer, at most 60 times a second. Typed input goes
-  to the program until ctrl-q. The client forwards SIGWINCH as new sizes and
+  to the program until a detach byte. The client forwards SIGWINCH as new sizes and
   waits for the `AttachResult`; if its connection drops, the server ends the
   attachment. The program's output never reaches the user's terminal
   directly, so modes it sets there are only those that change input (cursor
@@ -478,6 +484,27 @@ zoomed instead: it fills the body in place of the list until `esc` or a tab
 switch. Zooming leaves agents' tmux windows at the split-pane size
 (`agentSize`), so agents never reflow. The Recap tab zooms the same way.
 
+## Key Bindings
+
+`config.DefaultKeys` lists every mode (`global`, `list`, `pane`, `settings`,
+`form`, `confirm`, `pick`), its actions, and their default keys.
+`Config.Keys` holds only what `[keys.<mode>]` tables in `config.toml` set, so
+`Save` writes back what the user wrote. `Config.ResolvedKeys` lays those over
+the defaults and rejects unknown modes and actions, key names Bubble Tea never
+reports (`shift+a` is reported as `A`), a key two actions of a mode share or
+that `global.quit` or `global.back` takes first, and detach keys other than ctrl and a letter.
+`Load` treats that like a malformed file: defaults plus the error.
+
+`NewModel` installs the resolved keys in `common.Keys`, a `KeyMap` of
+`key.Binding`s per mode that every view matches against; `NewKeyMap` panics
+when it and `DefaultKeys` disagree on the actions. Footer hints, a
+confirmation's answers, and messages such as "Press r to resume it." name the
+first key of a binding through `common.Hint` and `common.PressTo`, and leave
+out unbound actions. The detach keys go to the multiplexer with each attach.
+
+Out of scope: the text-editing keys inside inputs (bubbles' defaults) and
+grapes' keys on the issues screen, set in `.grapes/config.toml`.
+
 ## TUI Message Flow
 
 ```text
@@ -502,8 +529,10 @@ not handled, and reach grapes like any other message the root leaves alone.
 Bubble Tea reports single clicks only. `doubleClick` pairs a click on the list
 or pane with the one before it when both land within a column on the same line
 within 500 ms (`lastClick`; tests replace `now`). The first click of a pair
-acts as a single click; the second runs `enter` through `handleKey`, or `o` on
-a subagent row, so a double click opens a subagent on every tab. Where the
+acts as a single click; the second calls `open`, what the open key does, or
+`attach` on a subagent row, so a double click opens a subagent on every tab.
+The mouse calls actions, never fakes key presses, so it works whatever the
+keys are. Where the
 first click already acted, the second is dropped: on a subagent count line, and
 on a diff file's header or summary line (`clickAt.acted`, from
 `diffview.Clickable`), since a jump scrolls another line under the pointer. Clicks on a dialog, the issues screen, or the config screen clear
