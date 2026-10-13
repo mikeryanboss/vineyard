@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -193,6 +194,48 @@ func TestServerOfAnotherVersionIsAnError(t *testing.T) {
 	err = NewClient(socket).Start("a", t.TempDir(), "", 50, 12)
 	if err == nil || !strings.Contains(err.Error(), "process 4242") {
 		t.Errorf("err = %v, want one naming the server's process", err)
+	}
+	// vineyard debug reports it.
+	info, err := NewClient(socket).Info()
+	if err != nil || info == nil || info.PID != 4242 || info.Protocol != 0 || info.Listed {
+		t.Errorf("Info = %+v, %v; want process 4242 of protocol 0, without terminals", info, err)
+	}
+}
+
+// Info describes the server without starting one, and the server's log says
+// how each terminal's program ended, with the end of its screen: an agent
+// that exits at once leaves the reason in the log.
+func TestInfoAndLogDescribeTheServer(t *testing.T) {
+	socket, server := serverSocket(t)
+	c := NewClient(socket, server...)
+	if info, err := c.Info(); info != nil || err != nil {
+		t.Fatalf("Info without a server = %+v, %v; want nil", info, err)
+	}
+	t.Cleanup(func() { c.Close() })
+	startVia(t, c, "a", "sleep 30")
+	if err := c.Start("b", t.TempDir(), "echo boom; exit 3", 50, 12); err != nil {
+		t.Fatal(err)
+	}
+	info, err := c.Info()
+	if err != nil || info == nil || info.Protocol != protocol || info.PID == 0 {
+		t.Fatalf("Info = %+v, %v; want this protocol and a process", info, err)
+	}
+	if !info.Listed || !slices.Contains(info.Terminals, "a") {
+		t.Errorf("terminals = %v, want a among them", info.Terminals)
+	}
+	for deadline := time.Now().Add(3 * time.Second); c.Exists("b"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("b still runs")
+		}
+	}
+	log, err := os.ReadFile(c.Log())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"server started", `terminal b started "echo boom; exit 3"`, "terminal b exited after", "exit status 3", "    boom"} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("log lacks %q:\n%s", want, log)
+		}
 	}
 }
 

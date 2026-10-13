@@ -157,8 +157,10 @@ func (m Model) View() string {
 		return ""
 	}
 	if m.placeholder != "" {
+		// Wrapped to fit: a longer line would wrap in the terminal and push
+		// the rest of the screen down.
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.theme.StyleSubtitle.Render(m.placeholder))
+			m.theme.StyleSubtitle.Render(ansi.Wordwrap(m.placeholder, m.width, "")))
 	}
 	if m.scrolling {
 		return m.viewport.View()

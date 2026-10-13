@@ -19,7 +19,7 @@ issue tracker, embedded, and links each issue to the sessions working on it.
 ```text
 main.go
   -> find the repository, load .vineyard/config.toml
-  -> make the multiplexers: Vineyard's server, and tmux when installed
+  -> make the multiplexers: Vineyard's server of this protocol, older ones on demand, and tmux when installed
   -> reconcile sessions.json with git worktrees and live terminals, under its lock;
      each session runs in the multiplexer it records
   -> load grapes for the repository's .grapes directory, if any
@@ -36,6 +36,7 @@ main.go
 | Task | Start here | Then read |
 | --- | --- | --- |
 | CLI, flags, startup | `main.go` | `internal/config/config.go` |
+| Debugging a failure, logs, driving the TUI | Debugging in `development.md` | `runDebug` in `main.go`, `scripts/drive` |
 | Session lifecycle (create, pause, resume, kill, push) | `internal/session/manager.go` | `internal/git/git.go` |
 | Session fields, persistence, locking | `internal/session/session.go`, `store.go` | `leader.go`, `lock_unix.go` |
 | Several Vineyards on one repository | Several Vineyards in `architecture.md` | `adopt` in `internal/tui/app.go` |
@@ -44,6 +45,7 @@ main.go
 | A session's multiplexer | `terminal` in `internal/session/manager.go` and `internal/tui/backend.go` | `multiplexers` in `main.go`; Multiplexers per Session in `architecture.md` |
 | Vineyard's server | `internal/vterm/daemon.go`, `client.go` | `vterm.go`, `attach.go`; Vineyard's Server in `architecture.md` |
 | Status bar of an attached terminal | `internal/vterm/bar.go`, `attach.go` | `attachment` in `internal/tui/app.go`; `AttachCommand` in `internal/tmux/tmux.go` |
+| Servers of several protocols, after an update | `vineyards.go` | Protocols side by side in `architecture.md` |
 | Diff collection | `internal/git/diff.go` | |
 | Diff parsing, changed-word ranges | `internal/diff/diff.go` | |
 | Diff rendering | `internal/tui/diffview/` | `spans.go` for highlighting and wrapping |
@@ -68,10 +70,12 @@ main.go
 
 ```text
 main.go                    CLI and TUI bootstrap
+vineyards.go               Vineyard's servers, one per protocol
 internal/config/           config schema, defaults, data directory layout
 internal/git/              git CLI wrapper: worktrees, commits, pushes, diffs
 internal/tmux/             tmux client on Vineyard's private socket
 internal/vterm/            Vineyard's own multiplexer: background server and its client
+internal/logfile/          the logs failures leave: append, restart past 1 MB, tail
 internal/session/          session model, lifecycle manager, store, screen detection
 internal/diff/             unified diff parser
 internal/recap/            Claude Code transcripts: a session's title, messages, and recaps
@@ -89,6 +93,7 @@ internal/tui/common/       theme, keys, messages
 internal/tui/testutil/     golden-file helpers and fixtures
 .grapes/                   this repository's own issues
 doc/                       README demo GIF and its VHS tape
+scripts/drive              drives a development build in tmux, for debugging and screenshots
 .github/workflows/         tag each program change, release with GoReleaser
 ```
 
@@ -119,10 +124,13 @@ doc/                       README demo GIF and its VHS tape
   focused: anywhere else Esc interrupts the agent.
 - Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_SOCKET`), so
   its key bindings never reach the user's own tmux server. Vineyard's server
-  uses the same name.
+  uses the same name, followed by its protocol (`vineyard-p3`).
 - Change `protocol` in `internal/vterm/daemon.go` with any change to the
-  server's calls: a running server outlives the Vineyard that started it, so
-  a newer Vineyard may meet an older server.
+  server's calls. A running server outlives the Vineyard that started it, so
+  each protocol's server has its own socket: after an update, agents keep
+  running on the older server and new sessions start on the new one
+  (`vineyards.go`). Never change `Version` or `Exists`, through which a
+  Vineyard asks older servers whether their agents still run.
 
 ## Verify a Change
 

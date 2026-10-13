@@ -2,14 +2,20 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"net"
+	"net/rpc"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mikeryanboss/vineyard/internal/config"
+	"github.com/mikeryanboss/vineyard/internal/session"
+	"github.com/mikeryanboss/vineyard/internal/tui"
 	"github.com/mikeryanboss/vineyard/internal/vterm"
 )
 
@@ -79,14 +85,17 @@ func TestRun_DebugPrintsPaths(t *testing.T) {
 		}
 	}
 	t.Chdir(repo)
+	t.Setenv("TMPDIR", t.TempDir())
 
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"debug"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("debug exit code %d: %s", code, stderr.String())
 	}
 	for _, want := range []string{
+		"not running",
 		filepath.Join(repo, ".vineyard", "config.toml"),
 		filepath.Join(repo, ".vineyard", "worktrees"),
+		filepath.Join(repo, ".vineyard", "vineyard.log"),
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("debug output lacks %s:\n%s", want, stdout.String())
@@ -101,11 +110,86 @@ func TestRun_DebugPrintsPaths(t *testing.T) {
 func TestMultiplexers_WithoutTmux(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
-	terminals, err := multiplexers()
+	vineyards, err := newVineyards()
 	if err != nil {
 		t.Fatal(err)
 	}
+	terminals := multiplexers(vineyards.current())
 	if _, ok := terminals[config.MultiplexerVineyard].(*vterm.Client); !ok || len(terminals) != 1 {
 		t.Errorf("multiplexers = %v, want Vineyard's server alone", terminals)
+	}
+}
+
+// fakeServer answers the calls that Vineyard multiplexers of every protocol
+// answer alike, as one of protocol, running the terminal "a", would.
+type fakeServer struct{ protocol int }
+
+func (f fakeServer) Version(_ struct{}, reply *vterm.VersionReply) error {
+	*reply = vterm.VersionReply{Protocol: f.protocol, PID: 4242}
+	return nil
+}
+
+func (fakeServer) Exists(name string, reply *bool) error {
+	*reply = name == "a"
+	return nil
+}
+
+// serveFake runs a fakeServer of protocol on socket until the test ends.
+func serveFake(t *testing.T, socket string, protocol int) {
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	calls := rpc.NewServer()
+	calls.RegisterName("Terminals", fakeServer{protocol})
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Read(make([]byte, 1)) // the connection's kind
+			go calls.ServeConn(conn)
+		}
+	}()
+}
+
+// Each protocol's Vineyard multiplexer has a socket of its own. One of
+// another protocol only tells whether it runs a terminal; while it does,
+// the rest fails with an error saying why. One that speaks this build's
+// protocol, as one on the socket protocols 1 to 3 shared may, serves fully.
+func TestVineyards(t *testing.T) {
+	t.Setenv("VINEYARD_SOCKET", "vy")
+	dir := t.TempDir()
+	v := &vineyards{dir: dir, exe: "/nonexistent", older: map[int]tui.Terminal{}}
+	if got := v.client(0).Socket(); got != filepath.Join(dir, "vy") {
+		t.Errorf("protocol 0's socket = %s, want %s/vy", got, dir)
+	}
+	serveFake(t, filepath.Join(dir, "vy-p1"), 1)
+	if protocols, err := v.protocols(); err != nil || !slices.Equal(protocols, []int{vterm.Protocol(), 1}) {
+		t.Errorf("protocols = %v, %v; want this build's, then 1", protocols, err)
+	}
+
+	older := v.Older(1)
+	if !older.Exists("a") || older.Exists("b") {
+		t.Error("the older multiplexer does not say which terminals it runs")
+	}
+	if _, err := older.Capture("a"); !errors.Is(err, session.ErrOlderMultiplexer) || !strings.Contains(err.Error(), "process 4242") {
+		t.Errorf("capturing a running terminal: err = %v, want ErrOlderMultiplexer naming the process", err)
+	}
+	if _, err := older.Capture("b"); err == nil || errors.Is(err, session.ErrOlderMultiplexer) {
+		t.Errorf("capturing an ended terminal: err = %v, want one saying it is gone", err)
+	}
+	if older.Kill("a") == nil || older.Kill("b") != nil || older.Start("c", dir, "", 80, 24) == nil {
+		t.Error("the older multiplexer must refuse to start or kill terminals, and find ended ones gone")
+	}
+	if v.Older(0).Exists("a") {
+		t.Error("a terminal runs on protocol 0's socket, where nothing listens")
+	}
+
+	serveFake(t, filepath.Join(dir, "vy-p7"), vterm.Protocol())
+	if _, ok := v.Older(7).(*vterm.Client); !ok {
+		t.Error("a multiplexer that speaks this build's protocol is not used as this build's")
 	}
 }

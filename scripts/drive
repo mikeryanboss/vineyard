@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Drive a development build of Vineyard in a detached tmux window, as a user
+# would, and read its screen: for debugging and for screenshots.
+# See "Debugging" in docs/development.md.
+set -euo pipefail
+
+usage() {
+	cat <<'USAGE'
+usage: scripts/drive <command> [args]
+  init <repo> [multiplexer]       make a throwaway repository, configured for a multiplexer
+  start <binary> <repo> [flags]   run <binary> [flags] in <repo>, in a 120x35 window
+  keys <key>...                   press keys, as tmux names them: n, Enter, Escape, C-q
+  type <text>                     type text
+  screen [seconds] [-e]           after seconds (default 1), print the non-blank lines
+                                  of the screen; -e prints all of it, with colours
+  exit                            print Vineyard's stderr and exit status, once it exited
+  stop                            end the window, and the development multiplexers
+USAGE
+	exit 2
+}
+
+# The window runs on a tmux server of its own, and Vineyard on sockets named
+# differently: VINEYARD_SOCKET names Vineyard's tmux socket too.
+outer=(tmux -L vineyard-drive)
+socket=vineyard-drive-dev
+
+# The window's repository, which keeps Vineyard's stderr in its .vineyard.
+repo() { "${outer[@]}" show-environment -g DRIVE_REPO | cut -d= -f2-; }
+
+[ $# -ge 1 ] || usage
+command=$1
+shift
+case $command in
+init)
+	[ $# -ge 1 ] || usage
+	rm -rf "$1"
+	git init -q -b main "$1"
+	git -C "$1" -c user.name=drive -c user.email=drive@example.com commit -q --allow-empty -m init
+	mkdir -p "$1/.vineyard"
+	printf 'multiplexer = "%s"\n' "${2:-vineyard}" >"$1/.vineyard/config.toml"
+	;;
+start)
+	[ $# -ge 2 ] || usage
+	binary=$(realpath "$1") dir=$(realpath "$2")
+	shift 2
+	"${outer[@]}" kill-server 2>/dev/null || true
+	mkdir -p "$dir/.vineyard"
+	# The pane outlives Vineyard, so that its exit can be read.
+	"${outer[@]}" new-session -d -s drive -x 120 -y 35 -c "$dir" \
+		"VINEYARD_SOCKET=$socket $(printf '%q ' "$binary" "$@") 2>.vineyard/drive-stderr; echo \"exit status \$?\" >>.vineyard/drive-stderr; sleep infinity"
+	"${outer[@]}" set-environment -g DRIVE_REPO "$dir"
+	;;
+keys)
+	"${outer[@]}" send-keys -t drive "$@"
+	;;
+type)
+	"${outer[@]}" send-keys -t drive -l "$*"
+	;;
+screen)
+	sleep "${1:-1}"
+	if [ "${2:-}" = -e ]; then
+		"${outer[@]}" capture-pane -e -p -t drive
+	else
+		"${outer[@]}" capture-pane -p -t drive | grep -v '^[ │]*$' || true
+	fi
+	;;
+exit)
+	cat "$(repo)/.vineyard/drive-stderr"
+	;;
+stop)
+	"${outer[@]}" kill-server 2>/dev/null || true
+	tmux -L "$socket" kill-server 2>/dev/null || true
+	# Vineyard multiplexers of every protocol: each has a socket of its own.
+	pkill -f -- "server ${TMPDIR:-/tmp}/vineyard-$(id -u)/$socket(-p[0-9]+)?\$" || true
+	;;
+*)
+	usage
+	;;
+esac

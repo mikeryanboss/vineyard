@@ -822,3 +822,49 @@ func TestUnavailableMultiplexer(t *testing.T) {
 		t.Errorf("kill: %v", err)
 	}
 }
+
+// After an update that changes the Vineyard multiplexer's protocol, agents
+// keep running on the older multiplexer: Vineyard shows them running, and
+// restarts one on its own multiplexer only once it has ended there. New
+// sessions start on its own.
+func TestOlderVineyardMultiplexer(t *testing.T) {
+	m, current := newTestManager(t)
+	m.Protocol = 2
+	older := newFakeTerminal()
+	m.Older = func(protocol int) Terminal {
+		if protocol != 1 {
+			t.Fatalf("asked for the multiplexer of protocol %d, want 1", protocol)
+		}
+		return older
+	}
+
+	s := startSession(t, m, "new")
+	if s.Protocol != 2 || !current.Exists(s.TmuxName) {
+		t.Fatalf("a new session runs on protocol %d; current runs %v", s.Protocol, current.live)
+	}
+
+	older.live["old-live"] = "/x"
+	got := restore(t, m,
+		Session{TmuxName: "old-live", Multiplexer: "vineyard", Protocol: 1, Status: StatusRunning},
+		Session{TmuxName: "old-gone", Multiplexer: "vineyard", Protocol: 1, Status: StatusRunning},
+	)
+	if got[0].Status != StatusReady || got[0].Protocol != 1 || got[1].Status != StatusStopped {
+		t.Errorf("restored %+v and %+v; want the live one ready on protocol 1, the other stopped", got[0], got[1])
+	}
+
+	// s, as if an earlier Vineyard had started it.
+	delete(current.live, s.TmuxName)
+	s.Protocol, s.Status = 1, StatusStopped
+	older.live[s.TmuxName] = s.WorktreePath
+	if _, err := m.Resume(s, 80, 24); !errors.Is(err, ErrOlderMultiplexer) {
+		t.Errorf("resuming an agent still on the older multiplexer: err = %v, want ErrOlderMultiplexer", err)
+	}
+	delete(older.live, s.TmuxName)
+	resumed, err := m.Resume(s, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Protocol != 2 || !current.Exists(s.TmuxName) {
+		t.Errorf("resumed on protocol %d; current runs %v", resumed.Protocol, current.live)
+	}
+}

@@ -74,7 +74,9 @@ have; attach to scroll it.
 
 Flags: `-p <command>` runs a different agent in new sessions, `-y` turns on
 auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed
-`a` there. `vineyard debug` prints where Vineyard stores its data.
+`a` there. `vineyard debug` prints where Vineyard stores its data, whether its
+server runs, whether each session's agent runs, and the ends of the logs: what
+went wrong is usually there.
 
 ## Configuration
 
@@ -288,8 +290,10 @@ A session is a branch, a worktree under `worktree_dir`, and the agent running
 in a detached terminal of a multiplexer. By default that is Vineyard's own
 terminal server, which works like tmux's: it runs in the background, runs each
 agent on a pseudo-terminal, mirrors it with a built-in terminal emulator, and
-keeps running after Vineyard quits until its last agent ends. `vineyard debug`
-prints its socket. A session in tmux runs on Vineyard's own tmux server
+keeps running after Vineyard quits until its last agent ends. An update of
+Vineyard that changes how it talks to that server starts a new one beside it:
+agents on the older server keep running until they end, and new sessions
+start on the new one. `vineyard debug` prints the servers' sockets. A session in tmux runs on Vineyard's own tmux server
 (`tmux -L vineyard ls`). The preview mirrors the agent's screen. An agent whose
 screen keeps changing is working; one whose screen is still is waiting for
 you. Attaching hands the terminal to the agent until the detach key, ctrl+q by default.

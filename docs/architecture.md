@@ -384,9 +384,12 @@ owns the terminals, and every Vineyard is a client of it over a Unix socket,
 so agents outlive the Vineyard that started them and several Vineyards share
 them.
 
-- **Socket**: `$TMPDIR/vineyard-<uid>/<name>` (`vterm.SocketPath`), in a
-  directory only the user may use, as tmux keeps `/tmp/tmux-<uid>/<name>`.
-  The server's output goes to `<socket>.log`.
+- **Socket**: `$TMPDIR/vineyard-<uid>/<name>-p<protocol>` (`vterm.SocketPath`,
+  `vineyardSocketName`), in a directory only the user may use, as tmux keeps
+  `/tmp/tmux-<uid>/<name>`. Servers of protocols 1 to 3 shared `<name>`.
+  The server logs its start and stop, and each terminal's start and exit,
+  with the exit status and the last lines of its screen, to `<socket>.log`
+  (`internal/logfile`, restarted past 1 MB).
 - **Starting**: a client that starts a terminal when no server answers runs
   `vineyard server <socket>` in a session of its own (`setsid`), working in
   `/`, and dials until it listens. The server checks for a live server and
@@ -397,7 +400,20 @@ them.
   method; each client keeps one such connection. Every connection first asks
   `Version`, and a server of another protocol version is an error naming its
   process ID (`protocol` in `daemon.go`; change it with any change to the
-  calls).
+  calls). `Client.Info` asks `Version` and `List` without that check, for
+  `vineyard debug`.
+- **Protocols side by side**: each protocol's server has its own socket, so
+  an update that changes the protocol leaves the agents running on the older
+  server while new sessions start on the new one. A session records the
+  protocol it runs on (`Session.Protocol`; 0 for sessions recorded before,
+  on `<name>`). `Manager.terminal` and `LiveBackend.terminal` send a session
+  of another protocol to `vineyards.Older`: a client when that server speaks
+  this build's protocol, and otherwise `olderVineyard`, which asks only
+  `Version` and `Exists`, through `Client.Holds`, and fails every other call
+  with `session.ErrOlderMultiplexer`. Every protocol answers those two alike;
+  never change them. The TUI keeps such a session's status and shows the
+  error instead of its screen; resuming restarts it on this build's server
+  once it ended on the older one.
 - **Terminals**: `vterm.Server` runs each program through `$SHELL -c` on a
   pseudo-terminal (`creack/pty`) with the starting Vineyard's environment and
   `TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`

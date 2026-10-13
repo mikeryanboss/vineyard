@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
 
+	"github.com/mikeryanboss/vineyard/internal/logfile"
 	"github.com/mikeryanboss/vineyard/internal/session"
 )
 
@@ -43,6 +44,54 @@ func NewClient(socket string, server ...string) *Client {
 
 // Socket returns the path of the server's socket.
 func (c *Client) Socket() string { return c.socket }
+
+// Log returns the path of the log of the servers this client starts.
+func (c *Client) Log() string { return c.socket + ".log" }
+
+// ServerInfo describes a running server.
+type ServerInfo struct {
+	PID, Protocol int
+	// Terminals names the server's terminals when Listed, which is when its
+	// protocol is this build's and it answers List, as servers before List
+	// did not.
+	Terminals []string
+	Listed    bool
+}
+
+// Info describes the server on the socket, on a connection of its own, or
+// returns nil when none runs. Unlike the other calls, it accepts a server of
+// another protocol, to report it.
+func (c *Client) Info() (*ServerInfo, error) {
+	calls, v, err := c.handshake(false)
+	if noServer(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer calls.Close()
+	info := &ServerInfo{PID: v.PID, Protocol: v.Protocol}
+	if v.Protocol == protocol {
+		info.Listed = calls.Call("Terminals.List", struct{}{}, &info.Terminals) == nil
+	}
+	return info, nil
+}
+
+// Holds reports whether the server runs the named terminal. It asks through
+// the calls that servers of every protocol answer alike, Version and Exists,
+// so it works on a server of another protocol too. It never starts a server.
+func (c *Client) Holds(name string) bool {
+	calls, _, err := c.handshake(false)
+	if err != nil {
+		return false
+	}
+	defer calls.Close()
+	var ok bool
+	return calls.Call("Terminals.Exists", name, &ok) == nil && ok
+}
+
+// Protocol is the version of the calls this build makes to its server.
+func Protocol() int { return protocol }
 
 // Close closes the connection to the server.
 func (c *Client) Close() error {
@@ -78,7 +127,7 @@ func (c *Client) connect(start bool) (*rpc.Client, error) {
 		calls, v, err := c.handshake(start)
 		if err == nil && v.Protocol != protocol {
 			calls.Close()
-			return nil, fmt.Errorf("the Vineyard server at %s (process %d) is from another version of Vineyard (protocol %d, want %d); end its agents or kill it", c.socket, v.PID, v.Protocol, protocol)
+			return nil, fmt.Errorf("end the agents of Vineyard's server, process %d, or kill it: it is from another version of Vineyard (protocol %d, want %d, at %s)", v.PID, v.Protocol, protocol, c.socket)
 		}
 		if err == nil {
 			c.calls = calls
@@ -126,7 +175,7 @@ func hungUp(err error) bool {
 // this process and the user's terminal, and dials it. Its output goes to a log
 // beside the socket.
 func (c *Client) startServer() (*net.UnixConn, error) {
-	log, err := os.OpenFile(c.socket+".log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	log, err := logfile.Open(c.Log())
 	if err != nil {
 		return nil, err
 	}

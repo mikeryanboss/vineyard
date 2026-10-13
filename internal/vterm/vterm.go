@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"slices"
@@ -38,7 +39,17 @@ type Server struct {
 	mu        sync.Mutex
 	terminals map[string]*terminal
 	// exited, when set, is called after each terminal's program exits.
-	exited func()
+	exited func(Exit)
+}
+
+// Exit describes a terminal whose program exited.
+type Exit struct {
+	Name, Program string
+	// Err is the program's exit error, nil when it exited with status 0.
+	Err      error
+	Lifetime time.Duration
+	// Screen is the text of its last screen, without colours.
+	Screen string
 }
 
 // New returns a server without terminals.
@@ -109,7 +120,10 @@ func (s *Server) Start(name, dir, program string, env []string, width, height in
 	go t.forward()
 	go func() {
 		t.mirror()
-		cmd.Wait()
+		waitErr := cmd.Wait()
+		t.mu.Lock()
+		exit := Exit{Name: name, Program: strings.Join(cmd.Args, " "), Err: waitErr, Lifetime: time.Since(t.created), Screen: t.emu.String()}
+		t.mu.Unlock()
 		f.Close()
 		// Ends forward. Emulator.Close would race with its blocked Read.
 		t.emu.InputPipe().(io.Closer).Close()
@@ -120,7 +134,7 @@ func (s *Server) Start(name, dir, program string, env []string, width, height in
 		s.mu.Unlock()
 		close(t.exited)
 		if s.exited != nil {
-			s.exited()
+			s.exited(exit)
 		}
 	}()
 	return nil
@@ -310,6 +324,13 @@ func (t *terminal) hangUp() error {
 		return nil
 	}
 	return err
+}
+
+// names returns the names of the terminals, sorted.
+func (s *Server) names() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Sorted(maps.Keys(s.terminals))
 }
 
 // count returns how many terminals run.

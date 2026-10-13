@@ -58,6 +58,11 @@ type Session struct {
 	// Multiplexer names the multiplexer that runs the session's terminals,
 	// such as "tmux" or "vineyard" (see session.Manager.Terminals).
 	Multiplexer string `json:"multiplexer"`
+	// Protocol is the protocol of the Vineyard multiplexer that runs the
+	// session's terminals, when Multiplexer is "vineyard". Each protocol has
+	// a multiplexer of its own. 0 is that of sessions recorded before
+	// protocols were, which run on the one socket protocols 1 to 3 shared.
+	Protocol int `json:"protocol,omitempty"`
 	// Status is the last known lifecycle state.
 	Status Status `json:"status"`
 	// AutoYes accepts the agent's permission prompts automatically.

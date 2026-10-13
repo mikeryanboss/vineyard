@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"log"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -93,6 +95,9 @@ type (
 		permission bool
 		trust      bool
 		gone       bool
+		// unreachable is set when the terminal runs on an older Vineyard
+		// multiplexer, whose screen this Vineyard cannot see.
+		unreachable bool
 		// subagents is Claude Code's list of running subagents on the screen.
 		subagents subagent.List
 		// conversation is what Claude Code's transcripts say about them.
@@ -329,6 +334,9 @@ type Model struct {
 	status      string
 	statusIsErr bool
 	statusSeq   int
+	// loggedErr is the error last logged, which setError logs once while it
+	// repeats, as a failing poll's does.
+	loggedErr string
 }
 
 // NewModel returns the root model showing sessions. It installs the
@@ -528,7 +536,23 @@ func (m *Model) setStatus(msg string, isErr bool) tea.Cmd {
 	return tick(statusMessageDuration, func(time.Time) tea.Msg { return clearStatusMsg{seq: seq} })
 }
 
-func (m *Model) setError(err error) tea.Cmd { return m.setStatus(err.Error(), true) }
+// setError shows err and logs it: the status line shows it only briefly.
+func (m *Model) setError(err error) tea.Cmd {
+	if msg := err.Error(); msg != m.loggedErr {
+		m.loggedErr = msg
+		log.Print(msg)
+	}
+	return m.setStatus(err.Error(), true)
+}
+
+// logPanic, deferred, logs a panic with its stack, which Bubble Tea prints
+// only to the terminal it restores, and panics again.
+func logPanic() {
+	if r := recover(); r != nil {
+		log.Printf("panic: %v\n%s", r, debug.Stack())
+		panic(r)
+	}
+}
 
 // placeholder is what the preview shows instead of a screen, or "".
 func (m Model) placeholder(s session.Session, ok bool) string {
@@ -752,6 +776,10 @@ func (m Model) statusCmd() tea.Cmd {
 			go func() {
 				defer func() { done <- struct{}{} }()
 				screen, err := backend.Capture(s)
+				if errors.Is(err, session.ErrOlderMultiplexer) {
+					results[i] = screenStatus{id: s.ID, unreachable: true}
+					return
+				}
 				if err != nil {
 					results[i] = screenStatus{id: s.ID, gone: true}
 					return
@@ -906,6 +934,7 @@ func (m Model) enterCmd(s session.Session) tea.Cmd {
 
 // Update handles a message.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	defer logPanic()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -983,6 +1012,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.terminal = m.terminal.SetScreen(msg.screen)
 			}
 			return m, nil
+		}
+		if errors.Is(msg.err, session.ErrOlderMultiplexer) && msg.id == m.shownID {
+			m.preview = m.preview.SetPlaceholder(msg.err.Error())
 		}
 		if msg.err == nil {
 			m.sizes[msg.id] = msg.size
@@ -1732,8 +1764,8 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 	var changed []session.Session
 	for _, r := range msg.results {
 		i := m.find(r.id)
-		if i < 0 || m.busy[r.id] || !m.sessions[i].Status.Active() {
-			continue // removed, or changed state while the capture ran
+		if i < 0 || m.busy[r.id] || !m.sessions[i].Status.Active() || r.unreachable {
+			continue // removed, changed state while the capture ran, or out of reach
 		}
 		s := m.sessions[i]
 		if r.gone {
@@ -2286,6 +2318,7 @@ func moved(msg tea.MouseMsg, dx, dy int) tea.MouseMsg {
 
 // View renders the screen.
 func (m Model) View() tea.View {
+	defer logPanic()
 	var content string
 	switch {
 	case m.width == 0:
