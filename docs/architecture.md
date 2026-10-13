@@ -88,7 +88,8 @@ The root model owns one `embedded.Model` for the life of the program:
   root does not handle is forwarded to grapes. Dropping them stops grapes from
   reloading.
 - Keys and mouse events go to grapes only while `issuesOpen`; `ctrl+c` still
-  quits vineyard. Grapes then draws the whole screen, dialogs aside.
+  quits vineyard, and `ctrl+q` returns to the session list, as it does from
+  every screen. Grapes then draws the whole screen, dialogs aside.
 - Grapes sends two messages for vineyard instead of acting itself:
   `embedded.CloseMsg` when the user presses quit, and `embedded.SessionsMsg`
   when the user asks for an issue's sessions.

@@ -57,6 +57,7 @@ Run `vineyard` inside a git repository.
 | `i` | Open the grapes issues; on an issue, `a` goes to or starts its session |
 | `C` | Edit the configuration |
 | `q` | Quit; agents keep running |
+| `ctrl-q` | Return to the session list from any screen, pane, or dialog, as from an attached agent or shell |
 
 The mouse works too: click a session, a subagent, a tab, a diff file's header
 to fold it or its line in the summary to go to it, a dialog's field or answer,

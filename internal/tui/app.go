@@ -1876,8 +1876,18 @@ func (m Model) runConfirmed(msg common.ConfirmedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if msg.String() == "ctrl+c" {
+	switch msg.String() {
+	case "ctrl+c":
 		return m, tea.Quit
+	case "ctrl+q":
+		// Returns to the session list from anywhere, as it does from an
+		// attached agent or shell. On the list it does nothing.
+		m.dialog = nil
+		m.configOpen = false
+		m.issuesOpen = false
+		m.setFocus(focusList)
+		m.setZoom(false)
+		return m, nil
 	}
 	if m.dialog != nil {
 		var cmd tea.Cmd
