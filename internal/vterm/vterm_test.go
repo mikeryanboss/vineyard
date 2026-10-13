@@ -1,23 +1,20 @@
 package vterm
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
+	"os"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/creack/pty"
 )
 
 // start runs program on a new terminal of s and ends it with the test.
 func start(t *testing.T, s *Server, name, program string) {
 	t.Helper()
-	t.Setenv("SHELL", "/bin/sh")
-	if err := s.Start(name, t.TempDir(), program, 40, 10); err != nil {
+	env := append(os.Environ(), "SHELL=/bin/sh")
+	if err := s.Start(name, t.TempDir(), program, env, 40, 10); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Kill(name) })
@@ -124,58 +121,5 @@ func TestKillEndsTheProgramAndItsChildren(t *testing.T) {
 	}
 	if err := s.Kill("a"); err != nil {
 		t.Errorf("killing a missing terminal: %v", err)
-	}
-}
-
-// Attaching draws the agent's screen, passes typed keys to it, and returns on
-// ctrl-q without passing that on.
-func TestAttachPassesInputUntilCtrlQ(t *testing.T) {
-	s := New()
-	start(t, s, "a", `printf 'agent screen\n'; stty -echo; cat -v`)
-	waitFor(t, func() (string, error) { return s.Capture("a") }, "agent screen")
-
-	user, tty, err := pty.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer user.Close()
-	defer tty.Close()
-	if err := pty.Setsize(tty, &pty.Winsize{Cols: 50, Rows: 12}); err != nil {
-		t.Fatal(err)
-	}
-	var drawn bytes.Buffer
-	copied := make(chan struct{})
-	go func() {
-		io.Copy(&drawn, user)
-		close(copied)
-	}()
-
-	a := s.Attach("a")
-	a.SetStdin(tty)
-	a.SetStdout(tty)
-	done := make(chan error)
-	go func() { done <- a.Run() }()
-
-	waitFor(t, func() (string, error) { return s.Capture("a") }, "agent screen")
-	user.Write([]byte("typed\r"))
-	waitFor(t, func() (string, error) { return s.Capture("a") }, "typed")
-	user.Write([]byte("more\r\x11ignored\r"))
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("ctrl-q did not detach")
-	}
-	got := waitFor(t, func() (string, error) { return s.Capture("a") }, "more")
-	if strings.Contains(got, "ignored") || strings.Contains(got, "^Q") {
-		t.Errorf("input after ctrl-q reached the agent: %q", got)
-	}
-	tty.Close()
-	user.Close()
-	<-copied
-	if !strings.Contains(drawn.String(), "agent screen") {
-		t.Errorf("attach did not draw the agent's screen: %q", drawn.String())
 	}
 }

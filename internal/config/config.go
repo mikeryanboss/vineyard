@@ -59,7 +59,18 @@ type Config struct {
 	// Templates are prompt templates for sessions started from an issue,
 	// beside those in the templates directory.
 	Templates []Template `toml:"templates,omitempty"`
+	// Multiplexer runs the agents: MultiplexerTmux or MultiplexerVineyard.
+	// Empty means tmux when it is installed, otherwise Vineyard's server. It
+	// takes effect when Vineyard starts.
+	Multiplexer string `toml:"multiplexer"`
 }
+
+// The multiplexers that can run agents.
+const (
+	MultiplexerTmux = "tmux"
+	// MultiplexerVineyard is Vineyard's own terminal server.
+	MultiplexerVineyard = "vineyard"
+)
 
 // Defaults returns the configuration used when no file exists.
 func Defaults() Config {

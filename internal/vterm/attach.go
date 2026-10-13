@@ -3,15 +3,11 @@ package vterm
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"slices"
-	"syscall"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
@@ -38,32 +34,16 @@ var inputModes = []ansi.Mode{
 	ansi.ModeBracketedPaste,
 }
 
-// Attach returns the command that hands the user's terminal to the named
-// terminal until the user presses ctrl-q or its program exits. Vineyard draws
-// the terminal's screen from its emulator, as tmux would, and sends the
-// user's input to the program.
-func (s *Server) Attach(name string) tea.ExecCommand {
-	return &attachment{server: s, name: name}
-}
+// size is the size of the user's terminal, in cells.
+type size struct{ Width, Height int }
 
-type attachment struct {
-	server *Server
-	name   string
-	in     io.Reader
-	out    io.Writer
-}
-
-func (a *attachment) SetStdin(r io.Reader)  { a.in = r }
-func (a *attachment) SetStdout(w io.Writer) { a.out = w }
-func (a *attachment) SetStderr(io.Writer)   {}
-
-func (a *attachment) Run() error {
-	t, err := a.server.terminal(a.name)
-	if err != nil {
-		return err
-	}
-	in, ok := a.in.(*os.File)
-	if !ok || !term.IsTerminal(in.Fd()) {
+// attach draws t on the user's terminal, given as in and out, and passes what
+// the user types to its program, until the user presses ctrl-q, the program
+// exits, or stop is closed. env is the user's environment, which says what
+// their terminal supports. The terminal takes the user's terminal's size,
+// first initial and then each one resized receives.
+func attach(t *terminal, in, out *os.File, env []string, initial size, resized <-chan size, stop <-chan struct{}) error {
+	if !term.IsTerminal(in.Fd()) {
 		return errors.New("attaching needs a terminal")
 	}
 	state, err := term.MakeRaw(in.Fd())
@@ -71,7 +51,7 @@ func (a *attachment) Run() error {
 		return err
 	}
 	defer term.Restore(in.Fd(), state)
-	if err := a.fit(t, in); err != nil {
+	if err := t.resize(initial.Width, initial.Height); err != nil {
 		return err
 	}
 
@@ -100,11 +80,9 @@ func (a *attachment) Run() error {
 		}
 	}()
 
-	resized := make(chan os.Signal, 1)
-	signal.Notify(resized, syscall.SIGWINCH)
-	defer signal.Stop(resized)
-
-	s := newScreen(a.out)
+	changed, unwatch := t.watch()
+	defer unwatch()
+	s := newScreen(out, env)
 	t.mu.Lock()
 	err = s.open(t)
 	t.mu.Unlock()
@@ -129,12 +107,12 @@ func (a *attachment) Run() error {
 			if detach {
 				return nil
 			}
-		case <-resized:
-			if err := a.fit(t, in); err != nil {
+		case sz := <-resized:
+			if err := t.resize(sz.Width, sz.Height); err != nil {
 				return err
 			}
 			dirty = true
-		case <-t.changed:
+		case <-changed:
 			dirty = true
 		case <-ticker.C:
 			if !dirty {
@@ -149,21 +127,10 @@ func (a *attachment) Run() error {
 			}
 		case <-t.exited:
 			return nil
+		case <-stop:
+			return nil
 		}
 	}
-}
-
-// fit sizes the terminal to the user's terminal.
-func (a *attachment) fit(t *terminal, in *os.File) error {
-	fd := in.Fd()
-	if out, ok := a.out.(*os.File); ok {
-		fd = out.Fd()
-	}
-	width, height, err := term.GetSize(fd)
-	if err != nil {
-		return fmt.Errorf("terminal size: %w", err)
-	}
-	return t.resize(width, height)
 }
 
 // screen draws a terminal's emulator on the user's terminal, sending only
@@ -177,8 +144,8 @@ type screen struct {
 	modes []ansi.Mode
 }
 
-func newScreen(out io.Writer) *screen {
-	return &screen{out: out, renderer: uv.NewTerminalRenderer(out, os.Environ())}
+func newScreen(out io.Writer, env []string) *screen {
+	return &screen{out: out, renderer: uv.NewTerminalRenderer(out, env)}
 }
 
 // open takes over the user's terminal with the alternate screen and draws

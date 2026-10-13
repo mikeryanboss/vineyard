@@ -241,8 +241,6 @@ type Options struct {
 	// Issue, when set, is a grapes issue to act on at startup as if the user
 	// pressed the sessions key on it. Grapes must know the issue.
 	Issue int
-	// Notice, when set, is shown in the status line at startup.
-	Notice string
 }
 
 // Model is the root TUI model.
@@ -358,7 +356,6 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		conversations: map[string]subagent.Conversation{},
 		startIssue:    opts.Issue,
 	}
-	m.status = opts.Notice
 	if opts.ConfigErr != nil {
 		m.status, m.statusIsErr = "Config error (using defaults): "+opts.ConfigErr.Error(), true
 	}

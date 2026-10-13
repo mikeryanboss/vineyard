@@ -1,7 +1,8 @@
-// Package vterm runs agent programs on pseudo-terminals inside Vineyard's own
-// process and mirrors their screens with a terminal emulator. Vineyard uses it
-// when tmux is not installed. Its terminals end when Vineyard exits, and no
-// other process can see them.
+// Package vterm is Vineyard's own terminal multiplexer, used in place of tmux.
+// A background server process (Serve) runs agent programs on pseudo-terminals
+// and mirrors their screens with a terminal emulator (Server). Vineyards reach
+// it over a Unix socket (Client), so agents outlive the Vineyard that started
+// them and several Vineyards share them, as with tmux.
 package vterm
 
 import (
@@ -36,6 +37,8 @@ const historyLimit = 10000
 type Server struct {
 	mu        sync.Mutex
 	terminals map[string]*terminal
+	// exited, when set, is called after each terminal's program exits.
+	exited func()
 }
 
 // New returns a server without terminals.
@@ -50,10 +53,8 @@ type terminal struct {
 	created time.Time
 	// exited is closed once the program has exited.
 	exited chan struct{}
-	// changed receives a value when the screen may have changed.
-	changed chan struct{}
 
-	// mu guards emu and modes. The emulator writes its replies to queries,
+	// mu guards emu, modes, and watchers. The emulator writes its replies to queries,
 	// and input sent through it, to a pipe that forward copies to the
 	// program; that copy never takes mu, so holding mu while the pipe blocks
 	// is safe.
@@ -61,11 +62,13 @@ type terminal struct {
 	emu *vt.Emulator
 	// modes holds the modes the program has set, as reported by the emulator.
 	modes map[ansi.Mode]bool
+	// watchers each receive a value when the screen may have changed.
+	watchers map[chan struct{}]bool
 }
 
-// Start runs program in dir on a new terminal of the given size. An empty
-// program starts the user's shell.
-func (s *Server) Start(name, dir, program string, width, height int) error {
+// Start runs program in dir on a new terminal of the given size, with the
+// environment env. An empty program starts the user's shell.
+func (s *Server) Start(name, dir, program string, env []string, width, height int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.terminals[name]; ok {
@@ -74,7 +77,7 @@ func (s *Server) Start(name, dir, program string, width, height int) error {
 	if width <= 0 || height <= 0 {
 		width, height = defaultWidth, defaultHeight
 	}
-	shell := os.Getenv("SHELL")
+	shell := lookupEnv(env, "SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
 	}
@@ -83,19 +86,19 @@ func (s *Server) Start(name, dir, program string, width, height int) error {
 		cmd = exec.Command(shell, "-c", program)
 	}
 	cmd.Dir = dir
-	cmd.Env = append(withoutEnv(os.Environ(), "TMUX", "TERM"), "TERM=xterm-256color")
+	cmd.Env = append(withoutEnv(env, "TMUX", "TERM"), "TERM=xterm-256color")
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 	if err != nil {
 		return err
 	}
 	t := &terminal{
-		pty:     f,
-		process: cmd.Process,
-		created: time.Now(),
-		exited:  make(chan struct{}),
-		changed: make(chan struct{}, 1),
-		emu:     vt.NewEmulator(width, height),
-		modes:   map[ansi.Mode]bool{},
+		pty:      f,
+		process:  cmd.Process,
+		created:  time.Now(),
+		exited:   make(chan struct{}),
+		emu:      vt.NewEmulator(width, height),
+		modes:    map[ansi.Mode]bool{},
+		watchers: map[chan struct{}]bool{},
 	}
 	t.emu.SetScrollbackSize(historyLimit)
 	t.emu.SetCallbacks(vt.Callbacks{
@@ -116,6 +119,9 @@ func (s *Server) Start(name, dir, program string, width, height int) error {
 		}
 		s.mu.Unlock()
 		close(t.exited)
+		if s.exited != nil {
+			s.exited()
+		}
 	}()
 	return nil
 }
@@ -128,15 +134,31 @@ func (t *terminal) mirror() {
 		if n > 0 {
 			t.mu.Lock()
 			t.emu.Write(buf[:n])
-			t.mu.Unlock()
-			select {
-			case t.changed <- struct{}{}:
-			default:
+			for w := range t.watchers {
+				select {
+				case w <- struct{}{}:
+				default:
+				}
 			}
+			t.mu.Unlock()
 		}
 		if err != nil {
 			return
 		}
+	}
+}
+
+// watch returns a channel that receives a value when the screen may have
+// changed, and the function that stops it.
+func (t *terminal) watch() (<-chan struct{}, func()) {
+	w := make(chan struct{}, 1)
+	t.mu.Lock()
+	t.watchers[w] = true
+	t.mu.Unlock()
+	return w, func() {
+		t.mu.Lock()
+		delete(t.watchers, w)
+		t.mu.Unlock()
 	}
 }
 
@@ -233,9 +255,6 @@ var keys = map[string]uv.Key{
 	"Down":   {Code: uv.KeyDown},
 }
 
-// SendEnter presses Enter in the terminal.
-func (s *Server) SendEnter(name string) error { return s.SendKeys(name, "Enter") }
-
 // SendKeys presses keys in the terminal, named as tmux names them. It knows
 // only the keys Vineyard presses.
 func (s *Server) SendKeys(name string, names ...string) error {
@@ -293,17 +312,11 @@ func (t *terminal) hangUp() error {
 	return err
 }
 
-// Close hangs up every terminal. Vineyard calls it on exit.
-func (s *Server) Close() error {
+// count returns how many terminals run.
+func (s *Server) count() int {
 	s.mu.Lock()
-	terminals := s.terminals
-	s.terminals = map[string]*terminal{}
-	s.mu.Unlock()
-	var errs []error
-	for _, t := range terminals {
-		errs = append(errs, t.hangUp())
-	}
-	return errors.Join(errs...)
+	defer s.mu.Unlock()
+	return len(s.terminals)
 }
 
 func withoutEnv(env []string, keys ...string) []string {
@@ -314,4 +327,16 @@ func withoutEnv(env []string, keys ...string) []string {
 		}
 	}
 	return out
+}
+
+// lookupEnv returns the value of key in env, the last when env holds several
+// as exec.Cmd does, or "" when env lacks it.
+func lookupEnv(env []string, key string) string {
+	var value string
+	for _, kv := range env {
+		if name, v, _ := strings.Cut(kv, "="); name == key {
+			value = v
+		}
+	}
+	return value
 }

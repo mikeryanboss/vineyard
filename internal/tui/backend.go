@@ -85,9 +85,9 @@ type Backend interface {
 	Templates(inline []config.Template) ([]config.Template, error)
 }
 
-// Terminal runs agents and shells in named terminals: on Vineyard's tmux
-// server (*tmux.Client), or in this process when tmux is not installed
-// (*vterm.Server).
+// Terminal runs agents and shells in named terminals of a multiplexer: on
+// Vineyard's tmux server (*tmux.Client), or on Vineyard's own terminal server
+// (*vterm.Client).
 type Terminal interface {
 	session.Terminal
 	// Created returns when the named terminal started its program, to the

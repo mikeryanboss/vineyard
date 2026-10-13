@@ -250,3 +250,15 @@ func TestSettings_AnotherCategoryStartsAtItsFirstField(t *testing.T) {
 		t.Errorf("Profiles should show its first field, claude:\n%s", view)
 	}
 }
+
+// The multiplexer cycles through auto, tmux, and Vineyard's server; auto
+// leaves it unset, so that Vineyard picks tmux when it is installed.
+func TestSettings_MultiplexerAutoIsUnset(t *testing.T) {
+	m, _ := press(newSettings(twoProfiles(), nil), "l", "j", "j", "j", "j", "j")
+	for _, want := range []string{config.MultiplexerTmux, config.MultiplexerVineyard, ""} {
+		m, _ = press(m, "enter")
+		if got := m.Config().Multiplexer; got != want {
+			t.Fatalf("multiplexer = %q, want %q", got, want)
+		}
+	}
+}

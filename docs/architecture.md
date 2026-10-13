@@ -20,7 +20,8 @@ Its `Status` is one of:
 | `stopped` | tmux session gone, worktree still on disk |
 
 `session.Manager` performs lifecycle operations against git and a `Terminal`
-(implemented by `*tmux.Client`, or `*vterm.Server` without tmux):
+(implemented by `*tmux.Client`, or `*vterm.Client` for Vineyard's own server;
+see Choosing a Multiplexer):
 
 - `New` names the branch from the branch prefix passed in by the TUI and the
   title. The TUI passes the prefix from its current config, so a prefix saved
@@ -343,33 +344,66 @@ The TUI reads from standard input and output when they are terminals and
 falls back to `tea.OpenTTY` otherwise. Attached tmux clients inherit these
 files, and tmux rejects a descriptor opened through `/dev/tty`.
 
-## Without tmux
+## Choosing a Multiplexer
 
-When `tmux` is not on `PATH`, `main` gives the backend a `*vterm.Server`
-instead of a `*tmux.Client`; both implement `tui.Terminal`. The server runs
-each program through `$SHELL -c` on a pseudo-terminal (`creack/pty`) with
-`TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`
-emulator, which keeps 10000 lines of scrollback as tmux does.
+`multiplexer` in `config.toml` picks what runs agents: `tmux`, or `vineyard`
+for Vineyard's own server. Unset, `main` picks tmux when it is on `PATH`,
+otherwise Vineyard's server; `tmux` without tmux installed is an error. Both
+implement `tui.Terminal`, and the rest of Vineyard does not know which runs.
+Both name their socket `vineyard`, or `VINEYARD_SOCKET`.
 
+Before `Restore`, `main` asks the multiplexer not chosen whether a saved
+session still runs there, and refuses to start if one does: `Restore` would
+find it stopped, and resuming it would start a second agent in its worktree.
+
+## Vineyard's Server
+
+`internal/vterm` is a small multiplexer in tmux's design: a background server
+owns the terminals, and every Vineyard is a client of it over a Unix socket,
+so agents outlive the Vineyard that started them and several Vineyards share
+them.
+
+- **Socket**: `$TMPDIR/vineyard-<uid>/<name>` (`vterm.SocketPath`), in a
+  directory only the user may use, as tmux keeps `/tmp/tmux-<uid>/<name>`.
+  The server's output goes to `<socket>.log`.
+- **Starting**: a client that starts a terminal when no server answers runs
+  `vineyard server <socket>` in a session of its own (`setsid`), working in
+  `/`, and dials until it listens. The server checks for a live server and
+  replaces a stale socket under a lock beside the socket (`<socket>.lock`,
+  flock), so of several servers started at once all but one exit.
+- **Calls**: a connection's first byte says what it carries. `r` starts
+  `net/rpc` calls (gob encoded) to `vterm.Service`, one per `tui.Terminal`
+  method; each client keeps one such connection. Every connection first asks
+  `Version`, and a server of another protocol version is an error naming its
+  process ID (`protocol` in `daemon.go`; change it with any change to the
+  calls).
+- **Terminals**: `vterm.Server` runs each program through `$SHELL -c` on a
+  pseudo-terminal (`creack/pty`) with the starting Vineyard's environment and
+  `TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`
+  emulator, which keeps 10000 lines of scrollback as tmux does.
 - **Preview**: the emulator's screen rendered with ANSI styles. Resizing
   resizes the emulator and the pseudo-terminal; lines do not reflow.
 - **Keys and prompts**: go through the emulator, which encodes keys for the
   program's cursor-key mode and brackets pastes when the program asked for
   that. The emulator answers the program's terminal queries itself. One
   goroutine copies both to the program, so none of them may block on `mu`.
-- **Attach**: a `tea.ExecCommand` that puts the user's terminal in raw mode,
+- **Attach**: as tmux's client does, the client passes the user's terminal to
+  the server: an `a` connection whose first byte carries the input and output
+  file descriptors (`SCM_RIGHTS`), then an `AttachRequest` with the user's
+  environment and terminal size. The server puts that terminal in raw mode,
   enters the alternate screen, and redraws the emulator on it with
   ultraviolet's diffing renderer, at most 60 times a second. Typed input goes
-  to the program until ctrl-q. The program's output never reaches the user's
-  terminal directly, so modes it sets there are only those that change input
-  (cursor keys, mouse, focus, bracketed paste), set and reset as the program
-  does and reset on detach.
-- **Exit**: a terminal ends when its program exits. Kill and quitting
-  Vineyard hang up the program's process group. `Restore` then finds the
-  sessions stopped; resuming relaunches Claude Code in its conversation.
-
-Only one Vineyard can see these agents, so without tmux `main` claims the lead
-before `Restore` and exits if another Vineyard holds it.
+  to the program until ctrl-q. The client forwards SIGWINCH as new sizes and
+  waits for the `AttachResult`; if its connection drops, the server ends the
+  attachment. The program's output never reaches the user's terminal
+  directly, so modes it sets there are only those that change input (cursor
+  keys, mouse, focus, bracketed paste), set and reset as the program does and
+  reset on detach.
+- **Exit**: a terminal ends when its program exits; Kill hangs up its process
+  group. The server stops once it has neither terminals nor connections, but
+  not before its first terminal starts or 10 seconds pass, since the client
+  that started it connects after servers racing it probe it. Killing the
+  server hangs up every agent, as killing tmux's server does.
 
 ## Status Detection
 
@@ -488,5 +522,5 @@ tui/* -> tui/common, and data packages
 subagent -> session
 session -> git
 git, tmux, diff, config -> standard library and format libraries
-vterm -> pty, vt, ultraviolet
+vterm -> pty, vt, ultraviolet, net/rpc
 ```

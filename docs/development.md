@@ -14,24 +14,29 @@ skip themselves when tmux is not installed.
 ## Running a Development Build
 
 Vineyard keeps its data in the repository it runs in, so run development
-builds in a throwaway repository, never in this checkout, and on their own tmux
-socket:
+builds in a throwaway repository, never in this checkout, and on their own
+socket (`VINEYARD_SOCKET` names tmux's and Vineyard's server's):
 
 ```sh
 go build -o /tmp/vy/vineyard .
 git init -q /tmp/vy/demo && git -C /tmp/vy/demo commit -q --allow-empty -m init
-cd /tmp/vy/demo && VINEYARD_TMUX_SOCKET=vy-dev /tmp/vy/vineyard -p bash
+cd /tmp/vy/demo && VINEYARD_SOCKET=vy-dev /tmp/vy/vineyard -p bash
 ```
 
 `-p bash` makes every session a plain shell, which is enough to exercise
 creation, preview, attach, diff, and lifecycle without starting real agents.
 
-To exercise running without tmux, give Vineyard a `PATH` without `tmux`:
+To exercise Vineyard's own server instead of tmux, set it in the throwaway
+repository's configuration:
 
 ```sh
-mkdir -p /tmp/vy/path && ln -sf /usr/bin/* /tmp/vy/path/ && rm /tmp/vy/path/tmux
-cd /tmp/vy/demo && PATH=/tmp/vy/path /tmp/vy/vineyard -p bash
+printf 'multiplexer = "vineyard"\n' >> /tmp/vy/demo/.vineyard/config.toml
 ```
+
+Its server outlives the development build, and a rebuilt Vineyard of another
+`protocol` refuses to use it. `vineyard debug` prints its socket; the server
+stops by itself once its agents end and no Vineyard runs, or end it with
+`pkill -f 'vineyard server'`.
 
 ## TUI Testing
 
@@ -65,7 +70,7 @@ build above, using a tmux window of fixed size:
 GOBIN=$PWD/.grapes/<id>/tmp/bin go install github.com/charmbracelet/freeze@latest
 go build -o .grapes/<id>/tmp/vineyard .
 tmux new-session -d -s shot -x 110 -y 30 -c <demo-repo> \
-  "VINEYARD_TMUX_SOCKET=vy-shot <tmp>/vineyard -p bash"
+  "VINEYARD_SOCKET=vy-shot <tmp>/vineyard -p bash"
 tmux send-keys -t shot n          # drive the app like a user
 tmux capture-pane -e -p -t shot > .grapes/<id>/tmp/shot.ansi
 .grapes/<id>/tmp/bin/freeze .grapes/<id>/tmp/shot.ansi --language ansi \

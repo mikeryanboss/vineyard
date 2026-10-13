@@ -1,0 +1,6 @@
+title = "Keep agents running after quit without tmux: Vineyard's own terminal server"
+status = 'done'
+priority = 'high'
+labels = ['feature', 'terminal']
+created = 2026-10-13T10:50:00Z
+updated = 2026-10-13T11:08:00Z
