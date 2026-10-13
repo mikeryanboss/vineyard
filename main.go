@@ -87,6 +87,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if len(rest) == 4 && rest[0] == "attach" {
+		// A newer Vineyard attaches to this executable's server this way;
+		// see vterm.AttachThroughServer. It must not exit with status 2.
+		if err := vterm.RunAttach(rest[1], rest[2], rest[3]); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if len(rest) > 1 {
 		fmt.Fprintf(stderr, "%s does not accept arguments\n\n", rest[0])
 		writeHelp(stderr)

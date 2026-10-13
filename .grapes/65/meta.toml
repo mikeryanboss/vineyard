@@ -1,0 +1,6 @@
+title = 'Attach to an older Vineyard multiplexer through its own executable'
+status = 'done'
+priority = 'high'
+labels = ['multiplexer']
+created = 2026-10-13T14:40:00Z
+updated = 2026-10-13T14:36:00Z

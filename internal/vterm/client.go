@@ -46,8 +46,8 @@ func NewClient(socket string, server ...string) *Client {
 }
 
 // NewOlderClient returns a client of an older server at socket, whose
-// protocol's calls match this build's (SameCalls). It makes every call but
-// attaching, which fails, and never starts a server.
+// protocol's calls match this build's (SameCalls). It makes every call, but
+// attaches through the server's executable, and never starts a server.
 func NewOlderClient(socket string) *Client {
 	return &Client{socket: socket, older: true}
 }
@@ -312,7 +312,12 @@ func (c *Client) Kill(name string) error {
 // exits. As tmux's client does, it passes the user's terminal to the server,
 // which draws the terminal's screen and its status bar on it and reads the
 // user's input from it.
+// A client of an older server attaches through that server's executable
+// instead (AttachThroughServer).
 func (c *Client) Attach(name string, how session.Attachment) tea.ExecCommand {
+	if c.older {
+		return c.AttachThroughServer(name, how)
+	}
 	return &attachment{client: c, name: name, how: how}
 }
 
@@ -329,14 +334,6 @@ func (a *attachment) SetStdout(w io.Writer) { a.out = w }
 func (a *attachment) SetStderr(io.Writer)   {}
 
 func (a *attachment) Run() error {
-	if a.client.older {
-		info, err := a.client.Info()
-		if err != nil || info == nil {
-			return fmt.Errorf("%w, which no longer answers: %v", session.ErrOlderMultiplexer, err)
-		}
-		return fmt.Errorf("use the Vineyard that started it; %w (process %d, protocol %d), which this Vineyard cannot attach to",
-			session.ErrOlderMultiplexer, info.PID, info.Protocol)
-	}
 	in, inOK := a.in.(*os.File)
 	out, outOK := a.out.(*os.File)
 	if !inOK || !outOK || !term.IsTerminal(in.Fd()) || !term.IsTerminal(out.Fd()) {

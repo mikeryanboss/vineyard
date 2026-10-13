@@ -27,23 +27,28 @@ type Terminal interface {
 
 // Attachment says how an attached terminal is left and what its status bar
 // shows.
+//
+// A newer Vineyard hands an attachment, as JSON, to an older Vineyard's
+// executable (vterm.AttachThroughServer): never rename its JSON names or
+// change their meaning, only add fields.
 type Attachment struct {
 	// Detach are the keys that leave the terminal, and ToggleBar those that
 	// show or hide its status bar, each ctrl and a letter or ctrl+\.
-	Detach, ToggleBar []string
+	Detach    []string `json:"detach"`
+	ToggleBar []string `json:"toggle_bar"`
 	// ShowBar shows the status bar at first.
-	ShowBar bool
+	ShowBar bool `json:"show_bar"`
 	// Peers are the sessions the status bar lists.
-	Peers []Peer
+	Peers []Peer `json:"peers"`
 }
 
 // Peer is a session an attached terminal's status bar lists.
 type Peer struct {
 	// Terminal names its terminal in the multiplexer.
-	Terminal string
-	Title    string
+	Terminal string `json:"terminal"`
+	Title    string `json:"title"`
 	// Running is whether Vineyard last saw it running.
-	Running bool
+	Running bool `json:"running"`
 }
 
 // Manager performs session lifecycle operations for one repository.
