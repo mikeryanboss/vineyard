@@ -23,7 +23,7 @@ func TestBarFollowsTheOtherSessions(t *testing.T) {
 		{Terminal: "busy", Title: "Busy agent"},
 		{Terminal: "idle", Title: "Idle agent", Running: true},
 		{Terminal: "gone", Title: "Gone agent"},
-	}, []string{"ctrl+q"}, []string{"ctrl+\\"})
+	}, []string{"ctrl+q"}, []string{"ctrl+\\"}, true)
 	text := func(width int) string {
 		t.Helper()
 		got := b.text(width)
@@ -44,5 +44,23 @@ func TestBarFollowsTheOtherSessions(t *testing.T) {
 	}
 	if got := text(30); !strings.HasPrefix(got, " ◑ 1  ✓ 1 ") {
 		t.Errorf("a narrow bar should count the sessions:\n%q", got)
+	}
+}
+
+// The bar is darker than a light terminal's background and lighter than a
+// dark one's, and says when it has no session to list.
+func TestBarSuitsTheBackground(t *testing.T) {
+	for _, c := range []struct {
+		dark bool
+		want string
+	}{{false, "48;5;254"}, {true, "48;5;238"}} {
+		b := newBar(true, nil, []string{"ctrl+q"}, nil, c.dark)
+		got := b.text(40)
+		if !strings.Contains(got, c.want) {
+			t.Errorf("dark=%v: the bar lacks background %s: %q", c.dark, c.want, got)
+		}
+		if !strings.HasPrefix(ansi.Strip(got), " no other sessions ") {
+			t.Errorf("dark=%v: an empty bar should say so: %q", c.dark, ansi.Strip(got))
+		}
 	}
 }

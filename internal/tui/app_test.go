@@ -875,6 +875,7 @@ func TestApp_EnterOnPreviewAttachesAndOnRecapZooms(t *testing.T) {
 // An attached terminal's status bar shows as configured and lists the active
 // sessions in the attached one's multiplexer, which its server can sample,
 // but for the agent attached to; attached to a shell, it lists its agent too.
+// Its colours suit the terminal's background.
 func TestApp_AttachListsTheOtherSessionsInTheStatusBar(t *testing.T) {
 	sessions := testutil.Sessions()
 	for i := range sessions {
@@ -900,6 +901,12 @@ func TestApp_AttachListsTheOtherSessionsInTheStatusBar(t *testing.T) {
 	want = session.Attachment{Detach: []string{"ctrl+q"}, ToggleBar: []string{"ctrl+\\"}, Peers: []session.Peer{agent, tests}}
 	if backend.shellAttaches != 1 || !reflect.DeepEqual(backend.attached, want) {
 		t.Errorf("attaching to the shell (%d times): %+v, want %+v", backend.shellAttaches, backend.attached, want)
+	}
+	// The bar takes its colours from the background the terminal reports.
+	m = update(m, tea.BackgroundColorMsg{Color: color.Black})
+	keys(m, "o")
+	if !backend.attached.Dark {
+		t.Error("attaching from a dark terminal should ask for the dark bar")
 	}
 }
 

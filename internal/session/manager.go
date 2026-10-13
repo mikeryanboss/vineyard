@@ -35,6 +35,9 @@ type Attachment struct {
 	ShowBar bool
 	// Peers are the sessions the status bar lists.
 	Peers []Peer
+	// Dark is set when the user's terminal has a dark background, which
+	// gives the status bar its colours.
+	Dark bool
 }
 
 // Peer is a session an attached terminal's status bar lists.
