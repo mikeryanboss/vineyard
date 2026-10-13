@@ -115,6 +115,44 @@ func TestIssues_OpenAndCloseKeepsSelection(t *testing.T) {
 	}
 }
 
+// ctrl+q returns to the session list from every screen, as it does from an
+// attached agent or shell, and does not quit.
+func TestApp_CtrlQReturnsToTheList(t *testing.T) {
+	onList := func(m Model) bool {
+		return m.dialog == nil && !m.configOpen && !m.issuesOpen && m.focus == focusList && !m.zoomed
+	}
+	for _, tc := range []struct {
+		name string
+		open func(Model) Model
+	}{
+		{"issues", func(m Model) Model { return keys(m, "i") }},
+		// keys runs the commands typeText drops, so a q that closed grapes fails the setup check.
+		{"issue search taking q as text", func(m Model) Model { return keys(m, "i", "/", "q") }},
+		{"dialog over the issues", func(m Model) Model { return send(keys(m, "i"), embedded.SessionsMsg{IssueID: 7}) }},
+		{"new session dialog", func(m Model) Model { return update(m, testutil.Key("n")) }},
+		{"config field pane", func(m Model) Model { return keys(m, "C", "l") }},
+		{"focused pane", func(m Model) Model { return keys(m, "l") }},
+		{"zoomed recap", func(m Model) Model { return keys(m, "shift+tab", "enter") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.open(grapesModel(t, testutil.Sessions()))
+			if onList(m) {
+				t.Fatal("setup should leave the session list")
+			}
+			m = keys(m, "ctrl+q")
+			if !onList(m) {
+				t.Errorf("ctrl+q should return to the list: dialog %T, config %v, issues %v, focus %v, zoomed %v",
+					m.dialog, m.configOpen, m.issuesOpen, m.focus, m.zoomed)
+			}
+		})
+	}
+
+	m := grapesModel(t, testutil.Sessions())
+	if _, cmd := m.Update(testutil.Key("ctrl+q")); cmd != nil {
+		t.Error("ctrl+q on the list should do nothing, not quit")
+	}
+}
+
 // Enter opens the issue the tab shows. Grapes keeps its screen when closed, so
 // opening it for a session without an issue would show the last issue opened.
 func TestIssues_EnterOnTheIssueTabOpensOnlyTheSessionsIssue(t *testing.T) {

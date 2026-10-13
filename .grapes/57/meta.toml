@@ -1,0 +1,6 @@
+title = 'Make ctrl-q return to the session list from every screen'
+status = 'done'
+priority = 'medium'
+labels = ['tui']
+created = 2026-10-13T11:07:00Z
+updated = 2026-10-13T11:31:00Z
