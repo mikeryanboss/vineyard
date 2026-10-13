@@ -423,6 +423,34 @@ func TestApp_NewFromProfileStartsAMainCheckoutTerminal(t *testing.T) {
 	}
 }
 
+// T starts the terminal profile with no dialog and attaches once it runs: a
+// failed start attaches to nothing, and a disabled profile starts nothing.
+func TestApp_TerminalKeyStartsAndAttachesATerminal(t *testing.T) {
+	m, backend := newTestModel(t, nil)
+	m = keys(m, "T")
+	s, ok := m.selected()
+	if m.dialog != nil || !ok || s.Title != "terminal" || !s.MainCheckout || s.Program != "$SHELL" || s.Status != session.StatusRunning {
+		t.Fatalf("dialog = %T, selected = %+v; want the terminal profile's session running, no dialog", m.dialog, s)
+	}
+	if backend.attaches != 1 {
+		t.Errorf("attaches = %d, want 1 once the terminal runs", backend.attaches)
+	}
+
+	m, backend = newTestModel(t, nil)
+	backend.startErr = errors.New("zsh: not found")
+	m = keys(m, "T")
+	if len(m.sessions) != 0 || backend.attaches != 0 || !m.statusIsErr {
+		t.Errorf("sessions = %d, attaches = %d, status = %q; want nothing started or attached, and the error", len(m.sessions), backend.attaches, m.status)
+	}
+
+	m, backend = newTestModel(t, nil)
+	m.opts.Config.DisabledProfiles = []string{"terminal"}
+	m = keys(m, "T")
+	if len(m.sessions) != 0 || backend.attaches != 0 || !strings.Contains(m.status, "disabled") {
+		t.Errorf("sessions = %d, attaches = %d, status = %q; want nothing started and the reason", len(m.sessions), backend.attaches, m.status)
+	}
+}
+
 // worktree_dir is read when a session is created, so a value saved on the
 // config screen applies to the next session. Empty would mean the repository
 // root itself, so it is refused.

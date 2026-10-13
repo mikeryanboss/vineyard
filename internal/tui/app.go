@@ -141,6 +141,8 @@ type (
 	startedMsg struct {
 		session session.Session
 		err     error
+		// attach attaches to the session once it runs.
+		attach bool
 	}
 	lifecycleMsg struct {
 		session session.Session
@@ -824,12 +826,12 @@ func (m Model) transcriptCmd() tea.Cmd {
 	}
 }
 
-func (m Model) startCmd(s session.Session) tea.Cmd {
+func (m Model) startCmd(s session.Session, attach bool) tea.Cmd {
 	backend := m.backend
 	w, h := m.agentSize()
 	return func() tea.Msg {
 		started, err := backend.Start(s, w, h)
-		return startedMsg{session: started, err: err}
+		return startedMsg{session: started, err: err, attach: attach}
 	}
 }
 
@@ -1050,7 +1052,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.shownID = "" // force a fresh capture now that the session runs
 		started := msg.session
 		write := m.writeCmd(func(b Backend) error { return b.Add(started) })
-		return m, tea.Batch(write, m.refreshShown())
+		cmds := []tea.Cmd{write, m.refreshShown()}
+		if msg.attach {
+			id := started.ID
+			cmds = append(cmds, tea.Exec(m.backend.AttachCommand(started), func(err error) tea.Msg {
+				return attachDoneMsg{id: id, err: err}
+			}))
+		}
+		return m, tea.Batch(cmds...)
 
 	case lifecycleMsg:
 		delete(m.busy, msg.session.ID)
@@ -1228,7 +1237,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case common.NewSessionMsg:
 		m.dialog = nil
-		return m.createSession(msg)
+		return m.createSession(msg, false)
 
 	case embedded.CloseMsg:
 		m.issuesOpen = false
@@ -1811,7 +1820,9 @@ func (m Model) profiles() []config.Profile {
 	return m.opts.Config.ResolvedProfiles()
 }
 
-func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
+// createSession creates and starts the session msg asks for, attaching to
+// it once it runs if attach is set.
+func (m Model) createSession(msg common.NewSessionMsg, attach bool) (tea.Model, tea.Cmd) {
 	worktreeDir, err := config.ResolveWorktreeDir(m.opts.RepoRoot, m.opts.Config.WorktreeDir)
 	if err != nil {
 		return m, m.setError(fmt.Errorf("worktree directory: %w", err))
@@ -1830,7 +1841,7 @@ func (m Model) createSession(msg common.NewSessionMsg) (tea.Model, tea.Cmd) {
 	m.sessions = append(m.sessions, s)
 	m.syncList()
 	m.list = m.list.Select(s.ID)
-	return m, tea.Batch(m.startCmd(s), m.refreshShown())
+	return m, tea.Batch(m.startCmd(s, attach), m.refreshShown())
 }
 
 func (m Model) runConfirmed(msg common.ConfirmedMsg) (tea.Model, tea.Cmd) {
@@ -1917,6 +1928,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		d, cmd := dialog.NewSessionDialog(m.theme, m.profiles(), key.Matches(msg, keys.NewFromProfile), width)
 		m.dialog = d
 		return m, cmd
+	case key.Matches(msg, keys.Terminal):
+		profiles := m.opts.Config.ResolvedProfiles()
+		i := slices.IndexFunc(profiles, func(p config.Profile) bool { return p.Name == "terminal" })
+		if i < 0 {
+			return m, m.setStatus("The terminal profile is disabled. Press C to enable it.", false)
+		}
+		return m.createSession(common.NewSessionMsg{Title: "terminal", Profile: profiles[i]}, true)
 	case key.Matches(msg, keys.Tab, keys.PrevTab):
 		return m, m.switchTab(key.Matches(msg, keys.PrevTab))
 	case key.Matches(msg, keys.Config):
@@ -2391,7 +2409,7 @@ func (m Model) renderStatusBar() string {
 			hints = append(hints, [2]string{"←", "hide subagents"})
 		}
 		hints = append(hints, [][2]string{
-			{"t", "shell"}, {"s", "push"}, {"c", "checkout"}, {"r", "resume"}, {"D", "kill"},
+			{"t", "shell"}, {"T", "new terminal"}, {"s", "push"}, {"c", "checkout"}, {"r", "resume"}, {"D", "kill"},
 			{"a", "auto-yes"}, {"tab", tabNames[m.nextTab()]},
 		}...)
 		if !m.list.Expandable() { // otherwise l shows the subagents first

@@ -48,6 +48,7 @@ Run `vineyard` inside a git repository.
 | `l` / `→` | Show the selected session's subagents; with none to show, scroll the pane, and `esc` returns to the list |
 | `h` / `←` | Hide the selected session's subagents |
 | `t` | Open a shell in the session's worktree; the Terminal tab shows it |
+| `T` | Start a new terminal session, the `terminal` profile, and attach to it |
 | `s` | Commit all changes and push the branch |
 | `c` | Check out: commit, stop the agent, remove the worktree, keep the branch |
 | `r` | Resume a checked-out or stopped session; Claude Code continues its conversation |
@@ -99,7 +100,8 @@ main_checkout = true                  # run in the main checkout, not a new work
 
 A profile is a command a session runs: an agent, a shell, a dev server. `n`
 runs the default; `N` asks which one. Two profiles are built in: `claude`, and
-`terminal`, which runs `$SHELL` in the main checkout. Every repository is
+`terminal`, which runs `$SHELL` in the main checkout; `T` starts `terminal`
+and attaches to it. Every repository is
 offered them after its own `[[profiles]]`; a profile with a built-in one's
 name replaces it, and `disabled_profiles` stops offering it.
 
