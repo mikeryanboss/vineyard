@@ -47,12 +47,12 @@ Run `vineyard` inside a git repository.
 | Key | Action |
 | --- | --- |
 | `n` / `N` | New session with the default profile / with a profile you pick, such as a terminal |
-| `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the issue from Issue, the full recap from Recap. On a subagent, attach to its view |
+| `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the issue from Issue, the shell from Terminal, the full recap from Recap. On a subagent, attach to its view |
 | `o` | Attach to the agent, or the selected subagent's view, from any tab; `ctrl-q` returns |
-| `tab` / `shift+tab` | Switch the pane: preview, diff, issue, recap |
+| `tab` / `shift+tab` | Switch the pane: preview, diff, issue, terminal, recap |
 | `l` / `→` | Show the selected session's subagents; with none to show, scroll the pane, and `esc` returns to the list |
 | `h` / `←` | Hide the selected session's subagents |
-| `t` | Open a shell in the session's worktree |
+| `t` | Open a shell in the session's worktree; the Terminal tab shows it |
 | `s` | Commit all changes and push the branch |
 | `c` | Check out: commit, stop the agent, remove the worktree, keep the branch |
 | `r` | Resume a checked-out or stopped session; Claude Code continues its conversation |

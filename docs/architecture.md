@@ -139,6 +139,18 @@ sessions whose program is `claude`: on switching to the tab, on selecting a
 session, and on each diff tick. The latest result is kept in `recapShown`, so
 `refreshRecap` can re-render it on resize and theme changes.
 
+## Terminal Tab
+
+The pane's terminal tab mirrors the selected session's shell: the terminal
+named `Session.ShellName()` that `t` attaches to, running in the session's
+worktree. While the tab is shown, `shellCmd` starts the shell if it is not
+running (`EnsureShell`), keeps it at `agentSize` as the agent is kept, and
+captures it, on selecting a session, on switching to the tab, and on each
+preview tick in place of the agent's capture. A shell that exits is started
+again on the next tick. A session without a worktree (paused, starting, busy)
+shows the preview's placeholder instead. The shell is the session's, also
+when a subagent row is selected. Kill and check out stop it with the agent.
+
 ## Subagents
 
 Claude Code runs subagents inside its own process, so they have no terminal

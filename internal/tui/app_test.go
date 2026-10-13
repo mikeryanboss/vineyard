@@ -52,6 +52,11 @@ type fakeBackend struct {
 	trees, treeDiffs map[string]string
 	// templates are the template files; Templates adds the inline ones.
 	templates []config.Template
+	// shellScreen is every shell's screen, shells the sessions whose shell
+	// was started, and shellAttaches counts attaches to a shell.
+	shellScreen   string
+	shells        []string
+	shellAttaches int
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
@@ -92,8 +97,15 @@ func (f *fakeBackend) Kill(s session.Session, discardCommits bool) (session.Kill
 	return session.KillResult{KeptBranch: s.Branch}, nil
 }
 
-func (f *fakeBackend) Push(s session.Session) (session.Session, error)         { return s, nil }
-func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error           { return nil }
+func (f *fakeBackend) Push(s session.Session) (session.Session, error) { return s, nil }
+func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !slices.Contains(f.shells, s.ID) {
+		f.shells = append(f.shells, s.ID)
+	}
+	return nil
+}
 func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, nil }
 func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
 func (f *fakeBackend) AttachCommand(s session.Session) tea.ExecCommand {
@@ -111,7 +123,15 @@ func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, er
 	return cmd, err
 }
 
-func (f *fakeBackend) ShellAttachCommand(s session.Session) tea.ExecCommand { return nil }
+func (f *fakeBackend) ShellAttachCommand(s session.Session) tea.ExecCommand {
+	f.shellAttaches++
+	return nil
+}
+func (f *fakeBackend) CaptureShell(s session.Session) (string, error) { return f.shellScreen, nil }
+func (f *fakeBackend) CaptureShellHistory(s session.Session, n int) (string, error) {
+	return f.shellScreen, nil
+}
+func (f *fakeBackend) ResizeShell(s session.Session, w, h int) error { return nil }
 
 func (f *fakeBackend) OpenSubagent(s session.Session, position, total int) error {
 	f.mu.Lock()
@@ -758,6 +778,37 @@ func TestApp_EnterOnPreviewAttachesAndOnRecapZooms(t *testing.T) {
 	}
 }
 
+// The terminal tab, between issue and recap, starts the selected session's
+// shell and mirrors it; enter attaches to it. A paused session has no
+// worktree to run one in.
+func TestTerminalTab_MirrorsTheSessionsShell(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	backend.shellScreen = "$ go test ./...\nok"
+	m = keys(m, "tab", "tab", "tab")
+	if m.tab != tabTerminal {
+		t.Fatalf("three tabs from the preview showed %s; want terminal", tabNames[m.tab])
+	}
+	view := testutil.StripANSI(m.renderPane())
+	issue, terminal, recap := strings.Index(view, "Issue"), strings.Index(view, "Terminal"), strings.Index(view, "Recap")
+	if !(issue < terminal && terminal < recap) || !contains(view, "$ go test ./...") {
+		t.Errorf("the terminal tab should sit between issue and recap and show the shell:\n%s", view)
+	}
+	if !slices.Equal(backend.shells, []string{"login-1"}) {
+		t.Errorf("started shells %v; want login-1's", backend.shells)
+	}
+
+	m = keys(m, "enter")
+	if backend.shellAttaches != 1 || backend.attaches != 0 {
+		t.Errorf("enter on the terminal tab attached %d times to the shell, %d to the agent; want the shell once", backend.shellAttaches, backend.attaches)
+	}
+
+	m = keys(m, "j", "j") // docs-3, paused
+	m = send(m, previewTickMsg{})
+	if view := testutil.StripANSI(m.terminal.View()); !contains(view, "Paused") || slices.Contains(backend.shells, "docs-3") {
+		t.Errorf("a paused session's terminal tab should say so and start no shell; shells %v:\n%s", backend.shells, view)
+	}
+}
+
 func TestApp_StaleScreenIsIgnored(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
 	m = keys(m, "j") // select tests-2
@@ -788,7 +839,7 @@ func TestApp_ShiftTabSwitchesToThePreviousTab(t *testing.T) {
 		t.Fatalf("shift+tab in the list should switch from preview to recap; tab=%d focus=%d", m.tab, m.focus)
 	}
 	m = keys(m, "l")
-	for _, want := range []tab{tabIssue, tabDiff, tabPreview, tabRecap} {
+	for _, want := range []tab{tabTerminal, tabIssue, tabDiff, tabPreview, tabRecap} {
 		m = keys(m, "shift+tab")
 		if m.tab != want || m.focus != focusPane {
 			t.Fatalf("shift+tab in the pane should switch to %s and keep focus; tab=%s focus=%d", tabNames[want], tabNames[m.tab], m.focus)
@@ -809,9 +860,9 @@ func TestRecapTab_ShowsTheSelectedSessionsRecaps(t *testing.T) {
 		"tests-2": {Found: true, Title: "Parser tests", LastPrompt: "add tests for the parser"},
 	}
 
-	m = keys(m, "tab", "tab", "tab")
+	m = keys(m, "shift+tab")
 	if m.tab != tabRecap {
-		t.Fatalf("three tabs from preview should reach the recap tab, got %v", m.tab)
+		t.Fatalf("shift+tab from preview should reach the recap tab, got %v", m.tab)
 	}
 	got := screen(m)
 	newer, older := strings.Index(got, "The redirect is fixed"), strings.Index(got, "I found the redirect bug")
@@ -836,7 +887,7 @@ func TestRecapTab_ShowsTheSelectedSessionsRecaps(t *testing.T) {
 
 func TestRecapTab_DropsAnotherSessionsRecap(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
-	m = keys(m, "tab", "tab", "tab") // login-1 is shown
+	m = keys(m, "shift+tab") // the recap; login-1 is shown
 	m = send(m, recapMsg{id: "tests-2", recap: recap.Recap{Found: true, Title: "Parser tests"}})
 	if got := screen(m); strings.Contains(got, "Parser tests") {
 		t.Errorf("a recap of a session that is not shown must not be displayed:\n%s", got)
@@ -1138,7 +1189,7 @@ func TestApp_ASubagentRowShowsTheSubagent(t *testing.T) {
 	if ids := m.shownIssues(s); !slices.Equal(ids, []int{7}) {
 		t.Errorf("issues = %v, want 7, from its worktree's diff", ids)
 	}
-	if view := screen(keys(m, "tab", "tab", "tab")); !contains(view, "write the tests") || !contains(view, "done") || !contains(view, "All 12 tests pass.") || !contains(view, "Write the parser tests.") {
+	if view := screen(keys(m, "tab", "tab", "tab", "tab")); !contains(view, "write the tests") || !contains(view, "done") || !contains(view, "All 12 tests pass.") || !contains(view, "Write the parser tests.") {
 		t.Errorf("the recap should show the subagent's description, status, report, and prompt:\n%s", view)
 	}
 

@@ -1,0 +1,6 @@
+title = 'Show the session shell in a Terminal tab'
+status = 'done'
+priority = 'medium'
+labels = ['tui']
+created = 2026-10-13T10:36:00Z
+updated = 2026-10-13T10:42:00Z
