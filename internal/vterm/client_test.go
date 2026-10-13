@@ -22,8 +22,16 @@ import (
 )
 
 // TestMain runs a server instead of the tests when a client of serverSocket
-// starts this binary as its server.
+// starts this binary as its server, and the attach command when a client
+// attaches through its server's executable, which is this binary.
 func TestMain(m *testing.M) {
+	if len(os.Args) == 5 && os.Args[1] == "attach" {
+		if err := RunAttach(os.Args[2], os.Args[3], os.Args[4]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if socket := os.Getenv("VINEYARD_TEST_SERVE"); socket != "" {
 		if err := Serve(socket); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -343,5 +351,58 @@ func TestOlderClient(t *testing.T) {
 	}
 	if SameCalls(0) || !SameCalls(1) || !SameCalls(protocol) || SameCalls(protocol+1) {
 		t.Error("SameCalls does not cover exactly protocols 1 to this build's")
+	}
+}
+
+// A client attaches to an older server's terminal through the executable
+// that server runs, which speaks its protocol: here this test binary, run
+// through /proc/<pid>/exe as an updated Vineyard would run the older one.
+func TestAttachThroughServersExecutable(t *testing.T) {
+	socket, server := serverSocket(t)
+	c := NewClient(socket, server...)
+	t.Cleanup(func() { c.Close() })
+	startVia(t, c, "a", "")
+	capture := func() (string, error) { return c.Capture("a") }
+	waitFor(t, capture, "$")
+
+	user, tty, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Close()
+	defer tty.Close()
+	if err := pty.Setsize(tty, &pty.Winsize{Cols: 50, Rows: 12}); err != nil {
+		t.Fatal(err)
+	}
+	go io.Copy(io.Discard, user)
+
+	older := NewOlderClient(socket)
+	a := older.Attach("a", session.Attachment{Detach: []string{"ctrl+g"}})
+	a.SetStdin(tty)
+	a.SetStdout(tty)
+	done := make(chan error)
+	go func() { done <- a.Run() }()
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		user.Write([]byte("echo through\r"))
+		if screen, _ := c.Capture("a"); strings.Contains(screen, "through") {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("the attachment ended before typing reached the terminal: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("typing did not reach the terminal; stderr: %q", a.(*throughServer).errOut.String())
+		}
+	}
+	user.Write([]byte{0x07}) // ctrl-g
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("detaching: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the attachment did not end on the detach key")
 	}
 }

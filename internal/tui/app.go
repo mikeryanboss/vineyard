@@ -2205,7 +2205,8 @@ func (m Model) attach() (tea.Model, tea.Cmd) {
 
 // attachment says how to attach to s's agent, or its shell: with the
 // configured keys and status bar, which lists the active sessions in s's
-// multiplexer, those its server can sample, but for the agent attached to.
+// multiplexer, and of its protocol, those its server can sample, but for the
+// agent attached to.
 func (m Model) attachment(s session.Session, shell bool) session.Attachment {
 	how := session.Attachment{
 		Detach:    common.Keys.Global.Detach.Keys(),
@@ -2214,7 +2215,7 @@ func (m Model) attachment(s session.Session, shell bool) session.Attachment {
 		Dark:      m.theme.IsDark,
 	}
 	for _, p := range m.sessions {
-		if (p.ID != s.ID || shell) && p.Multiplexer == s.Multiplexer && p.Status.Active() {
+		if (p.ID != s.ID || shell) && p.Multiplexer == s.Multiplexer && p.Protocol == s.Protocol && p.Status.Active() {
 			how.Peers = append(how.Peers, session.Peer{Terminal: p.TmuxName, Title: p.Title, Running: p.Status == session.StatusRunning})
 		}
 	}

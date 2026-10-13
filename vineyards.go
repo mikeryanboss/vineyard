@@ -125,8 +125,8 @@ func (v *vineyards) protocols() ([]int, error) {
 
 // olderVineyard is a Vineyard multiplexer of a protocol whose calls differ
 // from this build's, which this build cannot use. It can only tell whether the
-// multiplexer still runs a terminal; while it does, every other call fails
-// with err, which says so.
+// multiplexer still runs a terminal, and attach to one through the server's
+// executable; while it runs, every other call fails with err, which says so.
 type olderVineyard struct {
 	server *vterm.Client
 	err    error
@@ -162,8 +162,14 @@ func (o olderVineyard) Resize(name string, _, _ int) error      { return o.fail(
 func (o olderVineyard) SendEnter(name string) error             { return o.fail(name) }
 func (o olderVineyard) SendKeys(name string, _ ...string) error { return o.fail(name) }
 func (o olderVineyard) Paste(name, _ string) error              { return o.fail(name) }
-func (o olderVineyard) Attach(name string, _ session.Attachment) tea.ExecCommand {
-	return failedCommand{o.fail(name)}
+
+// Attach attaches through the server's own executable, which speaks its
+// protocol.
+func (o olderVineyard) Attach(name string, how session.Attachment) tea.ExecCommand {
+	if !o.Exists(name) {
+		return failedCommand{o.fail(name)}
+	}
+	return o.server.AttachThroughServer(name, how)
 }
 
 // failedCommand fails with err without running anything.

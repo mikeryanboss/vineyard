@@ -411,13 +411,21 @@ them.
   - a client, when that server speaks this build's protocol;
   - `vterm.NewOlderClient`, when its calls match this build's
     (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 4 differ only in
-    attaching). It makes every call but attaching, which fails with
-    `session.ErrOlderMultiplexer`, so the session shows its screen and status
-    and can be killed;
+    attaching). It makes every call, so the session shows its screen and
+    status and can be killed;
   - otherwise `olderVineyard`, which asks only `Version` and `Exists`, through
-    `Client.Holds`, and fails every other call with
+    `Client.Holds`, and fails every other call but attaching with
     `session.ErrOlderMultiplexer`. The TUI keeps such a session's status and
     shows the error instead of its screen.
+  Both attach through the older server's executable
+  (`vterm.AttachThroughServer`): attaching is what protocols change, and that
+  executable speaks its server's. Vineyard runs `/proc/<pid>/exe attach
+  <socket> <terminal> <attachment as JSON>` with the server's process ID,
+  which runs the executable even after an update replaced the file, and hands
+  it the user's terminal. Those arguments, and `session.Attachment`'s JSON
+  names, are the contract between versions; never change them. Builds before
+  the `attach` command exit with status 2, reported as predating it; systems
+  without `/proc`, such as macOS, cannot attach to an older server.
   Every protocol answers `Version` and `Exists` alike; never change them.
   Changing another call raises `sameCallsSince`, and older servers fall back
   to `olderVineyard`. Resuming restarts a session on this build's server once
