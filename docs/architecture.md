@@ -440,7 +440,12 @@ them.
 - **Terminals**: `vterm.Server` runs each program through `$SHELL -c` on a
   pseudo-terminal (`creack/pty`) with the starting Vineyard's environment and
   `TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`
-  emulator, which keeps 10000 lines of scrollback as tmux does.
+  emulator, which keeps 10000 lines of scrollback as tmux does. Its parser
+  ends OSC and DCS strings at byte `0x9C`, the 8-bit string terminator,
+  which is also inside UTF-8 characters such as the `✳` Claude Code puts
+  before its title. `vterm`'s `init` keeps `0x9C` in those strings, in the
+  `charmbracelet/x/ansi` table every parser in the process shares, until an
+  upstream fix is released.
 - **Preview**: the emulator's screen rendered with ANSI styles. Resizing
   resizes the emulator and the pseudo-terminal; lines do not reflow.
 - **Keys and prompts**: go through the emulator, which encodes keys for the
