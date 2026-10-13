@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/preview"
 	"github.com/mikeryanboss/vineyard/internal/tui/testutil"
@@ -29,6 +30,21 @@ func TestPreviewView_LiveScreenFitsPane(t *testing.T) {
 
 func TestPreviewView_Placeholder(t *testing.T) {
 	testutil.RequireGolden(t, newPreview().SetPlaceholder("Paused").View())
+}
+
+// A placeholder longer than the pane is wide wraps inside it: the terminal
+// would otherwise wrap it, pushing the rest of the screen down.
+func TestPreviewView_LongPlaceholderFitsPane(t *testing.T) {
+	view := newPreview().SetPlaceholder("this agent runs on an older Vineyard multiplexer, which this Vineyard cannot reach").View()
+	lines := strings.Split(view, "\n")
+	if len(lines) != 6 {
+		t.Errorf("%d lines, want 6:\n%s", len(lines), view)
+	}
+	for _, line := range lines {
+		if w := ansi.StringWidth(line); w != 30 {
+			t.Errorf("line %q is %d cells wide, want 30", ansi.Strip(line), w)
+		}
+	}
 }
 
 func TestPreview_ColourDoesNotBleed(t *testing.T) {

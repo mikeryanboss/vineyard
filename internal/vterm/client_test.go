@@ -194,7 +194,7 @@ func TestServerOfAnotherVersionIsAnError(t *testing.T) {
 	}
 	// vineyard debug reports it.
 	info, err := NewClient(socket).Info()
-	if err != nil || info == nil || info.PID != 4242 || info.Protocol != 0 || info.Terminals != nil {
+	if err != nil || info == nil || info.PID != 4242 || info.Protocol != 0 || info.Listed {
 		t.Errorf("Info = %+v, %v; want process 4242 of protocol 0, without terminals", info, err)
 	}
 }
@@ -217,7 +217,7 @@ func TestInfoAndLogDescribeTheServer(t *testing.T) {
 	if err != nil || info == nil || info.Protocol != protocol || info.PID == 0 {
 		t.Fatalf("Info = %+v, %v; want this protocol and a process", info, err)
 	}
-	if !slices.Contains(info.Terminals, "a") {
+	if !info.Listed || !slices.Contains(info.Terminals, "a") {
 		t.Errorf("terminals = %v, want a among them", info.Terminals)
 	}
 	for deadline := time.Now().Add(3 * time.Second); c.Exists("b"); time.Sleep(10 * time.Millisecond) {

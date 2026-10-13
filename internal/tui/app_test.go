@@ -24,25 +24,27 @@ import (
 
 // fakeBackend records what the model asks of the outside world.
 type fakeBackend struct {
-	mu       sync.Mutex
-	screen   string
-	diff     string
-	startErr error
-	file     []session.Session   // sessions.json, which other Vineyards share
-	saved    [][]session.Session // the file after each write
-	follower bool                // another Vineyard leads
-	pasted   []string
-	enters   []string
-	killed   []string
-	lost     map[string][]string // session ID -> commits only on its detached HEAD
-	branches map[string]string   // session ID -> checked-out branch
-	resized  [][2]int
-	configs  []config.Config
-	recaps   map[string]recap.Recap // by session ID
-	attaches int
-	tools    []*exec.Cmd // diff tools built
-	opened   [][2]int    // position and total of each subagent opened
-	openErr  error
+	mu     sync.Mutex
+	screen string
+	// captureErr is the error of every capture of an agent's screen.
+	captureErr error
+	diff       string
+	startErr   error
+	file       []session.Session   // sessions.json, which other Vineyards share
+	saved      [][]session.Session // the file after each write
+	follower   bool                // another Vineyard leads
+	pasted     []string
+	enters     []string
+	killed     []string
+	lost       map[string][]string // session ID -> commits only on its detached HEAD
+	branches   map[string]string   // session ID -> checked-out branch
+	resized    [][2]int
+	configs    []config.Config
+	recaps     map[string]recap.Recap // by session ID
+	attaches   int
+	tools      []*exec.Cmd // diff tools built
+	opened     [][2]int    // position and total of each subagent opened
+	openErr    error
 	// conversation is what every Claude session's transcripts say, and
 	// events each subagent's transcript, by ID.
 	conversation subagent.Conversation
@@ -106,7 +108,7 @@ func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error {
 	}
 	return nil
 }
-func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, nil }
+func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, f.captureErr }
 func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
 func (f *fakeBackend) AttachCommand(s session.Session) tea.ExecCommand {
 	f.attaches++
@@ -1462,5 +1464,22 @@ func TestApp_ClosingADialogMakesNoDoubleClick(t *testing.T) {
 	}
 	if m.dialog != nil || backend.attaches != 0 || len(backend.killed) != 0 {
 		t.Errorf("dialog open %v, attached %d, killed %v", m.dialog != nil, backend.attaches, backend.killed)
+	}
+}
+
+// An agent on an older Vineyard multiplexer still runs, though this Vineyard
+// cannot see its screen: its status stays, and the preview says why it is
+// blank instead.
+func TestApp_AgentOnAnOlderMultiplexerKeepsRunning(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	backend.captureErr = fmt.Errorf("%w (process 4242, protocol 1)", session.ErrOlderMultiplexer)
+	before := statusOf(m, m.sessions[0].ID)
+	m = send(m, statusTickMsg{})
+	m = send(m, previewTickMsg{})
+	if got := statusOf(m, m.sessions[0].ID); got != before {
+		t.Errorf("status = %s, want %s, as before", got, before)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "older Vineyard multiplexer") {
+		t.Errorf("the preview does not say why it is blank:\n%s", view)
 	}
 }

@@ -95,6 +95,9 @@ type (
 		permission bool
 		trust      bool
 		gone       bool
+		// unreachable is set when the terminal runs on an older Vineyard
+		// multiplexer, whose screen this Vineyard cannot see.
+		unreachable bool
 		// subagents is Claude Code's list of running subagents on the screen.
 		subagents subagent.List
 		// conversation is what Claude Code's transcripts say about them.
@@ -773,6 +776,10 @@ func (m Model) statusCmd() tea.Cmd {
 			go func() {
 				defer func() { done <- struct{}{} }()
 				screen, err := backend.Capture(s)
+				if errors.Is(err, session.ErrOlderMultiplexer) {
+					results[i] = screenStatus{id: s.ID, unreachable: true}
+					return
+				}
 				if err != nil {
 					results[i] = screenStatus{id: s.ID, gone: true}
 					return
@@ -1005,6 +1012,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.terminal = m.terminal.SetScreen(msg.screen)
 			}
 			return m, nil
+		}
+		if errors.Is(msg.err, session.ErrOlderMultiplexer) && msg.id == m.shownID {
+			m.preview = m.preview.SetPlaceholder(msg.err.Error())
 		}
 		if msg.err == nil {
 			m.sizes[msg.id] = msg.size
@@ -1754,8 +1764,8 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 	var changed []session.Session
 	for _, r := range msg.results {
 		i := m.find(r.id)
-		if i < 0 || m.busy[r.id] || !m.sessions[i].Status.Active() {
-			continue // removed, or changed state while the capture ran
+		if i < 0 || m.busy[r.id] || !m.sessions[i].Status.Active() || r.unreachable {
+			continue // removed, changed state while the capture ran, or out of reach
 		}
 		s := m.sessions[i]
 		if r.gone {

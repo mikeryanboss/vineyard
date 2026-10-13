@@ -33,10 +33,11 @@ throwaway repository's configuration, or on one profile:
 printf 'multiplexer = "tmux"\n' >> /tmp/vy/demo/.vineyard/config.toml
 ```
 
-Vineyard's server outlives the development build, and a rebuilt Vineyard of another
-`protocol` refuses to use it. `vineyard debug` prints its socket and process; the server
-stops by itself once its agents end and no Vineyard runs, or end it with
-`kill <process>`.
+Vineyard's server outlives the development build. A rebuilt Vineyard of another
+`protocol` starts a server of its own beside it, and can only tell whether the
+older one's agents still run. `vineyard debug` prints every server's socket and
+process; a server stops by itself once its agents end and no Vineyard runs, or
+end it with `kill <process>`.
 
 ## Debugging
 
@@ -53,8 +54,8 @@ before driving the TUI. Each step costs more context than the one before.
    - `.vineyard/vineyard.log`, the Vineyards': each start and exit, with the
      exit error, every error the status line showed, and the stack of a panic
      in `Update` or `View`. Each line names its process.
-   A server of another `protocol`, left by an earlier build, is the usual
-   cause of failures right after an update.
+   After an update, agents started by the earlier build run on the server
+   of its `protocol`, listed as older, which this build cannot reach.
 2. **A failing test against the real thing.** The session tests use fake
    multiplexers; the `vterm` tests start real servers (`serverSocket` in
    `client_test.go`). A test that drives the failing path gives a stack trace,
@@ -222,7 +223,7 @@ goreleaser release --snapshot --clean --skip=publish   # writes dist/; delete it
 | Issues screen, issue tab, or session–issue links | `tui/app.go` (`issuesOf`, `showSessions`, `showIssues`, `refreshIssue`) | `app_grapes_test.go` |
 | Issue session prompts, example templates | `prompt/prompt.go`, `config/templates/`, `tui/dialog/dialog.go` (`ForIssue`) | `prompt_test.go`, `dialog_test.go`, `app_grapes_test.go` |
 | What a failure leaves for diagnosis | `vterm/daemon.go` (server log), `tui/app.go` (`setError`, `logPanic`), `runDebug` in `main.go` | `TestInfoAndLogDescribeTheServer`, `TestApp_LogsErrorsAndPanics`, `TestRun_DebugPrintsPaths` |
-| Server calls (`vterm.Service`) | `vterm/daemon.go`, `vterm/client.go`; raise `protocol` | `client_test.go`, `TestCheckServer` |
+| Server calls (`vterm.Service`) | `vterm/daemon.go`, `vterm/client.go`; raise `protocol` | `client_test.go`, `TestVineyards`, `TestOlderVineyardMultiplexer` |
 | What grapes exposes | grapes' `embedded/` package, then `go get` the release here | grapes' `embedded_test.go`, `app_grapes_test.go` |
 
 ### Changing grapes alongside vineyard

@@ -18,6 +18,10 @@ import (
 
 // protocol is the version of the calls between Vineyards and the server.
 // Change it with any change to the calls, their arguments, or attaching.
+// Each protocol's server listens on a socket of its own (vineyardSocket in
+// main.go), so that servers of several protocols run side by side. Never
+// change Version or Exists: Client.Info and Client.Holds ask servers of every
+// protocol through them.
 const protocol = 2
 
 // idleGrace is how long a new server runs before it may stop when idle,

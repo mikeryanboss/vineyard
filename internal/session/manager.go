@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/recap"
 )
@@ -40,6 +41,11 @@ type Manager struct {
 	// Project names the repository in terminal names, which share one
 	// socket across repositories.
 	Project string
+	// Protocol is the protocol of the Vineyard multiplexer in Terminals.
+	// Sessions recorded with another run on the Vineyard multiplexer that
+	// Older returns for it, which an earlier Vineyard started.
+	Protocol int
+	Older    func(protocol int) Terminal
 
 	now func() time.Time
 }
@@ -56,8 +62,16 @@ func NewManager(repo git.Repo, terminals map[string]Terminal, defaultMultiplexer
 	}
 }
 
+// ErrOlderMultiplexer is the error of operations on a terminal that runs on
+// the Vineyard multiplexer of another protocol, which this Vineyard cannot
+// reach.
+var ErrOlderMultiplexer = errors.New("this agent runs on an older Vineyard multiplexer, which this Vineyard cannot reach")
+
 // terminal returns the multiplexer that runs s.
 func (m *Manager) terminal(s Session) (Terminal, error) {
+	if s.Multiplexer == config.MultiplexerVineyard && s.Protocol != m.Protocol {
+		return m.Older(s.Protocol), nil
+	}
 	t, ok := m.Terminals[s.Multiplexer]
 	if !ok {
 		return nil, Unavailable(s)
@@ -135,6 +149,9 @@ func (m *Manager) New(opts NewOptions) Session {
 // a failed start leaves nothing behind. A main-checkout session only launches
 // its program there.
 func (m *Manager) Start(s Session, width, height int) (Session, error) {
+	if s.Multiplexer == config.MultiplexerVineyard {
+		s.Protocol = m.Protocol
+	}
 	terminal, err := m.terminal(s)
 	if err != nil {
 		return s, err
@@ -223,6 +240,14 @@ func (m *Manager) Pause(s Session) (Session, error) {
 // worktree, and any uncommitted work in it, is still on disk. Claude Code
 // continues the conversation the agent was last seen in.
 func (m *Manager) Resume(s Session, width, height int) (Session, error) {
+	if s.Multiplexer == config.MultiplexerVineyard && s.Protocol != m.Protocol {
+		// The agent restarts on this Vineyard's multiplexer, unless it
+		// still runs on the older one.
+		if m.Older(s.Protocol).Exists(s.TmuxName) {
+			return s, fmt.Errorf("resuming %q: %w", s.Title, ErrOlderMultiplexer)
+		}
+		s.Protocol = m.Protocol
+	}
 	terminal, err := m.terminal(s)
 	if err != nil {
 		return s, err
@@ -344,8 +369,8 @@ func errMainCheckout(s Session, verb string) error {
 // multiplexer that is not available, such as tmux when it is not installed,
 // runs nothing to end.
 func (m *Manager) stopTerminals(s Session) error {
-	terminal, ok := m.Terminals[s.Multiplexer]
-	if !ok {
+	terminal, err := m.terminal(s)
+	if err != nil {
 		return nil
 	}
 	return errors.Join(terminal.Kill(s.TmuxName), terminal.Kill(s.ShellName()))
@@ -418,7 +443,13 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 		if s.Status != StatusPaused {
 			out[i].Status = StatusStopped
 			if name, ok := m.running(s); ok {
-				out[i].Multiplexer, out[i].Status = name, StatusReady
+				if name != s.Multiplexer {
+					out[i].Multiplexer, out[i].Protocol = name, 0
+					if name == config.MultiplexerVineyard {
+						out[i].Protocol = m.Protocol
+					}
+				}
+				out[i].Status = StatusReady
 			}
 		}
 		if out[i].Multiplexer == "" {
@@ -431,7 +462,7 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 // running returns the multiplexer that runs s's terminal, looking in the one
 // s records first.
 func (m *Manager) running(s Session) (string, bool) {
-	if t, ok := m.Terminals[s.Multiplexer]; ok && t.Exists(s.TmuxName) {
+	if t, err := m.terminal(s); err == nil && t.Exists(s.TmuxName) {
 		return s.Multiplexer, true
 	}
 	for _, name := range slices.Sorted(maps.Keys(m.Terminals)) {

@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -158,27 +157,18 @@ func runTUI(program string, autoYes bool, issue int) (err error) {
 		return fmt.Errorf("worktree directory: %w", err)
 	}
 	leader := session.NewLeader(dir)
-	server, err := vineyardServer()
+	vineyards, err := newVineyards()
 	if err != nil {
 		return err
 	}
-	saved, err := store.Load()
-	if err != nil {
-		return err
-	}
-	info, err := server.Info()
-	if err != nil {
-		return err
-	}
-	if err := checkServer(info, saved); err != nil {
-		return err
-	}
-	terminals := multiplexers(server)
+	terminals := multiplexers(vineyards.current())
 	managed := map[string]session.Terminal{}
 	for name, t := range terminals {
 		managed[name] = t
 	}
 	manager := session.NewManager(repo, managed, cfg.Multiplexer, config.ProjectName(repo.Root))
+	manager.Protocol = vterm.Protocol()
+	manager.Older = func(protocol int) session.Terminal { return vineyards.Older(protocol) }
 	sessions, err := store.Update(func(saved []session.Session) ([]session.Session, error) {
 		return manager.Restore(saved, worktreeDir)
 	})
@@ -210,7 +200,7 @@ func runTUI(program string, autoYes bool, issue int) (err error) {
 		GrapesErr:  grapesErr,
 		Issue:      issue,
 	}
-	model := tui.NewModel(tui.LiveBackend{Manager: manager, Terminals: terminals, Store: store, Leader: leader, Transcripts: subagent.NewReader(), Dir: dir}, sessions, opts)
+	model := tui.NewModel(tui.LiveBackend{Manager: manager, Terminals: terminals, Older: vineyards.Older, Store: store, Leader: leader, Transcripts: subagent.NewReader(), Dir: dir}, sessions, opts)
 
 	in, out, closeTTY, err := terminal()
 	if err != nil {
@@ -269,44 +259,8 @@ func multiplexers(server *vterm.Client) map[string]tui.Terminal {
 	return terminals
 }
 
-// checkServer fails when Vineyard's server, described by info, speaks
-// another protocol than this build while it may run agents of sessions:
-// this build cannot reach them, and would show them as stopped.
-func checkServer(info *vterm.ServerInfo, sessions []session.Session) error {
-	if info == nil || info.Protocol == vterm.Protocol() {
-		return nil
-	}
-	var titles []string
-	for _, s := range sessions {
-		if s.Multiplexer == config.MultiplexerVineyard && s.Status != session.StatusPaused && s.Status != session.StatusStopped {
-			titles = append(titles, strconv.Quote(s.Title))
-		}
-	}
-	if len(titles) == 0 {
-		return nil
-	}
-	return fmt.Errorf("Vineyard's server, process %d, is from another version of Vineyard: it speaks protocol %d, this Vineyard %d.\n"+
-		"It may still run the agents of %s, which this Vineyard cannot reach.\n"+
-		"Let them finish under the Vineyard that started the server, or end them all with: kill %d",
-		info.PID, info.Protocol, vterm.Protocol(), strings.Join(titles, ", "), info.PID)
-}
-
-// vineyardServer returns a client of Vineyard's own terminal server, which
-// this executable runs.
-func vineyardServer() (*vterm.Client, error) {
-	socket, err := vterm.SocketPath(socketName())
-	if err != nil {
-		return nil, err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	return vterm.NewClient(socket, exe, "server", socket), nil
-}
-
-// socketName names the sockets of the multiplexers, tmux's and Vineyard's own
-// server's. VINEYARD_SOCKET overrides it, which keeps
+// socketName names the sockets of the multiplexers: tmux's, and, followed by
+// their protocols, Vineyard's own servers'. VINEYARD_SOCKET overrides it, which keeps
 // development runs away from real sessions.
 func socketName() string {
 	if socket := os.Getenv("VINEYARD_SOCKET"); socket != "" {
@@ -328,14 +282,25 @@ func runDebug(stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "tmux socket: %s (tmux -L %s ls)\n", socketName(), socketName())
 	}
-	server, err := vineyardServer()
+	vineyards, err := newVineyards()
 	if err != nil {
-		fmt.Fprintf(stdout, "server:      %v\n", err)
+		fmt.Fprintf(stdout, "vineyard:    %v\n", err)
 		return 0
 	}
-	fmt.Fprintf(stdout, "server:      %s\n", server.Socket())
-	info, infoErr := server.Info()
-	printServer(stdout, server, info, infoErr)
+	protocols, err := vineyards.protocols()
+	if err != nil {
+		fmt.Fprintf(stdout, "vineyard:    %v\n", err)
+		return 0
+	}
+	for i, protocol := range protocols {
+		label := "vineyard:    "
+		if i > 0 {
+			label = "older:       "
+		}
+		server := vineyards.client(protocol)
+		fmt.Fprintf(stdout, "%s%s\n", label, server.Socket())
+		printServer(stdout, server)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
@@ -357,7 +322,7 @@ func runDebug(stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "multiplexer: %s, for new sessions\n", cfg.Multiplexer)
 	store := session.NewStore(dir)
 	fmt.Fprintf(stdout, "sessions:    %s\n", store.Path())
-	printSessions(stdout, store, multiplexers(server), info)
+	printSessions(stdout, store, vineyards)
 	if worktrees, err := config.ResolveWorktreeDir(repo.Root, cfg.WorktreeDir); err == nil {
 		fmt.Fprintf(stdout, "worktrees:   %s\n", worktrees)
 	} else {
@@ -368,23 +333,26 @@ func runDebug(stdout, stderr io.Writer) int {
 	return 0
 }
 
-// printServer prints whether Vineyard's server runs, its terminals, and the
-// end of its log.
-func printServer(w io.Writer, server *vterm.Client, info *vterm.ServerInfo, err error) {
+// printServer prints whether a Vineyard multiplexer runs, its terminals, and
+// the end of its log.
+func printServer(w io.Writer, server *vterm.Client) {
+	info, err := server.Info()
 	switch {
 	case err != nil:
 		fmt.Fprintf(w, "             not answering: %v\n", err)
 	case info == nil:
 		fmt.Fprintf(w, "             not running\n")
 	case info.Protocol != vterm.Protocol():
-		fmt.Fprintf(w, "             running as process %d, of protocol %d, which this build (protocol %d) refuses; end its agents or kill it\n",
+		fmt.Fprintf(w, "             running as process %d, protocol %d, which this build (protocol %d) cannot use; it runs its agents until they end\n",
 			info.PID, info.Protocol, vterm.Protocol())
 	default:
 		fmt.Fprintf(w, "             running as process %d, protocol %d\n", info.PID, info.Protocol)
-		if len(info.Terminals) == 0 {
+		switch {
+		case !info.Listed:
+		case len(info.Terminals) == 0:
 			fmt.Fprintf(w, "             no terminals; it stops once no Vineyard is connected\n")
-		} else {
-			fmt.Fprintf(w, "             %d terminals: %s\n", len(info.Terminals), strings.Join(info.Terminals, ", "))
+		default:
+			fmt.Fprintf(w, "             terminals: %s\n", strings.Join(info.Terminals, ", "))
 		}
 	}
 	fmt.Fprintf(w, "             log: %s\n", server.Log())
@@ -392,24 +360,31 @@ func printServer(w io.Writer, server *vterm.Client, info *vterm.ServerInfo, err 
 }
 
 // printSessions prints each session's multiplexer, recorded status, and
-// whether its terminal runs. info describes Vineyard's server.
-func printSessions(w io.Writer, store session.Store, terminals map[string]tui.Terminal, info *vterm.ServerInfo) {
+// whether its terminal runs.
+func printSessions(w io.Writer, store session.Store, vineyards *vineyards) {
 	sessions, err := store.Load()
 	if err != nil {
 		fmt.Fprintf(w, "             unreadable: %v\n", err)
 		return
 	}
+	terminals := multiplexers(vineyards.current())
 	for _, s := range sessions {
-		live := "multiplexer unavailable"
-		if t, ok := terminals[s.Multiplexer]; ok {
+		multiplexer, live := s.Multiplexer, "multiplexer unavailable"
+		t, ok := terminals[s.Multiplexer]
+		if s.Multiplexer == config.MultiplexerVineyard && s.Protocol != vterm.Protocol() {
+			multiplexer = "older vineyard, protocol 1 or 2"
+			if s.Protocol != 0 {
+				multiplexer = fmt.Sprintf("older vineyard, protocol %d", s.Protocol)
+			}
+			t, ok = vineyards.Older(s.Protocol), true
+		}
+		if ok {
 			live = "terminal gone"
-			if s.Multiplexer == config.MultiplexerVineyard && info != nil && info.Protocol != vterm.Protocol() {
-				live = "terminal unknown: the server speaks another protocol"
-			} else if t.Exists(s.TmuxName) {
+			if t.Exists(s.TmuxName) {
 				live = "terminal alive"
 			}
 		}
-		fmt.Fprintf(w, "             %s: %s, %s, %s (%s)\n", s.Title, s.Multiplexer, s.Status, live, s.TmuxName)
+		fmt.Fprintf(w, "             %s: %s, %s, %s (%s)\n", s.Title, multiplexer, s.Status, live, s.TmuxName)
 	}
 }
 

@@ -70,7 +70,8 @@ exit)
 stop)
 	"${outer[@]}" kill-server 2>/dev/null || true
 	tmux -L "$socket" kill-server 2>/dev/null || true
-	pkill -f -- "server ${TMPDIR:-/tmp}/vineyard-$(id -u)/$socket\$" || true
+	# Vineyard multiplexers of every protocol: each has a socket of its own.
+	pkill -f -- "server ${TMPDIR:-/tmp}/vineyard-$(id -u)/$socket(-p[0-9]+)?\$" || true
 	;;
 *)
 	usage

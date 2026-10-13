@@ -114,8 +114,11 @@ type LiveBackend struct {
 	*session.Manager
 	// Terminals are the multiplexers available, by name, as in the Manager.
 	Terminals map[string]Terminal
-	Store     session.Store
-	Leader    *session.Leader
+	// Older returns the Vineyard multiplexer of an earlier protocol, as the
+	// Manager's does.
+	Older  func(protocol int) Terminal
+	Store  session.Store
+	Leader *session.Leader
 	// Transcripts reads Claude Code's transcripts, remembering where it left
 	// off in each.
 	Transcripts *subagent.Reader
@@ -126,6 +129,9 @@ type LiveBackend struct {
 // terminal returns the multiplexer that runs s, or one whose every call
 // fails when that multiplexer is not available.
 func (b LiveBackend) terminal(s session.Session) Terminal {
+	if s.Multiplexer == config.MultiplexerVineyard && s.Protocol != b.Protocol {
+		return b.Older(s.Protocol)
+	}
 	if t, ok := b.Terminals[s.Multiplexer]; ok {
 		return t
 	}

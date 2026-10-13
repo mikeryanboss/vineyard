@@ -50,9 +50,11 @@ func (c *Client) Log() string { return c.socket + ".log" }
 // ServerInfo describes a running server.
 type ServerInfo struct {
 	PID, Protocol int
-	// Terminals names the server's terminals, when its protocol is this
-	// build's: a server of another protocol may not answer the call.
+	// Terminals names the server's terminals when Listed, which is when its
+	// protocol is this build's and it answers List, as servers before List
+	// did not.
 	Terminals []string
+	Listed    bool
 }
 
 // Info describes the server on the socket, on a connection of its own, or
@@ -69,11 +71,22 @@ func (c *Client) Info() (*ServerInfo, error) {
 	defer calls.Close()
 	info := &ServerInfo{PID: v.PID, Protocol: v.Protocol}
 	if v.Protocol == protocol {
-		if err := calls.Call("Terminals.List", struct{}{}, &info.Terminals); err != nil {
-			return nil, err
-		}
+		info.Listed = calls.Call("Terminals.List", struct{}{}, &info.Terminals) == nil
 	}
 	return info, nil
+}
+
+// Holds reports whether the server runs the named terminal. It asks through
+// the calls that servers of every protocol answer alike, Version and Exists,
+// so it works on a server of another protocol too. It never starts a server.
+func (c *Client) Holds(name string) bool {
+	calls, _, err := c.handshake(false)
+	if err != nil {
+		return false
+	}
+	defer calls.Close()
+	var ok bool
+	return calls.Call("Terminals.Exists", name, &ok) == nil && ok
 }
 
 // Protocol is the version of the calls this build makes to its server.
