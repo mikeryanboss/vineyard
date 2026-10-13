@@ -407,13 +407,21 @@ them.
   server while new sessions start on the new one. A session records the
   protocol it runs on (`Session.Protocol`; 0 for sessions recorded before,
   on `<name>`). `Manager.terminal` and `LiveBackend.terminal` send a session
-  of another protocol to `vineyards.Older`: a client when that server speaks
-  this build's protocol, and otherwise `olderVineyard`, which asks only
-  `Version` and `Exists`, through `Client.Holds`, and fails every other call
-  with `session.ErrOlderMultiplexer`. Every protocol answers those two alike;
-  never change them. The TUI keeps such a session's status and shows the
-  error instead of its screen; resuming restarts it on this build's server
-  once it ended on the older one.
+  of another protocol to `vineyards.Older`, which returns:
+  - a client, when that server speaks this build's protocol;
+  - `vterm.NewOlderClient`, when its calls match this build's
+    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 3 differ only in
+    attaching). It makes every call but attaching, which fails with
+    `session.ErrOlderMultiplexer`, so the session shows its screen and status
+    and can be killed;
+  - otherwise `olderVineyard`, which asks only `Version` and `Exists`, through
+    `Client.Holds`, and fails every other call with
+    `session.ErrOlderMultiplexer`. The TUI keeps such a session's status and
+    shows the error instead of its screen.
+  Every protocol answers `Version` and `Exists` alike; never change them.
+  Changing another call raises `sameCallsSince`, and older servers fall back
+  to `olderVineyard`. Resuming restarts a session on this build's server once
+  it ended on the older one.
 - **Terminals**: `vterm.Server` runs each program through `$SHELL -c` on a
   pseudo-terminal (`creack/pty`) with the starting Vineyard's environment and
   `TERM=xterm-256color`, and feeds its output to a `charmbracelet/x/vt`

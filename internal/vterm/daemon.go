@@ -26,6 +26,13 @@ import (
 // every protocol through them.
 const protocol = 3
 
+// sameCallsSince is the oldest protocol whose calls, all but attaching, match
+// this build's, so that a Vineyard uses an older server of it or later for all
+// but attaching (NewOlderClient). Protocols 1 to 3 differ only in attaching.
+// Raise it to protocol with any change to a call's arguments or results:
+// older servers then only say whether their terminals run.
+const sameCallsSince = 1
+
 // idleGrace is how long a new server runs before it may stop when idle,
 // unless a terminal starts sooner.
 const idleGrace = 10 * time.Second

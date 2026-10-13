@@ -120,8 +120,9 @@ func TestMultiplexers_WithoutTmux(t *testing.T) {
 	}
 }
 
-// fakeServer answers the calls that Vineyard multiplexers of every protocol
-// answer alike, as one of protocol, running the terminal "a", would.
+// fakeServer answers Version and Exists, which servers of every protocol
+// answer alike, and Capture, as one of protocol, running the terminal "a",
+// would.
 type fakeServer struct{ protocol int }
 
 func (f fakeServer) Version(_ struct{}, reply *vterm.VersionReply) error {
@@ -131,6 +132,11 @@ func (f fakeServer) Version(_ struct{}, reply *vterm.VersionReply) error {
 
 func (fakeServer) Exists(name string, reply *bool) error {
 	*reply = name == "a"
+	return nil
+}
+
+func (fakeServer) Capture(name string, reply *string) error {
+	*reply = "the screen of " + name
 	return nil
 }
 
@@ -155,10 +161,11 @@ func serveFake(t *testing.T, socket string, protocol int) {
 	}()
 }
 
-// Each protocol's Vineyard multiplexer has a socket of its own. One of
-// another protocol only tells whether it runs a terminal; while it does,
-// the rest fails with an error saying why. One that speaks this build's
-// protocol, as one on the socket protocols 1 to 3 shared may, serves fully.
+// Each protocol's Vineyard multiplexer has a socket of its own. An older one
+// whose calls match this build's serves all but attaching. One whose calls
+// differ only tells whether it runs a terminal; while it does, the rest fails
+// with an error saying why. One that speaks this build's protocol, as one on
+// the socket protocols 1 to 3 shared may, serves fully.
 func TestVineyards(t *testing.T) {
 	t.Setenv("VINEYARD_SOCKET", "vy")
 	dir := t.TempDir()
@@ -171,25 +178,36 @@ func TestVineyards(t *testing.T) {
 		t.Errorf("protocols = %v, %v; want this build's, then 1", protocols, err)
 	}
 
-	older := v.Older(1)
-	if !older.Exists("a") || older.Exists("b") {
-		t.Error("the older multiplexer does not say which terminals it runs")
+	same := v.Older(1)
+	if screen, err := same.Capture("a"); err != nil || screen != "the screen of a" {
+		t.Errorf("capturing on an older multiplexer whose calls match: %q, %v", screen, err)
 	}
-	if _, err := older.Capture("a"); !errors.Is(err, session.ErrOlderMultiplexer) || !strings.Contains(err.Error(), "process 4242") {
-		t.Errorf("capturing a running terminal: err = %v, want ErrOlderMultiplexer naming the process", err)
+	if err := same.Attach("a", session.Attachment{}).Run(); !errors.Is(err, session.ErrOlderMultiplexer) || !strings.Contains(err.Error(), "process 4242") {
+		t.Errorf("attaching there: err = %v, want ErrOlderMultiplexer naming the process", err)
 	}
-	if _, err := older.Capture("b"); err == nil || errors.Is(err, session.ErrOlderMultiplexer) {
-		t.Errorf("capturing an ended terminal: err = %v, want one saying it is gone", err)
+
+	// Protocol 0 predates the calls this build makes.
+	serveFake(t, filepath.Join(dir, "vy-p5"), 0)
+	differ := v.Older(5)
+	if !differ.Exists("a") || differ.Exists("b") {
+		t.Error("an older multiplexer whose calls differ does not say which terminals it runs")
 	}
-	if older.Kill("a") == nil || older.Kill("b") != nil || older.Start("c", dir, "", 80, 24) == nil {
-		t.Error("the older multiplexer must refuse to start or kill terminals, and find ended ones gone")
+	if _, err := differ.Capture("a"); !errors.Is(err, session.ErrOlderMultiplexer) || !strings.Contains(err.Error(), "process 4242") {
+		t.Errorf("capturing a running terminal there: err = %v, want ErrOlderMultiplexer naming the process", err)
+	}
+	if _, err := differ.Capture("b"); err == nil || errors.Is(err, session.ErrOlderMultiplexer) {
+		t.Errorf("capturing an ended terminal there: err = %v, want one saying it is gone", err)
+	}
+	if differ.Kill("a") == nil || differ.Kill("b") != nil || differ.Start("c", dir, "", 80, 24) == nil {
+		t.Error("it must refuse to start or kill terminals, and find ended ones gone")
 	}
 	if v.Older(0).Exists("a") {
 		t.Error("a terminal runs on protocol 0's socket, where nothing listens")
 	}
 
 	serveFake(t, filepath.Join(dir, "vy-p7"), vterm.Protocol())
-	if _, ok := v.Older(7).(*vterm.Client); !ok {
-		t.Error("a multiplexer that speaks this build's protocol is not used as this build's")
+	// Attaching gets as far as needing a terminal.
+	if err := v.Older(7).Attach("a", session.Attachment{}).Run(); err == nil || errors.Is(err, session.ErrOlderMultiplexer) {
+		t.Errorf("attaching on a multiplexer that speaks this build's protocol: err = %v, want only that it needs a terminal", err)
 	}
 }

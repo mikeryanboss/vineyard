@@ -342,21 +342,30 @@ func printServer(w io.Writer, server *vterm.Client) {
 		fmt.Fprintf(w, "             not answering: %v\n", err)
 	case info == nil:
 		fmt.Fprintf(w, "             not running\n")
+	case info.Protocol != vterm.Protocol() && vterm.SameCalls(info.Protocol):
+		fmt.Fprintf(w, "             running as process %d, protocol %d; this build (protocol %d) shows its agents but cannot attach to them\n",
+			info.PID, info.Protocol, vterm.Protocol())
+		printTerminals(w, info)
 	case info.Protocol != vterm.Protocol():
 		fmt.Fprintf(w, "             running as process %d, protocol %d, which this build (protocol %d) cannot use; it runs its agents until they end\n",
 			info.PID, info.Protocol, vterm.Protocol())
 	default:
 		fmt.Fprintf(w, "             running as process %d, protocol %d\n", info.PID, info.Protocol)
-		switch {
-		case !info.Listed:
-		case len(info.Terminals) == 0:
-			fmt.Fprintf(w, "             no terminals; it stops once no Vineyard is connected\n")
-		default:
-			fmt.Fprintf(w, "             terminals: %s\n", strings.Join(info.Terminals, ", "))
-		}
+		printTerminals(w, info)
 	}
 	fmt.Fprintf(w, "             log: %s\n", server.Log())
 	printLogEnd(w, server.Log())
+}
+
+// printTerminals prints a server's terminals, when it lists them.
+func printTerminals(w io.Writer, info *vterm.ServerInfo) {
+	switch {
+	case !info.Listed:
+	case len(info.Terminals) == 0:
+		fmt.Fprintf(w, "             no terminals; it stops once no Vineyard is connected\n")
+	default:
+		fmt.Fprintf(w, "             terminals: %s\n", strings.Join(info.Terminals, ", "))
+	}
 }
 
 // printSessions prints each session's multiplexer, recorded status, and

@@ -293,7 +293,8 @@ agent on a pseudo-terminal, mirrors it with a built-in terminal emulator, and
 keeps running after Vineyard quits until its last agent ends. An update of
 Vineyard that changes how it talks to that server starts a new one beside it:
 agents on the older server keep running until they end, and new sessions
-start on the new one. `vineyard debug` prints the servers' sockets. A session in tmux runs on Vineyard's own tmux server
+start on the new one. Vineyard still shows the older agents, but attaching to
+one needs the Vineyard that started it. `vineyard debug` prints the servers' sockets. A session in tmux runs on Vineyard's own tmux server
 (`tmux -L vineyard ls`). The preview mirrors the agent's screen. An agent whose
 screen keeps changing is working; one whose screen is still is waiting for
 you. Attaching hands the terminal to the agent until the detach key, ctrl+q by default.
