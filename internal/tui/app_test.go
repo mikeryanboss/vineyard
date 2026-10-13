@@ -62,6 +62,8 @@ type fakeBackend struct {
 	shellAttaches int
 	// attached is how the last attach, to an agent or a shell, attached.
 	attached session.Attachment
+	// polls counts status checks.
+	polls int
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
@@ -242,7 +244,12 @@ func (f *fakeBackend) Load(string) ([]session.Session, error) {
 	return slices.Clone(f.file), nil
 }
 
-func (f *fakeBackend) Lead() (bool, error) { return !f.follower, nil }
+func (f *fakeBackend) Lead() (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.polls++
+	return !f.follower, nil
+}
 
 func (f *fakeBackend) SaveConfig(cfg config.Config) error {
 	f.mu.Lock()
@@ -297,6 +304,16 @@ func send(m Model, msg tea.Msg) Model {
 		queue = append(queue[1:], collect(cmd)...)
 	}
 	return m
+}
+
+// lastPoll is when the last status check that tests send captured its screens.
+var lastPoll time.Time
+
+// polled returns a status check a statusInterval after the one before, as
+// the ticks pace them.
+func polled(lead bool, results ...screenStatus) statusMsg {
+	lastPoll = lastPoll.Add(statusInterval)
+	return statusMsg{lead: lead, at: lastPoll, results: results}
 }
 
 // collect runs cmd, flattening batches, and returns the messages produced
@@ -498,21 +515,63 @@ func TestApp_StartFailureRemovesSession(t *testing.T) {
 func TestApp_StatusFollowsScreenChanges(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
 	id := "login-1"
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, hash: 1}}})
+	m = send(m, polled(true, screenStatus{id: id, hash: 1}))
 	if statusOf(m, id) != session.StatusRunning {
 		t.Fatal("the first fingerprint has nothing to compare with and must not change state")
 	}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, hash: 1}}})
+	m = send(m, polled(true, screenStatus{id: id, hash: 1}))
 	if got := statusOf(m, id); got != session.StatusReady {
 		t.Errorf("unchanged screen: status = %s, want ready", got)
 	}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, hash: 2}}})
+	m = send(m, polled(true, screenStatus{id: id, hash: 2}))
 	if got := statusOf(m, id); got != session.StatusRunning {
 		t.Errorf("changed screen: status = %s, want running", got)
 	}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: id, gone: true}}})
+	m = send(m, polled(true, screenStatus{id: id, gone: true}))
 	if got := statusOf(m, id); got != session.StatusStopped {
 		t.Errorf("vanished tmux session: status = %s, want stopped", got)
+	}
+}
+
+// Checks closer together than a statusInterval, as after a detach, call a
+// session ready only once its screen has stayed unchanged for stillFor.
+func TestApp_ReadyNeedsTheScreenStillForStillFor(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	id := "login-1"
+	start := time.Now()
+	check := func(after time.Duration, hash uint64) session.Status {
+		m = send(m, statusMsg{lead: true, at: start.Add(after), results: []screenStatus{{id: id, hash: hash}}})
+		return statusOf(m, id)
+	}
+	check(0, 1)
+	if got := check(stillFor-time.Millisecond, 1); got != session.StatusRunning {
+		t.Errorf("unchanged for less than stillFor: status = %s, want running", got)
+	}
+	if got := check(stillFor, 1); got != session.StatusReady {
+		t.Errorf("unchanged for stillFor: status = %s, want ready", got)
+	}
+	if got := check(stillFor+quickInterval, 2); got != session.StatusRunning {
+		t.Errorf("changed screen: status = %s, want running", got)
+	}
+	if got := check(stillFor+2*quickInterval, 2); got != session.StatusRunning {
+		t.Errorf("unchanged for a quickInterval since the change: status = %s, want running", got)
+	}
+}
+
+// No status check runs while the user is attached, so detaching checks at
+// once and then quickly for a while, to catch up.
+func TestApp_DetachingChecksStatusesQuickly(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = send(m, attachDoneMsg{id: "login-1"})
+	if backend.polls != 1 {
+		t.Fatalf("status checks right after detaching = %d, want 1", backend.polls)
+	}
+	// The quick ticks, sent here, stop after quickChecks checks.
+	for range quickChecks + 2 {
+		m = send(m, quickStatusMsg{})
+	}
+	if backend.polls != quickChecks {
+		t.Errorf("status checks after detaching = %d, want %d", backend.polls, quickChecks)
 	}
 }
 
@@ -522,11 +581,11 @@ func readySession(prompt string, autoYes bool) session.Session {
 
 func TestApp_PendingPromptIsSentOnceReady(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("write tests", false)})
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7}))
 	if len(backend.pasted) != 0 {
 		t.Fatal("the prompt must wait until the screen has been still for a poll")
 	}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7}))
 	if !slices.Equal(backend.pasted, []string{"write tests"}) || !slices.Equal(backend.enters, []string{"s1"}) {
 		t.Fatalf("pasted %q and pressed enter for %q", backend.pasted, backend.enters)
 	}
@@ -545,7 +604,7 @@ func TestApp_LeaderSavesTheConversationToResume(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("", false)})
 	before := len(backend.saved)
 	poll := func(lead bool, id string) {
-		m = send(m, statusMsg{lead: lead, results: []screenStatus{{id: "s1", hash: 7, conversation: subagent.Conversation{ID: id}}}})
+		m = send(m, polled(lead, screenStatus{id: "s1", hash: 7, conversation: subagent.Conversation{ID: id}}))
 	}
 	poll(false, "first")
 	if len(backend.saved) != before {
@@ -565,8 +624,8 @@ func TestApp_LeaderSavesTheConversationToResume(t *testing.T) {
 
 func TestApp_TrustPromptHoldsPendingPrompt(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("go", false)})
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, trust: true}}})
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, trust: true}}})
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7, trust: true}))
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7, trust: true}))
 	if len(backend.pasted) != 0 || len(backend.enters) != 0 {
 		t.Error("nothing may be typed into a trust prompt without auto-yes")
 	}
@@ -577,13 +636,13 @@ func TestApp_TrustPromptHoldsPendingPrompt(t *testing.T) {
 
 func TestApp_AutoYesAnswersPermissionPrompts(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("", true)})
-	send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
+	send(m, polled(true, screenStatus{id: "s1", hash: 7, permission: true}))
 	if !slices.Equal(backend.enters, []string{"s1"}) {
 		t.Errorf("enters = %q, want one for s1", backend.enters)
 	}
 
 	m, backend = newTestModel(t, []session.Session{readySession("", false)})
-	send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
+	send(m, polled(true, screenStatus{id: "s1", hash: 7, permission: true}))
 	if len(backend.enters) != 0 {
 		t.Error("without auto-yes, permission prompts are left for the user")
 	}
@@ -595,7 +654,7 @@ func TestApp_AutoYesAnswersPermissionPrompts(t *testing.T) {
 func TestApp_OnlyTheLeaderTypesIntoAgents(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("write tests", true)})
 	for range 2 {
-		m = send(m, statusMsg{lead: false, results: []screenStatus{{id: "s1", hash: 7, permission: true}}})
+		m = send(m, polled(false, screenStatus{id: "s1", hash: 7, permission: true}))
 	}
 	if len(backend.pasted) != 0 || len(backend.enters) != 0 {
 		t.Fatalf("a follower pasted %q and pressed enter for %q", backend.pasted, backend.enters)
@@ -603,7 +662,7 @@ func TestApp_OnlyTheLeaderTypesIntoAgents(t *testing.T) {
 	if m.sessions[0].PendingPrompt != "write tests" {
 		t.Fatal("a follower must leave the pending prompt to the leader")
 	}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7}))
 	if !slices.Equal(backend.pasted, []string{"write tests"}) {
 		t.Errorf("the leader pasted %q, want the pending prompt", backend.pasted)
 	}
@@ -614,13 +673,13 @@ func TestApp_OnlyTheLeaderTypesIntoAgents(t *testing.T) {
 func TestApp_StaleReloadIsDropped(t *testing.T) {
 	m, backend := newTestModel(t, []session.Session{readySession("write tests", false)})
 	stale := reloadedMsg{sessions: slices.Clone(backend.file), writes: m.writes}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7}))
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7}))
 	m = send(m, stale)
 	if m.sessions[0].PendingPrompt != "" {
 		t.Fatal("a reload that predates the write restored the delivered prompt")
 	}
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "s1", hash: 7}}})
+	m = send(m, polled(true, screenStatus{id: "s1", hash: 7}))
 	if len(backend.pasted) != 1 {
 		t.Errorf("pasted %q, want the prompt once", backend.pasted)
 	}
@@ -1110,7 +1169,7 @@ func TestApp_SubagentsSurviveAPollCatchingARedraw(t *testing.T) {
 	m, backend := newTestModel(t, testutil.Sessions())
 	conv := running("one", "two", "three")
 	poll := func(m Model, listed subagent.List) Model {
-		return send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed, conversation: conv}}})
+		return send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listed, conversation: conv}))
 	}
 	m = poll(m, listing(3))
 	if m = poll(m, subagent.List{}); !contains(screen(m), "▸ 3 subagents running") {
@@ -1140,7 +1199,7 @@ func TestApp_SubagentsSurviveAPollCatchingARedraw(t *testing.T) {
 // there is nothing to show.
 func TestApp_ArrowsFoldSubagentsBeforeThePane(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}}})
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}))
 	if !contains(screen(m), "l show subagents") {
 		t.Errorf("the status bar should offer to show the subagents:\n%s", screen(m))
 	}
@@ -1169,7 +1228,7 @@ func TestApp_EnterOnASubagentRowOpensItThenAttaches(t *testing.T) {
 		Above: 1, Below: 1, Shown: 0, Focus: -1,
 	}
 	conv := running("one", "two", "three", "four")
-	m = send(m, statusMsg{lead: false, results: []screenStatus{{id: "login-1", hash: 1, subagents: listed, conversation: conv}}})
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listed, conversation: conv}))
 	m = keys(m, "l", "j", "j", "j") // the third subagent, the second Claude Code draws
 	if len(backend.opened) != 0 || len(backend.enters) != 0 || backend.attaches != 0 {
 		t.Fatal("selecting a subagent row must not type into the agent")
@@ -1190,14 +1249,14 @@ func TestApp_SubagentsShowTheirStatusUntilTheNextPrompt(t *testing.T) {
 	conv := running("review the parser", "write the tests")
 	conv.Agents[0].Status, conv.Agents[0].Ended = subagent.Done, time.Unix(100, 0)
 	conv.Prompted = time.Unix(50, 0)
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: conv}}})
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listing(1), conversation: conv}))
 	m = keys(m, "l")
 	view := screen(m)
 	if !contains(view, "▾ 2 subagents: 1 running") || !contains(view, "├ ● review the parser") || !contains(view, "└ ◑ write the tests") {
 		t.Errorf("want the finished subagent kept and marked done, the other running:\n%s", view)
 	}
 	conv.Prompted = time.Unix(150, 0)
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 2, subagents: listing(1), conversation: conv}}})
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 2, subagents: listing(1), conversation: conv}))
 	if view := screen(m); contains(view, "review the parser") || !contains(view, "▾ 1 subagent running") {
 		t.Errorf("a prompt after it finished should drop the finished subagent:\n%s", view)
 	}
@@ -1212,7 +1271,7 @@ func TestApp_OpenFindsTheSubagentInClaudeCodesList(t *testing.T) {
 	conv.Agents[2].Status, conv.Agents[2].Ended = subagent.Done, time.Unix(100, 0)
 	listed := listing(2)
 	listed.Shown = 1
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listed, conversation: conv}}})
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listed, conversation: conv}))
 	m = keys(m, "l", "j", "j", "o")
 	if !slices.Equal(backend.opened, [][2]int{{2, 2}}) {
 		t.Fatalf("opened %v, want the running subagent at position 2 of 2, after the finished one in view", backend.opened)
@@ -1244,7 +1303,7 @@ func TestApp_ASubagentRowShowsTheSubagent(t *testing.T) {
 	backend.trees = map[string]string{"/src/shop/.claude/worktrees/tests/internal": "/src/shop/.claude/worktrees/tests"}
 	backend.treeDiffs = map[string]string{"/src/shop/.claude/worktrees/tests": strings.ReplaceAll(sampleDiff, "auth.go", "parser_test.go") +
 		"diff --git a/.grapes/7/meta.toml b/.grapes/7/meta.toml\n--- a/.grapes/7/meta.toml\n+++ b/.grapes/7/meta.toml\n@@ -1 +1 @@\n-status = 'todo'\n+status = 'done'\n"}
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: conv}}})
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listing(1), conversation: conv}))
 	m = keys(m, "l", "j")
 
 	view := screen(m)
@@ -1282,7 +1341,7 @@ func TestApp_ASubagentRowShowsTheSubagent(t *testing.T) {
 func TestApp_FailedSubagentOpenDoesNotAttach(t *testing.T) {
 	m, backend := newTestModel(t, testutil.Sessions())
 	backend.openErr = subagent.ErrChanged
-	m = send(m, statusMsg{lead: true, results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}}})
+	m = send(m, polled(true, screenStatus{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}))
 	m = keys(m, "l", "j", "enter")
 	if backend.attaches != 0 {
 		t.Error("a subagent that did not open must not be attached to")
@@ -1450,7 +1509,7 @@ func TestApp_DoubleClickOnASessionIsEnter(t *testing.T) {
 func TestApp_DoubleClickOnASubagentOpensIt(t *testing.T) {
 	c := clock(t)
 	m, backend := newTestModel(t, testutil.Sessions())
-	m = send(m, statusMsg{results: []screenStatus{{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}}})
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}))
 	m = doubleClickOn(t, m, c, "1 subagent", 0)
 	if !contains(screen(m), "▾ 1 subagent") || backend.attaches != 0 {
 		t.Fatalf("a double click on the count line should expand it once and attach nothing; attached %d\n%s", backend.attaches, screen(m))

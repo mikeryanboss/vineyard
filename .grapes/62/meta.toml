@@ -1,0 +1,6 @@
+title = 'Update session and subagent status right after detaching'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'performance']
+created = 2026-10-13T14:06:00Z
+updated = 2026-10-13T14:24:00Z

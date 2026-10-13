@@ -469,8 +469,17 @@ them.
 
 There is no structured channel from the agent, so status is inferred from the
 screen, as claude-squad does. Every second each live session's screen is
-captured and fingerprinted. A changed fingerprint means running; two equal
-fingerprints in a row mean ready. On top of that:
+captured and fingerprinted. A changed fingerprint means running; a fingerprint
+unchanged for `stillFor` (600 ms) since the check that first saw it means
+ready. Agents animate while they work: running Claude Code agents were
+measured to change their screens at least every 0.45 s.
+
+No check runs while the user is attached, because `tea.Exec` blocks the TUI's
+event loop. Detaching therefore checks at once and then every 100 ms for a
+second, so the statuses and subagents that changed meanwhile show within
+`stillFor`, not after several one-second checks.
+
+On top of that:
 
 Only the leading Vineyard (see Several Vineyards) acts on the following:
 
