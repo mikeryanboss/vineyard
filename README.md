@@ -42,7 +42,7 @@ Run `vineyard` inside a git repository.
 | Key | Action |
 | --- | --- |
 | `n` / `N` | New session with the default profile / with a profile you pick, such as a terminal |
-| `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the issue from Issue, the shell from Terminal, the full recap from Recap. On a subagent, attach to its view |
+| `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the session's issue from Issue, if it has one, the shell from Terminal, the full recap from Recap. On a subagent, attach to its view |
 | `o` | Attach to the agent, or the selected subagent's view, from any tab; `ctrl-q` returns |
 | `tab` / `shift+tab` | Switch the pane: preview, diff, issue, terminal, recap |
 | `l` / `→` | Show the selected session's subagents; with none to show, scroll the pane, and `esc` returns to the list |

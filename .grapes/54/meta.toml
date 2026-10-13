@@ -1,0 +1,6 @@
+title = 'Enter on the issue tab opens grapes at a stale issue when the session has none'
+status = 'done'
+priority = 'high'
+labels = ['bug', 'tui', 'grapes']
+created = 2026-10-13T11:08:00Z
+updated = 2026-10-13T11:11:00Z
