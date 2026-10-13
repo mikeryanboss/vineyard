@@ -185,7 +185,7 @@ subagents it started, and its status:
 - **Stopped** too, at that line, when the conversation records
   `agents_killed` (drawn as "All background agents stopped") no earlier than
   its last message. Claude Code writes that line, and no task notification,
-  when the user stops all background agents.
+  when it stops all background agents, as on ctrl+x ctrl+k.
 - **Stopped** too, at its last message, when its own transcript has not been
   written to since the session's Claude Code started (tmux's
   `session_created`, since the tmux session runs Claude Code itself).

@@ -429,8 +429,7 @@ func TestLoad_SubagentsOfAnExitedClaudeCodeStopped(t *testing.T) {
 	}
 }
 
-// killed is Claude Code recording that it stopped all background agents, as
-// when the user stops them.
+// killed is Claude Code recording that it stopped all background agents.
 func killed(t *testing.T, second int) string {
 	return jsonLine(t, map[string]any{"type": "system", "subtype": "agents_killed", "isMeta": false, "timestamp": at(second)})
 }

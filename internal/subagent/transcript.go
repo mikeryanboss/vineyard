@@ -196,8 +196,8 @@ func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 				a.Status = Done
 			}
 		}
-		// Claude Code reports none of the subagents it stops when the user
-		// stops them all.
+		// Claude Code reports none of the subagents it stops when it stops
+		// them all, as on ctrl+x ctrl+k.
 		if a.Status == Running && !conv.killed.IsZero() && !conv.killed.Before(t.last) {
 			a.Status, a.Ended = Stopped, conv.killed
 		}

@@ -1,22 +1,22 @@
 ## Goal
-A subagent the user stopped in Claude Code shows as stopped in Vineyard,
-instead of running for as long as that Claude Code runs.
+A subagent that Claude Code stopped along with all background agents shows as
+stopped in Vineyard, instead of running for as long as that Claude Code runs.
 
 ## Description
-When the user stops background agents in Claude Code (ctrl+x ctrl+k, or an
-interrupt that ends them), Claude Code 2.1.296 writes no task notification for
-them. The conversation's transcript gets a `system` line with subtype
-`agents_killed`, which Claude Code draws as "All background agents stopped",
-and a queued plain-text "Background agent "<description>" was stopped by the
-user." Neither carries a task ID. Each stopped subagent's own transcript ends
-with a rejected tool result and a `[Request interrupted by user for tool use]`
-message, written a few milliseconds after the `agents_killed` line.
+When Claude Code 2.1.296 stops all background agents (ctrl+x ctrl+k, among
+others), it writes no task notification for them. The conversation's
+transcript gets a `system` line with subtype `agents_killed`, which Claude
+Code draws as "All background agents stopped", and a queued plain-text
+"Background agent "<description>" was stopped by the user." Neither carries a
+task ID. Each stopped subagent's own transcript ends with a rejected tool
+result and a `[Request interrupted by user for tool use]` message, written a
+few milliseconds after the `agents_killed` line.
 
 Vineyard misses all of this, so it shows those subagents as running until
 Claude Code exits. Seen in a session on another machine, where Claude Code had
-run for four days: two subagents stopped by the user at 07:17:44 and
-08:51:29 UTC stayed running in Vineyard, while Claude Code no longer listed
-them.
+run for four days: two subagents stopped at 07:17:44 and 08:51:29 UTC stayed
+running in Vineyard, while Claude Code no longer listed them. Nobody stopped
+them on purpose; what made Claude Code stop them is unknown.
 
 ## Context
 - `internal/subagent/transcript.go`: `Load` marks a subagent done or stopped

@@ -9,3 +9,6 @@
 
 ### 2026-10-13T15:52
 [DONE] `internal/subagent/transcript.go`: read `agents_killed`; `last` counts only messages written or sent; interruption markers are no messages. `internal/subagent/transcript_test.go`: `TestLoad_SubagentsTheUserStoppedStopped`. `docs/architecture.md`: Subagents status rules.
+
+### 2026-10-13T15:55
+[FINDINGS] The user says nobody stopped these subagents, and suspects a permission request that timed out, although the session runs with permissions bypassed. Unconfirmed. In Claude Code's binary, the prompt-input component appends `agents_killed`, next to its cancel handling. 84 ms after the 07:17:44 stop, the conversation received the human prompt `source /worldmodels/.venv/bin/activate`, which looks typed in by a tool rather than a person. The fix keys off the recorded `agents_killed` line, whatever caused it, so the wording now says Claude Code stopped them rather than the user.
