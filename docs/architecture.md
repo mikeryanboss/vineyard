@@ -346,7 +346,7 @@ session ends.
   detaching, the preview size is reapplied.
 - **Status bar**: tmux's status line, which names the detach keys, shows as
   `status_bar` says, and the status bar keys, bound in the same key table
-  (`vineyard-detach-C-q-bar-C-backslash`), show and hide it. It lists no
+  (`vineyard-detach-C-q-bar-C-k`), show and hide it. It lists no
   sessions.
 - **Prompts**: initial prompts are sent as a bracketed paste (`set-buffer` and
   `paste-buffer -p`) followed by Enter, so multi-line text is submitted once.

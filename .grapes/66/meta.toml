@@ -1,0 +1,6 @@
+title = 'Make ctrl+k the default status bar key'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'keys']
+created = 2026-10-13T14:42:00Z
+updated = 2026-10-13T14:43:00Z

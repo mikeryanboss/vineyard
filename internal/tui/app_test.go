@@ -891,14 +891,14 @@ func TestApp_AttachListsTheOtherSessionsInTheStatusBar(t *testing.T) {
 	tests := session.Peer{Terminal: "vineyard-shop-tests-2", Title: "Add unit tests for the parser"}
 
 	m = keys(m, "o")
-	want := session.Attachment{Detach: []string{"ctrl+q"}, ToggleBar: []string{"ctrl+\\"}, ShowBar: true, Peers: []session.Peer{tests}}
+	want := session.Attachment{Detach: []string{"ctrl+q"}, ToggleBar: []string{"ctrl+k"}, ShowBar: true, Peers: []session.Peer{tests}}
 	if !reflect.DeepEqual(backend.attached, want) {
 		t.Errorf("attaching to the agent: %+v, want %+v", backend.attached, want)
 	}
 
 	m.opts.Config.StatusBar = false
 	keys(m, "tab", "tab", "tab", "enter")
-	want = session.Attachment{Detach: []string{"ctrl+q"}, ToggleBar: []string{"ctrl+\\"}, Peers: []session.Peer{agent, tests}}
+	want = session.Attachment{Detach: []string{"ctrl+q"}, ToggleBar: []string{"ctrl+k"}, Peers: []session.Peer{agent, tests}}
 	if backend.shellAttaches != 1 || !reflect.DeepEqual(backend.attached, want) {
 		t.Errorf("attaching to the shell (%d times): %+v, want %+v", backend.shellAttaches, backend.attached, want)
 	}

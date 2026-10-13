@@ -57,7 +57,7 @@ Run `vineyard` inside a git repository.
 | `C` | Edit the configuration |
 | `q` | Quit; agents keep running |
 | `ctrl+q` | Return to the session list from any screen, pane, or dialog, as from an attached agent or shell |
-| `ctrl+\` | In an attached agent or shell, hide or show the status bar |
+| `ctrl+k` | In an attached agent or shell, hide or show the status bar |
 
 These are the default keys; [Keys](#keys) changes them.
 
@@ -90,7 +90,7 @@ auto_yes = false
 worktree_dir = ".vineyard/worktrees"  # relative to the repository, absolute, or ~/...
 diff_command = "hunk diff {base} --watch"  # run by enter on the Diff tab
 multiplexer = "vineyard"              # runs new sessions; or "tmux"
-status_bar = true                     # bar on attached terminals; ctrl+\ toggles it
+status_bar = true                     # bar on attached terminals; ctrl+k toggles it
 
 disabled_profiles = ["terminal"]     # built-in profiles not to offer
 
@@ -164,7 +164,7 @@ and grapes' issues screen has its own keys in `.grapes/config.toml`.
 quit = ["ctrl+c"]                           # quits from any screen, before any other key
 back = ["ctrl+q"]                           # returns to the session list from any screen
 detach = ["ctrl+q"]                         # leaves an attached terminal; ctrl and a letter, or ctrl+\
-status_bar = ["ctrl+\\"]                    # shows or hides an attached terminal's status bar; as detach
+status_bar = ["ctrl+k"]                     # shows or hides an attached terminal's status bar; as detach
 
 [keys.list]  # the session list
 up = ["k", "up"]
@@ -300,7 +300,7 @@ screen keeps changing is working; one whose screen is still is waiting for
 you. Attaching hands the terminal to the agent until the detach key, ctrl+q by default.
 On Vineyard's server, a status bar on the attached terminal's last row lists
 the other sessions on it: ◑ running, ● waiting, and ✓ finished while you were
-attached. In tmux the status bar is tmux's. ctrl+\ hides and shows it.
+attached. In tmux the status bar is tmux's. ctrl+k hides and shows it.
 
 You can run several Vineyards on one repository, for example one per terminal
 window; they share the session list and show each other's changes within a
