@@ -19,13 +19,18 @@ model, rebuilt on Bubble Tea v2.
   issue tracker. Start an agent from an issue, and see which session works on
   which issue.
 - **Persistent.** Agents keep running in tmux after you quit; the next launch
-  picks them up. Without tmux, agents run inside Vineyard and stop when it
-  quits; resuming one continues its Claude Code conversation.
+  picks them up. This needs tmux; see Install.
 
 ## Install
 
-Requires git 2.48 or newer. tmux is optional: with it, agents outlive Vineyard
-and several Vineyards can run on one repository.
+Requires git 2.48 or newer, and tmux for the full feature set. Vineyard runs
+agents in tmux whenever tmux is installed. Without it, Vineyard falls back to a
+built-in terminal, and these need tmux:
+
+- Agents that keep running after Vineyard quits. Without tmux they stop, and
+  resuming one continues its Claude Code conversation.
+- Several Vineyards on one repository. Without tmux a second one refuses to
+  start.
 
 Download a Linux or macOS build from the
 [releases](https://github.com/mikeryanboss/vineyard/releases), or build with

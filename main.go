@@ -143,7 +143,7 @@ func runTUI(program string, autoYes bool, issue int) error {
 		builtin := vterm.New()
 		defer builtin.Close()
 		terminals = builtin
-		notice = "tmux not found: agents run inside Vineyard and stop when it quits. Resume them after a restart."
+		notice = "tmux not found. Keeping agents running after quit, and several Vineyards per repository, need tmux."
 	}
 	manager := session.NewManager(repo, terminals, config.ProjectName(repo.Root))
 	sessions, err := store.Update(func(saved []session.Session) ([]session.Session, error) {

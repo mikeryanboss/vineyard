@@ -10,3 +10,6 @@ Manual, in a 110x30 tmux window with a PATH lacking tmux (`.grapes/48/tmp/path`)
 
 ### 2026-10-13T11:06
 [DONE] New `internal/vterm` (Server, attach); `tui.Terminal` interface over `*tmux.Client` and `*vterm.Server`; `Backend.AttachCommand` returns a `tea.ExecCommand`; `main.go` falls back to vterm, claims the lead first, and shows a startup notice. Docs: README, docs/README.md, architecture.md (Without tmux), development.md. Known limit: resizing does not reflow lines, unlike tmux.
+
+### 2026-10-13T11:40
+[DECISION] User confirmed tmux stays the default and the built-in terminal is only the fallback when tmux is missing (already the behaviour). Stated what needs a multiplexer: the startup notice now names both features, and README's Install section lists them.
