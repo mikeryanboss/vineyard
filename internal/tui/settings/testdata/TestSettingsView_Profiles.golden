@@ -1,9 +1,9 @@
   Config  ~/src/shop/.vineyard/config.toml                                      
                                                                                 
   General       │  claude         claude                                        
-  Profiles      │  codex          codex --full-auto                             
+  Profiles      │  terminal       $SHELL  in the main checkout  disabled        
+                │  codex          codex --full-auto                             
                 │  + Add profile                                                
-                                                                                
                                                                                 
                                                                                 
                                                                                 

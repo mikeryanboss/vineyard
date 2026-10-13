@@ -49,13 +49,18 @@ func TestLoad_MalformedFileGivesDefaultsAndError(t *testing.T) {
 	}
 }
 
+// names returns the names of profiles, in order.
+func names(profiles []Profile) []string {
+	out := make([]string, len(profiles))
+	for i, p := range profiles {
+		out[i] = p.Name
+	}
+	return out
+}
+
 func TestResolvedProfiles_DefaultFirst(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `
 default_program = "codex"
-
-[[profiles]]
-name = "claude"
-program = "claude"
 
 [[profiles]]
 name = "codex"
@@ -65,16 +70,8 @@ program = "codex --full-auto"
 		t.Fatal(err)
 	}
 	profiles := cfg.ResolvedProfiles()
-	if len(profiles) != 2 || profiles[0].Name != "codex" || profiles[0].Program != "codex --full-auto" {
-		t.Errorf("profiles = %+v, want codex first", profiles)
-	}
-}
-
-func TestResolvedProfiles_WithoutProfilesUsesDefaultProgram(t *testing.T) {
-	cfg := Config{DefaultProgram: "aider --model x"}
-	profiles := cfg.ResolvedProfiles()
-	if len(profiles) != 1 || profiles[0].Program != "aider --model x" {
-		t.Errorf("profiles = %+v", profiles)
+	if got := names(profiles); !slices.Equal(got, []string{"codex", "claude", "terminal"}) || profiles[0].Program != "codex --full-auto" {
+		t.Errorf("profiles = %+v, want codex first, then the built-in ones", profiles)
 	}
 }
 
@@ -92,16 +89,74 @@ func TestResolvedProfiles_DefaultsOfferClaudeAndAMainCheckoutTerminal(t *testing
 	}
 }
 
+// Configs saved before terminal was built in list claude alone; they must
+// still be offered terminal.
+func TestResolvedProfiles_BuiltinsStayBesideAConfigsOwnProfiles(t *testing.T) {
+	cfg, err := Load(writeConfig(t, "[[profiles]]\nname = 'claude'\nprogram = 'claude'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(cfg.ResolvedProfiles()); !slices.Equal(got, []string{"claude", "terminal"}) {
+		t.Errorf("profiles = %v, want claude and terminal", got)
+	}
+}
+
+// A profile named like a built-in one replaces it whole, in its place.
+func TestResolvedProfiles_ConfiguredProfileReplacesBuiltin(t *testing.T) {
+	cfg, err := Load(writeConfig(t, "[[profiles]]\nname = 'terminal'\nprogram = 'zsh'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Profile{{Name: "claude", Program: "claude"}, {Name: "terminal", Program: "zsh"}}
+	if got := cfg.ResolvedProfiles(); !reflect.DeepEqual(got, want) {
+		t.Errorf("profiles = %+v, want %+v", got, want)
+	}
+}
+
+func TestResolvedProfiles_DisabledProfilesAreNotOffered(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `disabled_profiles = ["terminal"]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(cfg.ResolvedProfiles()); !slices.Equal(got, []string{"claude"}) {
+		t.Errorf("profiles = %v, want claude alone", got)
+	}
+
+	// A disabled default is not offered as a command either.
+	cfg, err = Load(writeConfig(t, "default_program = 'claude'\ndisabled_profiles = ['claude']"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(cfg.ResolvedProfiles()); !slices.Equal(got, []string{"terminal"}) {
+		t.Errorf("profiles = %v, want terminal alone", got)
+	}
+
+	if _, err := Load(writeConfig(t, `disabled_profiles = ["claude", "terminal"]`)); err == nil || !strings.Contains(err.Error(), "every profile is disabled") {
+		t.Errorf("disabling every profile gave %v, want an error", err)
+	}
+}
+
 // A file that names its own default program but no profiles predates the
 // default profiles; new sessions must still run its program.
 func TestResolvedProfiles_UnmatchedDefaultProgramComesFirst(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `default_program = "aider"`))
+	cfg, err := Load(writeConfig(t, `default_program = "aider --model x"`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	profiles := cfg.ResolvedProfiles()
-	if len(profiles) != 3 || profiles[0] != (Profile{Name: "aider", Program: "aider"}) {
-		t.Errorf("profiles = %+v, want aider first, then the defaults", profiles)
+	if len(profiles) != 3 || profiles[0] != (Profile{Name: "aider --model x", Program: "aider --model x"}) {
+		t.Errorf("profiles = %+v, want aider first, then the built-in ones", profiles)
+	}
+}
+
+func TestCustomized_KeepsOnlyWhatDiffersFromTheBuiltins(t *testing.T) {
+	all := []Profile{
+		{Name: "claude", Program: "claude"},
+		{Name: "terminal", Program: "zsh", MainCheckout: true},
+		{Name: "codex", Program: "codex"},
+	}
+	if got := Customized(all); !reflect.DeepEqual(got, all[1:]) {
+		t.Errorf("customized = %+v, want %+v", got, all[1:])
 	}
 }
 
@@ -244,8 +299,9 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 			{Name: "yolo", Program: "claude --dangerously-skip-permissions"},
 			{Name: "dev server", Program: "npm run dev", MainCheckout: true},
 		},
-		WorktreeDir: "../worktrees",
-		Templates:   []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},
+		DisabledProfiles: []string{"terminal"},
+		WorktreeDir:      "../worktrees",
+		Templates:        []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},
 	}
 	if err := Save(home, want); err != nil {
 		t.Fatal(err)

@@ -33,8 +33,9 @@ const (
 	fieldEnum fieldKind = iota
 	// fieldText is edited in place.
 	fieldText
-	// fieldProfile is one profile; enter edits its command, and w toggles
-	// whether it runs in the main checkout.
+	// fieldProfile is one profile; enter edits its command, w toggles
+	// whether it runs in the main checkout, and x removes it, or disables or
+	// enables a built-in one.
 	fieldProfile
 	// fieldAdd adds a profile.
 	fieldAdd
@@ -98,13 +99,15 @@ type Model struct {
 // error from loading the file, if it failed; saving is then refused, since
 // it would replace the user's file with defaults.
 func New(cfg config.Config, path string, loadErr error, theme common.Theme) Model {
-	// Without profiles, the default agent is the only one offered. Making it
-	// an explicit profile lets the screen edit a single list.
-	if len(cfg.Profiles) == 0 {
-		cfg.Profiles = cfg.ResolvedProfiles()
-	} else {
-		cfg.Profiles = slices.Clone(cfg.Profiles)
+	// The screen edits the built-in profiles in one list with the configured
+	// ones; saving keeps only what differs from the built-ins. A default
+	// agent that names no profile is offered as a command of its own, so it
+	// becomes a profile here.
+	cfg.Profiles = cfg.AllProfiles()
+	if !slices.ContainsFunc(cfg.Profiles, func(p config.Profile) bool { return p.Name == cfg.DefaultProgram }) {
+		cfg.Profiles = append([]config.Profile{{Name: cfg.DefaultProgram, Program: cfg.DefaultProgram}}, cfg.Profiles...)
 	}
+	cfg.DisabledProfiles = slices.Clone(cfg.DisabledProfiles)
 	input := textinput.New()
 	input.Prompt = ""
 	input.CharLimit = 256
@@ -126,18 +129,26 @@ func (m Model) SetTheme(theme common.Theme) Model {
 	return m
 }
 
-// Config returns the edited configuration.
+// Config returns the edited configuration, with the built-in profiles in its
+// profiles.
 func (m Model) Config() config.Config { return m.cfg }
+
+// offered returns the names of the profiles new sessions are offered.
+func (m Model) offered() []string {
+	var names []string
+	for _, p := range m.cfg.Profiles {
+		if !m.cfg.Disabled(p.Name) {
+			names = append(names, p.Name)
+		}
+	}
+	return names
+}
 
 // fields lists the rows of the selected category.
 func (m Model) fields() []field {
 	if categories[m.catIdx] == "General" {
-		names := make([]string, len(m.cfg.Profiles))
-		for i, p := range m.cfg.Profiles {
-			names[i] = p.Name
-		}
 		return []field{
-			{id: idDefaultAgent, label: "Default agent", kind: fieldEnum, options: names},
+			{id: idDefaultAgent, label: "Default agent", kind: fieldEnum, options: m.offered()},
 			{id: idBranchPrefix, label: "Branch prefix", kind: fieldText},
 			{id: idAutoYes, label: "Auto-yes for new sessions", kind: fieldEnum, options: []string{"off", "on"}},
 			{id: idWorktreeDir, label: "Worktree directory", kind: fieldText},
@@ -251,6 +262,7 @@ func (m Model) updateNavigating(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m, nil
 		}
 		cfg := m.cfg
+		cfg.Profiles = config.Customized(cfg.Profiles)
 		return m, func() tea.Msg { return common.SaveConfigMsg{Config: cfg} }
 
 	case key.Matches(msg, keys.Back):
@@ -422,17 +434,31 @@ func (m Model) updateEditing(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m.stopEdit(), nil
 }
 
+// removeProfile removes profile i, or disables or enables it when it is
+// built in. The last profile offered stays, and the default agent moves to
+// the first one offered when it stops being offered.
 func (m *Model) removeProfile(i int) {
-	if len(m.cfg.Profiles) == 1 {
+	name := m.cfg.Profiles[i].Name
+	builtin, disabled := config.IsBuiltin(name), m.cfg.Disabled(name)
+	if builtin && disabled {
+		m.cfg.DisabledProfiles = slices.DeleteFunc(m.cfg.DisabledProfiles, func(n string) bool { return n == name })
+		return
+	}
+	if !disabled && len(m.offered()) == 1 {
 		m.setMessage("Vineyard needs at least one profile.", true)
 		return
 	}
-	name := m.cfg.Profiles[i].Name
-	m.cfg.Profiles = slices.Delete(m.cfg.Profiles, i, i+1)
-	m.fieldIdx = min(m.fieldIdx, len(m.cfg.Profiles)-1)
+	verb := "Removed "
+	if builtin {
+		m.cfg.DisabledProfiles = append(m.cfg.DisabledProfiles, name)
+		verb = "Disabled "
+	} else {
+		m.cfg.Profiles = slices.Delete(m.cfg.Profiles, i, i+1)
+		m.fieldIdx = min(m.fieldIdx, len(m.cfg.Profiles)-1)
+	}
 	if m.cfg.DefaultProgram == name {
-		m.cfg.DefaultProgram = m.cfg.Profiles[0].Name
-		m.setMessage("Removed "+name+". The default agent is now "+m.cfg.DefaultProgram+".", false)
+		m.cfg.DefaultProgram = m.offered()[0]
+		m.setMessage(verb+name+". The default agent is now "+m.cfg.DefaultProgram+".", false)
 	}
 }
 
@@ -516,7 +542,14 @@ func (m Model) Hints() [][2]string {
 	}
 	hints := [][2]string{{"j/k", "navigate"}, {"tab", "pane"}, {"enter", "edit"}}
 	if f, ok := m.currentField(); ok && f.kind == fieldProfile {
-		hints = append(hints, [2]string{"w", "worktree/main checkout"}, [2]string{"x", "remove"})
+		remove := "remove"
+		switch name := m.cfg.Profiles[f.profile].Name; {
+		case config.IsBuiltin(name) && m.cfg.Disabled(name):
+			remove = "enable"
+		case config.IsBuiltin(name):
+			remove = "disable"
+		}
+		hints = append(hints, [2]string{"w", "worktree/main checkout"}, [2]string{"x", remove})
 	}
 	return append(hints, [2]string{"ctrl+s", "save"}, [2]string{"esc", "back"})
 }
@@ -587,6 +620,9 @@ func (m Model) View() string {
 		}
 		if f.kind == fieldProfile && m.cfg.Profiles[f.profile].MainCheckout {
 			value += t.StyleFaint.Render("  in the main checkout")
+		}
+		if f.kind == fieldProfile && m.cfg.Disabled(m.cfg.Profiles[f.profile].Name) {
+			value += t.StyleFaint.Render("  disabled")
 		}
 		right = append(right, label+value)
 	}

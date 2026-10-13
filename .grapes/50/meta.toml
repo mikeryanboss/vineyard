@@ -1,6 +1,6 @@
 title = 'Always offer the built-in profiles, unless disabled'
-status = 'in_progress'
+status = 'done'
 priority = 'medium'
 labels = ['config', 'tui']
 created = 2026-10-13T10:33:00Z
-updated = 2026-10-13T10:33:00Z
+updated = 2026-10-13T10:37:00Z

@@ -36,12 +36,12 @@ Change:
 - Docs: `README.md` configuration section.
 
 ## Acceptance Criteria
-- [ ] A config listing only `claude` offers `claude` and `terminal`.
-- [ ] A `[[profiles]]` entry named `terminal` replaces the built-in.
-- [ ] `disabled_profiles` hides the named profiles; a disabled default is not offered.
-- [ ] The config screen shows built-ins, toggles them with `x`, and saves only the differences.
-- [ ] Saving and loading round-trip `disabled_profiles` and replaced built-ins.
-- [ ] README describes built-ins, replacing, and disabling.
+- [x] A config listing only `claude` offers `claude` and `terminal`.
+- [x] A `[[profiles]]` entry named `terminal` replaces the built-in.
+- [x] `disabled_profiles` hides the named profiles; a disabled default is not offered.
+- [x] The config screen shows built-ins, toggles them with `x`, and saves only the differences.
+- [x] Saving and loading round-trip `disabled_profiles` and replaced built-ins.
+- [x] README describes built-ins, replacing, and disabling.
 
 ## Verify
 Run from the worktree root:

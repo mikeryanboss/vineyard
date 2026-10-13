@@ -2,6 +2,7 @@ package settings_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,14 +17,14 @@ func newSettings(cfg config.Config, loadErr error) settings.Model {
 	return settings.New(cfg, "~/src/shop/.vineyard/config.toml", loadErr, common.NewTheme(true)).SetSize(80, 14)
 }
 
+// twoProfiles offers claude and codex: the built-in terminal is disabled. The
+// screen lists claude, terminal, codex.
 func twoProfiles() config.Config {
 	return config.Config{
-		DefaultProgram: "claude",
-		BranchPrefix:   "mboss/",
-		Profiles: []config.Profile{
-			{Name: "claude", Program: "claude"},
-			{Name: "codex", Program: "codex --full-auto"},
-		},
+		DefaultProgram:   "claude",
+		BranchPrefix:     "mboss/",
+		Profiles:         []config.Profile{{Name: "codex", Program: "codex --full-auto"}},
+		DisabledProfiles: []string{"terminal"},
 	}
 }
 
@@ -62,11 +63,11 @@ func TestSettingsView_Profiles(t *testing.T) {
 	testutil.RequireGolden(t, m.View())
 }
 
-func TestSettings_WithoutProfilesEditsTheDefaultAsOne(t *testing.T) {
+func TestSettings_UnmatchedDefaultAgentBecomesAProfile(t *testing.T) {
 	m := newSettings(config.Config{DefaultProgram: "aider"}, nil)
 	profiles := m.Config().Profiles
-	if len(profiles) != 1 || profiles[0] != (config.Profile{Name: "aider", Program: "aider"}) {
-		t.Errorf("profiles = %+v, want the default agent as the only profile", profiles)
+	if len(profiles) != 3 || profiles[0] != (config.Profile{Name: "aider", Program: "aider"}) {
+		t.Errorf("profiles = %+v, want the default agent first, then the built-in ones", profiles)
 	}
 }
 
@@ -88,7 +89,7 @@ func TestSettings_EditBranchPrefixAndSave(t *testing.T) {
 }
 
 func TestSettings_AddProfileAsksForNameThenCommand(t *testing.T) {
-	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "j", "enter") // + Add profile
+	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "j", "j", "enter") // + Add profile
 	m = typeText(m, "yolo")
 	m, _ = press(m, "enter")
 	if !strings.Contains(testutil.StripANSI(m.View()), "Enter the command that starts yolo.") {
@@ -99,45 +100,62 @@ func TestSettings_AddProfileAsksForNameThenCommand(t *testing.T) {
 
 	profiles := m.Config().Profiles
 	want := config.Profile{Name: "yolo", Program: "yolo --dangerously-skip-permissions"}
-	if len(profiles) != 3 || profiles[2] != want {
+	if len(profiles) != 4 || profiles[3] != want {
 		t.Errorf("profiles = %+v, want %+v added", profiles, want)
 	}
 }
 
+// Saving writes only what differs from the built-in profiles, so a config
+// keeps getting new built-ins and changes to them.
 func TestSettings_WTogglesWhereAProfileRunsAndSaves(t *testing.T) {
-	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "w") // codex
+	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "j", "w") // codex
 	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "codex --full-auto  in the main checkout") {
 		t.Errorf("the profile should show it runs in the main checkout:\n%s", view)
 	}
 	_, cmd := press(m, "ctrl+s")
 	saved, ok := msgOf(cmd).(common.SaveConfigMsg)
-	if !ok || saved.Config.Profiles[0].MainCheckout || !saved.Config.Profiles[1].MainCheckout {
-		t.Errorf("saved %+v, want only codex in the main checkout", saved.Config.Profiles)
+	want := []config.Profile{{Name: "codex", Program: "codex --full-auto", MainCheckout: true}}
+	if !ok || !slices.Equal(saved.Config.Profiles, want) || !slices.Equal(saved.Config.DisabledProfiles, []string{"terminal"}) {
+		t.Errorf("saved %+v, want only codex, in the main checkout, and terminal disabled", saved.Config)
 	}
 	m, _ = press(m, "w")
-	if m.Config().Profiles[1].MainCheckout {
+	if m.Config().Profiles[2].MainCheckout {
 		t.Error("w again should move codex back to a worktree")
 	}
 }
 
 func TestSettings_AddProfileRejectsDuplicateName(t *testing.T) {
-	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "j", "enter")
+	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "j", "j", "enter")
 	m = typeText(m, "codex")
 	m, _ = press(m, "enter")
-	if len(m.Config().Profiles) != 2 || !strings.Contains(testutil.StripANSI(m.View()), "already exists") {
+	if len(m.Config().Profiles) != 3 || !strings.Contains(testutil.StripANSI(m.View()), "already exists") {
 		t.Errorf("a duplicate name should be refused:\n%s", testutil.StripANSI(m.View()))
 	}
 }
 
-func TestSettings_RemovingTheDefaultProfileMovesTheDefault(t *testing.T) {
+// x disables and enables a built-in profile instead of removing it, and
+// removes the others. The default moves off a profile no longer offered, and
+// the last one offered stays.
+func TestSettings_XDisablesBuiltinsAndRemovesTheRest(t *testing.T) {
 	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "x") // claude, the default
 	cfg := m.Config()
-	if len(cfg.Profiles) != 1 || cfg.DefaultProgram != "codex" {
-		t.Errorf("after removing the default: %+v", cfg)
+	if len(cfg.Profiles) != 3 || !cfg.Disabled("claude") || cfg.DefaultProgram != "codex" {
+		t.Errorf("after disabling the default: %+v", cfg)
 	}
-	m, _ = press(m, "x")
-	if len(m.Config().Profiles) != 1 {
-		t.Error("the last profile must not be removable")
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "claude  disabled") {
+		t.Errorf("a disabled profile should say so:\n%s", view)
+	}
+	m, _ = press(m, "j", "j", "x") // codex, the last offered
+	if len(m.Config().Profiles) != 3 || !strings.Contains(testutil.StripANSI(m.View()), "at least one profile") {
+		t.Error("the last profile offered must stay")
+	}
+	m, _ = press(m, "k", "x") // terminal
+	if m.Config().Disabled("terminal") {
+		t.Error("x on a disabled built-in profile should enable it")
+	}
+	m, _ = press(m, "j", "x") // codex
+	if got := m.Config(); len(got.Profiles) != 2 || got.DefaultProgram != "terminal" {
+		t.Errorf("after removing codex: %+v, want it gone and terminal the default", got)
 	}
 }
 

@@ -61,7 +61,7 @@ Its `Status` is one of:
 The TUI's git poll also reads each session's branch, so the list follows branch
 switches within one poll.
 
-A session whose profile sets `main_checkout`, such as the default `terminal`,
+A session whose profile sets `main_checkout`, such as the built-in `terminal`,
 records `MainCheckout` and runs in the main checkout, which is not its own:
 `New` gives it no branch, `Start` only launches the program there, `Kill`
 only stops its tmux sessions, `Pause` and `Push` refuse it, since they would

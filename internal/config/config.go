@@ -42,9 +42,12 @@ type Config struct {
 	BranchPrefix string `toml:"branch_prefix"`
 	// AutoYes makes new sessions accept agent permission prompts automatically.
 	AutoYes bool `toml:"auto_yes"`
-	// Profiles are the launch commands offered when creating a session. A
-	// file's profiles replace the default ones.
-	Profiles []Profile `toml:"profiles"`
+	// Profiles are launch commands offered when creating a session, after
+	// the built-in ones (BuiltinProfiles). A profile named like a built-in
+	// one replaces it.
+	Profiles []Profile `toml:"profiles,omitempty"`
+	// DisabledProfiles names profiles not to offer, built-in ones included.
+	DisabledProfiles []string `toml:"disabled_profiles,omitempty"`
 	// WorktreeDir is where new sessions' worktrees go: relative to the
 	// repository root, absolute, or starting with "~/".
 	WorktreeDir string `toml:"worktree_dir"`
@@ -65,11 +68,47 @@ func Defaults() Config {
 		BranchPrefix:   defaultBranchPrefix(),
 		WorktreeDir:    filepath.Join(DirName, "worktrees"),
 		DiffCommand:    "hunk diff {base} --watch",
-		Profiles: []Profile{
-			{Name: "claude", Program: "claude"},
-			{Name: "terminal", Program: "$SHELL", MainCheckout: true},
-		},
 	}
+}
+
+// BuiltinProfiles returns the profiles every repository is offered unless
+// its configuration replaces or disables them.
+func BuiltinProfiles() []Profile {
+	return []Profile{
+		{Name: "claude", Program: "claude"},
+		{Name: "terminal", Program: "$SHELL", MainCheckout: true},
+	}
+}
+
+// IsBuiltin reports whether name names a built-in profile.
+func IsBuiltin(name string) bool {
+	return slices.ContainsFunc(BuiltinProfiles(), func(p Profile) bool { return p.Name == name })
+}
+
+// AllProfiles returns the built-in profiles, each replaced by the configured
+// profile of its name, then the other configured profiles. Disabled profiles
+// are included.
+func (c Config) AllProfiles() []Profile {
+	profiles := BuiltinProfiles()
+	for _, p := range c.Profiles {
+		if i := slices.IndexFunc(profiles, func(b Profile) bool { return b.Name == p.Name }); i >= 0 {
+			profiles[i] = p
+		} else {
+			profiles = append(profiles, p)
+		}
+	}
+	return profiles
+}
+
+// Disabled reports whether the configuration disables the profile name.
+func (c Config) Disabled(name string) bool { return slices.Contains(c.DisabledProfiles, name) }
+
+// Customized returns those of profiles, a list as AllProfiles returns, that
+// a configuration must hold to give that list: the profiles that are not
+// built-in, and the built-in ones changed.
+func Customized(profiles []Profile) []Profile {
+	builtins := BuiltinProfiles()
+	return slices.DeleteFunc(slices.Clone(profiles), func(p Profile) bool { return slices.Contains(builtins, p) })
 }
 
 func defaultBranchPrefix() string {
@@ -80,15 +119,21 @@ func defaultBranchPrefix() string {
 	return strings.ToLower(u.Username) + "/"
 }
 
-// ResolvedProfiles returns the profiles to offer, default first. When no
-// profile is named DefaultProgram, DefaultProgram comes first as a command of
-// its own.
+// ResolvedProfiles returns the profiles to offer, default first, without
+// disabled ones. When no profile is named DefaultProgram, DefaultProgram
+// comes first as a command of its own; when the profile it names is
+// disabled, the first profile offered is the default.
 func (c Config) ResolvedProfiles() []Profile {
-	i := slices.IndexFunc(c.Profiles, func(p Profile) bool { return p.Name == c.DefaultProgram })
-	if i < 0 {
-		return append([]Profile{{Name: c.DefaultProgram, Program: c.DefaultProgram}}, c.Profiles...)
+	all := c.AllProfiles()
+	offered := slices.DeleteFunc(slices.Clone(all), func(p Profile) bool { return c.Disabled(p.Name) })
+	if i := slices.IndexFunc(offered, func(p Profile) bool { return p.Name == c.DefaultProgram }); i >= 0 {
+		def := offered[i]
+		return append([]Profile{def}, slices.Delete(offered, i, i+1)...)
 	}
-	return append([]Profile{c.Profiles[i]}, slices.Delete(slices.Clone(c.Profiles), i, i+1)...)
+	if slices.ContainsFunc(all, func(p Profile) bool { return p.Name == c.DefaultProgram }) {
+		return offered
+	}
+	return append([]Profile{{Name: c.DefaultProgram, Program: c.DefaultProgram}}, offered...)
 }
 
 // DirName is the name of the data directory in a repository's main checkout.
@@ -197,6 +242,9 @@ func Load(dir string) (Config, error) {
 	// Defaults are set before unmarshalling, so omitted fields keep them.
 	if err := toml.Unmarshal(content, &cfg); err != nil {
 		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)
+	}
+	if len(cfg.ResolvedProfiles()) == 0 {
+		return Defaults(), fmt.Errorf("%s: every profile is disabled", Path(dir))
 	}
 	return cfg, nil
 }

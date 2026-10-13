@@ -347,7 +347,6 @@ func TestAppView_PausedSessionDiffTab(t *testing.T) {
 
 func TestAppView_NewSessionDialog(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
-	m.opts.Config.Profiles = config.Defaults().Profiles
 	m = keys(m, "N")
 	testutil.RequireGolden(t, m.View().Content)
 }
@@ -383,7 +382,6 @@ func TestApp_CreateSession(t *testing.T) {
 // the session's own.
 func TestApp_NewFromProfileStartsAMainCheckoutTerminal(t *testing.T) {
 	m, _ := newTestModel(t, nil)
-	m.opts.Config.Profiles = config.Defaults().Profiles
 	m = keys(m, "N", "right", "enter")
 	m = typeText(m, "dev server")
 	m = keys(m, "enter")
