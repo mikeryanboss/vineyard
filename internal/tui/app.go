@@ -568,7 +568,7 @@ func (m *Model) refreshShown() tea.Cmd {
 	m.diff = m.diff.SetDiff("")
 	m.issue = m.issue.GotoTop()
 	m.refreshIssue()
-	m.recap = m.recap.GotoTop()
+	m.recap = m.recap.SetContent("") // so a conversation opens at its end, a subagent's recap at its top
 	m.refreshRecap()
 	shellCmd := m.shellCmd()
 	if !ok {
@@ -1378,8 +1378,10 @@ func (m *Model) refreshIssue() {
 	m.issue = m.issue.SetContent(strings.Join(rendered, "\n"+rule+"\n"))
 }
 
-// refreshRecap renders the shown session's latest recaps into the recap tab,
-// while the tab is shown.
+// refreshRecap renders the shown session's conversation into the recap tab,
+// while the tab is shown: the user's messages and Claude Code's recaps, oldest
+// first. It keeps the scroll position, following new entries while scrolled
+// to the bottom.
 func (m *Model) refreshRecap() {
 	if m.tab != tabRecap {
 		return
@@ -1406,25 +1408,40 @@ func (m *Model) refreshRecap() {
 	case !r.recap.Found:
 		m.recap = m.recap.SetPlaceholder("Claude Code has no transcript for this session yet.")
 		return
+	case len(r.recap.Entries) == 0:
+		m.recap = m.recap.SetPlaceholder("Nothing said in this session yet.")
+		return
 	}
 	width, _ := m.paneContentSize()
+	width = max(1, width-2) // a column of margin on each side
 	t := m.theme
-	var b strings.Builder
+	// header puts a label on the left of a line and a time on its right.
+	header := func(label string, at time.Time) string {
+		stamp := t.StyleFaint.Render(at.Local().Format("Jan 2 15:04"))
+		return label + strings.Repeat(" ", max(1, width-lipgloss.Width(label)-lipgloss.Width(stamp))) + stamp
+	}
+	accent := lipgloss.NewStyle().Foreground(t.ColorAccent)
+	message := lipgloss.NewStyle().Background(t.ColorSurface).Foreground(t.ColorText).Padding(0, 2).Width(width)
+	var parts []string
 	if r.recap.Title != "" {
-		b.WriteString(t.StyleTitle.Render(ansi.Wrap(r.recap.Title, width, "")) + "\n\n")
+		parts = append(parts, t.StyleTitle.Render(ansi.Wrap(r.recap.Title, width, ""))+"\n"+t.StyleSeparator.Render(strings.Repeat("─", width)))
 	}
 	for _, e := range r.recap.Entries {
-		b.WriteString(t.StyleFaint.Render(e.Time.Local().Format("Jan 2 15:04")) + "\n")
-		b.WriteString(ansi.Wrap(e.Text, width, "") + "\n\n")
-	}
-	if len(r.recap.Entries) == 0 {
-		b.WriteString(t.StyleSubtitle.Render(ansi.Wrap("No recap yet. Claude Code writes one when you return after being away.", width, "")) + "\n\n")
-		if r.recap.LastPrompt != "" {
-			b.WriteString(t.StyleFaint.Render("Last prompt") + "\n")
-			b.WriteString(ansi.Wrap(r.recap.LastPrompt, width, "") + "\n")
+		if !e.Recap {
+			parts = append(parts, header(accent.Render("❯ ")+t.StyleTitle.Render("You"), e.Time)+"\n"+message.Render(e.Text))
+			continue
 		}
+		lines := strings.Split(ansi.Wrap(e.Text, max(1, width-2), ""), "\n")
+		for i, line := range lines {
+			lines[i] = accent.Render("│ ") + line
+		}
+		parts = append(parts, header(accent.Bold(true).Render("✻ Recap"), e.Time)+"\n"+strings.Join(lines, "\n"))
 	}
-	m.recap = m.recap.SetContent(strings.TrimRight(b.String(), "\n"))
+	following := m.recap.AtBottom()
+	m.recap = m.recap.SetContent(lipgloss.NewStyle().PaddingLeft(1).Render(strings.Join(parts, "\n\n")))
+	if following {
+		m.recap = m.recap.GotoBottom()
+	}
 }
 
 // refreshTranscript renders the shown subagent's transcript, as Claude Code

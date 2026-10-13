@@ -9,7 +9,7 @@ A Go terminal application that runs coding agents in parallel. A session is one
 agent program in a detached tmux session (or, without tmux, on a pseudo-terminal
 inside Vineyard), working in its own git worktree and
 branch. The TUI lists sessions, mirrors the selected agent's screen, shows its
-diff, its issue, and Claude Code's recaps of it, lists Claude Code's
+diff, its issue, and its conversation with Claude Code's recaps, lists Claude Code's
 subagents under it with their status, and hands the terminal to tmux when the user
 attaches. Its issues screen is the [grapes](https://github.com/Mibokess/grapes)
 issue tracker, embedded, and links each issue to the sessions working on it.
@@ -70,7 +70,7 @@ internal/tmux/             tmux client on Vineyard's private socket
 internal/vterm/            agents on pseudo-terminals in this process, when tmux is missing
 internal/session/          session model, lifecycle manager, store, screen detection
 internal/diff/             unified diff parser
-internal/recap/            Claude Code transcripts: a session's recaps, title, last prompt
+internal/recap/            Claude Code transcripts: a session's title, messages, and recaps
 internal/subagent/         Claude Code's subagents: read from its transcripts and screen, opened by its keys
 internal/prompt/           rendering an issue session's prompt from a template
 internal/tui/app.go        root Bubble Tea model

@@ -124,15 +124,18 @@ which also covers resizes and theme changes, since both reach grapes through
 
 ## Recaps
 
-The pane's recap tab shows what Claude Code recorded about the selected
-session, read by `internal/recap` from Claude Code's transcripts:
+The pane's recap tab shows the selected session's conversation as Claude Code
+recorded it, read by `internal/recap` from Claude Code's transcripts:
 `$CLAUDE_CONFIG_DIR/projects` (default `~/.claude/projects`), in the directory
 named after the session's worktree path with every non-alphanumeric character
-replaced by `-`. Claude Code writes a recap (`"subtype":"away_summary"`) when
-the user returns after being away; the tab lists them newest first under the
-`ai-title`, or shows the `last-prompt` when there is none yet. The format is
-undocumented and was read off Claude Code 2.1.295; a malformed line is shown as
-an error, not skipped.
+replaced by `-`. Under the `ai-title`, it lists every message the user typed
+(`"type":"user"` with `"origin":{"kind":"human"}`; tool results, slash commands,
+and text Claude Code adds have no such origin) and every recap
+(`"subtype":"away_summary"`, written when the user returns after being away),
+oldest first across all of the directory's transcripts. It opens at the newest
+entry and follows new ones while scrolled to the bottom. The format is
+undocumented and was read off Claude Code 2.1.280 to 2.1.296; a malformed line
+is shown as an error, not skipped.
 
 `recapCmd` reads the transcripts only while the tab is shown, and only for
 sessions whose program is `claude`: on switching to the tab, on selecting a

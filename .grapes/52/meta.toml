@@ -1,0 +1,6 @@
+title = 'Recap tab: show every user message, interleaved with recaps'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'recap']
+created = 2026-10-13T10:38:00Z
+updated = 2026-10-13T10:48:00Z
