@@ -15,7 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
+
+	"github.com/mikeryanboss/vineyard/internal/session"
 )
 
 // TestMain runs a server instead of the tests when a client of serverSocket
@@ -237,13 +240,15 @@ func TestInfoAndLogDescribeTheServer(t *testing.T) {
 }
 
 // Attaching through the server draws the agent's screen on the user's
-// terminal, passes typed keys to it, follows the user's terminal's size, and
-// returns on the detach key, here ctrl-g, without passing that on.
+// terminal with the status bar on its last row, passes typed keys to it,
+// follows the user's terminal's size less the bar, hides the bar on its key,
+// and returns on the detach key, here ctrl-g, without passing either key on.
 func TestAttachThroughTheServer(t *testing.T) {
 	socket, server := serverSocket(t)
 	c := NewClient(socket, server...)
 	t.Cleanup(func() { c.Close() })
 	startVia(t, c, "a", "")
+	startVia(t, c, "b", "echo peer; sleep 10")
 	capture := func() (string, error) { return c.Capture("a") }
 	waitFor(t, capture, "$")
 
@@ -263,32 +268,44 @@ func TestAttachThroughTheServer(t *testing.T) {
 		close(copied)
 	}()
 
-	a := c.Attach("a", []string{"ctrl+g"})
+	a := c.Attach("a", session.Attachment{
+		Detach: []string{"ctrl+g"}, ToggleBar: []string{"ctrl+\\"}, ShowBar: true,
+		Peers: []session.Peer{{Terminal: "b", Title: "Peer session"}},
+	})
 	a.SetStdin(tty)
 	a.SetStdout(tty)
 	done := make(chan error)
 	go func() { done <- a.Run() }()
+	// size waits for the agent's terminal to be width by height.
+	size := func(height, width int) {
+		t.Helper()
+		want := fmt.Sprintf("%d %d", height, width)
+		for deadline := time.Now().Add(2 * time.Second); ; {
+			user.Write([]byte("stty size\r"))
+			got, err := c.Capture("a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(got, want) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the terminal did not become %s:\n%s", want, got)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 
 	user.Write([]byte("\x11echo typed\r")) // ctrl-q, the default detach key, does not detach
 	waitFor(t, capture, "typed")
+	size(11, 50)
 	if err := pty.Setsize(tty, &pty.Winsize{Cols: 60, Rows: 15}); err != nil {
 		t.Fatal(err)
 	}
 	syscall.Kill(os.Getpid(), syscall.SIGWINCH)
-	for deadline := time.Now().Add(2 * time.Second); ; {
-		user.Write([]byte("stty size\r"))
-		got, err := c.Capture("a")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(got, "15 60") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the terminal did not follow the user's terminal to 60x15:\n%s", got)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	size(14, 60)
+	user.Write([]byte("\x1c"))
+	size(15, 60)
 
 	user.Write([]byte("echo more\r\x07echo ignored\r"))
 	select {
@@ -300,13 +317,16 @@ func TestAttachThroughTheServer(t *testing.T) {
 		t.Fatal("ctrl-g did not detach")
 	}
 	got := waitFor(t, capture, "more")
-	if strings.Contains(got, "ignored") || strings.Contains(got, "^G") {
-		t.Errorf("input after ctrl-g reached the agent: %q", got)
+	if strings.Contains(got, "ignored") || strings.Contains(got, "^G") || strings.Contains(got, "^\\") {
+		t.Errorf("a detach or status bar key reached the agent: %q", got)
 	}
 	tty.Close()
 	user.Close()
 	<-copied
-	if !strings.Contains(drawn.String(), "typed") {
-		t.Errorf("attach did not draw the agent's screen: %q", drawn.String())
+	screen := ansi.Strip(drawn.String())
+	for _, want := range []string{"typed", "● Peer session", "ctrl+g back  ctrl+\\ hide"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("attach did not draw %q: %q", want, screen)
+		}
 	}
 }

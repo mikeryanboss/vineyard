@@ -30,7 +30,7 @@ see which part failed.
 
 ## Acceptance Criteria
 - [x] Each protocol's Vineyard multiplexer listens on a socket of its own,
-      `<name>-p<protocol>`; protocols 1 and 2 shared `<name>`.
+      `<name>-p<protocol>`; protocols 1 to 3 shared `<name>`.
 - [x] A session records the protocol it runs on; sessions recorded before
       count as on `<name>`.
 - [x] A session on an older multiplexer whose agent still runs is restored as

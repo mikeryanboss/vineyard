@@ -18,3 +18,6 @@
 
 ### 2026-10-13T16:20
 [VERIFY] Real app via `scripts/drive`, with a build of 73d94db: the old session shows `● old` ready with the explanation in its preview; a new session starts on `vineyard-drive-dev-p2`; attaching to the old one shows `attach: this agent runs on an older Vineyard multiplexer … (process 561814, protocol 1)`; `vineyard debug` lists both multiplexers and `old: older vineyard, protocol 1 or 2, ready, terminal alive`. After ending the old agent (`kill -HUP` of its shell), it showed `× old` stopped; `r` restarted it, and `vineyard debug` showed it on this build's multiplexer, and the older multiplexer gone. Screenshots: before.png, after-attach.png in .grapes/60/tmp (published with the PR). PASS.
+
+### 2026-10-13T16:35
+[PROGRESS] Merged main after #61, which raised the protocol to 3 on the shared socket. Builds of main between #61 and this change run protocol 3 on `<name>`; sessions they record (protocol 0) are found there and served fully, as that server speaks this build's protocol. Docs and comments now say protocols 1 to 3 shared `<name>`. `go vet ./...` and `go test -count=1 ./...` pass after the merge.

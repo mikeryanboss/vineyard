@@ -14,15 +14,17 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/mikeryanboss/vineyard/internal/session"
 )
 
 // protocol is the version of the calls between Vineyards and the server.
 // Change it with any change to the calls, their arguments, or attaching.
-// Each protocol's server listens on a socket of its own (vineyardSocket in
-// main.go), so that servers of several protocols run side by side. Never
-// change Version or Exists: Client.Info and Client.Holds ask servers of every
-// protocol through them.
-const protocol = 2
+// Each protocol's server listens on a socket of its own (vineyardSocketName
+// in vineyards.go), so that servers of several protocols run side by side.
+// Never change Version or Exists: Client.Info and Client.Holds ask servers of
+// every protocol through them.
+const protocol = 3
 
 // idleGrace is how long a new server runs before it may stop when idle,
 // unless a terminal starts sooner.
@@ -293,8 +295,13 @@ type AttachRequest struct {
 	// Env is the user's environment, which says what their terminal supports.
 	Env           []string
 	Width, Height int
-	// Detach are the bytes that end the attachment, one per detach key.
-	Detach []byte
+	// Detach are the keys that end the attachment, and ToggleBar those that
+	// show or hide the status bar, each ctrl and a letter or ctrl+\.
+	Detach, ToggleBar []string
+	// ShowBar shows the status bar at first.
+	ShowBar bool
+	// Peers are the sessions the status bar lists.
+	Peers []session.Peer
 }
 
 // AttachResult ends an attachment: Err is empty when the user detached or the
@@ -326,7 +333,8 @@ func (d *daemon) attach(conn *net.UnixConn, in, out *os.File) error {
 				resized <- sz
 			}
 		}()
-		err = attach(t, in, out, req.Env, req.Detach, size{req.Width, req.Height}, resized, hungUp)
+		b := newBar(req.ShowBar, req.Peers, req.Detach, req.ToggleBar)
+		err = attach(d.terminals, t, b, in, out, req.Env, size{req.Width, req.Height}, resized, hungUp)
 	}
 	var result AttachResult
 	if err != nil {

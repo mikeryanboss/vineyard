@@ -50,6 +50,7 @@ const (
 	idWorktreeDir
 	idDiffCommand
 	idMultiplexer
+	idStatusBar
 	idProfile
 	idAddProfile
 )
@@ -159,6 +160,7 @@ func (m Model) fields() []field {
 			{id: idWorktreeDir, label: "Worktree directory", kind: fieldText},
 			{id: idDiffCommand, label: "Diff tool", kind: fieldText},
 			{id: idMultiplexer, label: "Multiplexer", kind: fieldEnum, options: []string{config.MultiplexerVineyard, config.MultiplexerTmux}},
+			{id: idStatusBar, label: "Status bar while attached", kind: fieldEnum, options: []string{"on", "off"}},
 		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
@@ -193,6 +195,11 @@ func (m Model) value(f field) string {
 		return m.cfg.DiffCommand
 	case idMultiplexer:
 		return m.cfg.Multiplexer
+	case idStatusBar:
+		if m.cfg.StatusBar {
+			return "on"
+		}
+		return "off"
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
 	}
@@ -213,6 +220,8 @@ func (m *Model) setValue(f field, v string) {
 		m.cfg.DiffCommand = v
 	case idMultiplexer:
 		m.cfg.Multiplexer = v
+	case idStatusBar:
+		m.cfg.StatusBar = v == "on"
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}

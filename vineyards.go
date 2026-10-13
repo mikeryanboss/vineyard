@@ -43,8 +43,9 @@ func newVineyards() (*vineyards, error) {
 }
 
 // vineyardSocketName names the socket of the Vineyard multiplexer of
-// protocol. Protocol 0 names that of protocols 1 and 2, which shared one
-// socket before each protocol had its own, as the sessions recorded then do.
+// protocol. Protocol 0 names the one socket that servers of protocols 1 to 3
+// shared before each protocol had its own, where the sessions recorded then
+// run.
 func vineyardSocketName(protocol int) string {
 	if protocol == 0 {
 		return socketName()
@@ -155,7 +156,7 @@ func (o olderVineyard) Resize(name string, _, _ int) error      { return o.fail(
 func (o olderVineyard) SendEnter(name string) error             { return o.fail(name) }
 func (o olderVineyard) SendKeys(name string, _ ...string) error { return o.fail(name) }
 func (o olderVineyard) Paste(name, _ string) error              { return o.fail(name) }
-func (o olderVineyard) Attach(name string, _ []string) tea.ExecCommand {
+func (o olderVineyard) Attach(name string, _ session.Attachment) tea.ExecCommand {
 	return failedCommand{o.fail(name)}
 }
 

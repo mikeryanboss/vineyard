@@ -158,7 +158,7 @@ func serveFake(t *testing.T, socket string, protocol int) {
 // Each protocol's Vineyard multiplexer has a socket of its own. One of
 // another protocol only tells whether it runs a terminal; while it does,
 // the rest fails with an error saying why. One that speaks this build's
-// protocol, as on the socket protocols 1 and 2 shared may, serves fully.
+// protocol, as one on the socket protocols 1 to 3 shared may, serves fully.
 func TestVineyards(t *testing.T) {
 	t.Setenv("VINEYARD_SOCKET", "vy")
 	dir := t.TempDir()

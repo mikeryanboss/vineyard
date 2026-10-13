@@ -344,6 +344,10 @@ session ends.
   table, so other keys reach the program. Binding at attach time, per
   session, lets Vineyards with different detach keys share the server. After
   detaching, the preview size is reapplied.
+- **Status bar**: tmux's status line, which names the detach keys, shows as
+  `status_bar` says, and the status bar keys, bound in the same key table
+  (`vineyard-detach-C-q-bar-C-backslash`), show and hide it. It lists no
+  sessions.
 - **Prompts**: initial prompts are sent as a bracketed paste (`set-buffer` and
   `paste-buffer -p`) followed by Enter, so multi-line text is submitted once.
 
@@ -382,7 +386,7 @@ them.
 
 - **Socket**: `$TMPDIR/vineyard-<uid>/<name>-p<protocol>` (`vterm.SocketPath`,
   `vineyardSocketName`), in a directory only the user may use, as tmux keeps
-  `/tmp/tmux-<uid>/<name>`. Servers of protocols 1 and 2 used `<name>`.
+  `/tmp/tmux-<uid>/<name>`. Servers of protocols 1 to 3 shared `<name>`.
   The server logs its start and stop, and each terminal's start and exit,
   with the exit status and the last lines of its screen, to `<socket>.log`
   (`internal/logfile`, restarted past 1 MB).
@@ -423,7 +427,7 @@ them.
 - **Attach**: as tmux's client does, the client passes the user's terminal to
   the server: an `a` connection whose first byte carries the input and output
   file descriptors (`SCM_RIGHTS`), then an `AttachRequest` with the user's
-  environment, terminal size, and the detach keys' bytes. The server puts that terminal in raw mode,
+  environment, terminal size, keys, and status bar. The server puts that terminal in raw mode,
   enters the alternate screen, and redraws the emulator on it with
   ultraviolet's diffing renderer, at most 60 times a second. Typed input goes
   to the program until a detach byte. The client forwards SIGWINCH as new sizes and
@@ -432,6 +436,21 @@ them.
   directly, so modes it sets there are only those that change input (cursor
   keys, mouse, focus, bracketed paste), set and reset as the program does and
   reset on detach.
+- **Status bar** (`bar.go`): while attached, the TUI's loop is blocked in
+  `tea.Exec`, so the server keeps the attached terminal's status bar. The
+  `AttachRequest` carries the sessions to list (`session.Peer`: terminal
+  name, title, and whether Vineyard last saw it running) and whether the bar
+  starts shown (`status_bar`). The bar takes the last row of the user's
+  terminal and the program one row less; at the bottom, the mouse reports
+  the user's terminal sends still match the program's rows. Every second the
+  server fingerprints each listed terminal's screen as the TUI's status poll
+  does: changed is running (◑), unchanged is ready (●), and ready after
+  running during the attachment is finished (✓). Until a terminal has been
+  sampled twice, it shows the status sent. The status bar keys, found in the
+  input as the detach bytes are, resize the program to the full height and
+  back; each attachment starts from `status_bar`. The TUI lists the active
+  sessions in the attached session's multiplexer but for the agent attached
+  to.
 - **Exit**: a terminal ends when its program exits; Kill hangs up its process
   group. The server stops once it has neither terminals nor connections, but
   not before its first terminal starts or 10 seconds pass, since the client

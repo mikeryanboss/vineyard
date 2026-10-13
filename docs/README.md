@@ -44,6 +44,7 @@ main.go
 | tmux commands | `internal/tmux/tmux.go` | `Terminal` in `internal/tui/backend.go` |
 | A session's multiplexer | `terminal` in `internal/session/manager.go` and `internal/tui/backend.go` | `multiplexers` in `main.go`; Multiplexers per Session in `architecture.md` |
 | Vineyard's server | `internal/vterm/daemon.go`, `client.go` | `vterm.go`, `attach.go`; Vineyard's Server in `architecture.md` |
+| Status bar of an attached terminal | `internal/vterm/bar.go`, `attach.go` | `attachment` in `internal/tui/app.go`; `AttachCommand` in `internal/tmux/tmux.go` |
 | Servers of several protocols, after an update | `vineyards.go` | Protocols side by side in `architecture.md` |
 | Diff collection | `internal/git/diff.go` | |
 | Diff parsing, changed-word ranges | `internal/diff/diff.go` | |
@@ -123,7 +124,7 @@ scripts/drive              drives a development build in tmux, for debugging and
   focused: anywhere else Esc interrupts the agent.
 - Vineyard uses its own tmux socket (`vineyard`, or `VINEYARD_SOCKET`), so
   its key bindings never reach the user's own tmux server. Vineyard's server
-  uses the same name, followed by its protocol (`vineyard-p2`).
+  uses the same name, followed by its protocol (`vineyard-p3`).
 - Change `protocol` in `internal/vterm/daemon.go` with any change to the
   server's calls. A running server outlives the Vineyard that started it, so
   each protocol's server has its own socket: after an update, agents keep

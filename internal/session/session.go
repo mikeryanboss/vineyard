@@ -61,7 +61,7 @@ type Session struct {
 	// Protocol is the protocol of the Vineyard multiplexer that runs the
 	// session's terminals, when Multiplexer is "vineyard". Each protocol has
 	// a multiplexer of its own. 0 is that of sessions recorded before
-	// protocols were, which run on the multiplexer of protocol 1 or 2.
+	// protocols were, which run on the one socket protocols 1 to 3 shared.
 	Protocol int `json:"protocol,omitempty"`
 	// Status is the last known lifecycle state.
 	Status Status `json:"status"`

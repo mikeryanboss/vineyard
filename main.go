@@ -372,7 +372,7 @@ func printSessions(w io.Writer, store session.Store, vineyards *vineyards) {
 		multiplexer, live := s.Multiplexer, "multiplexer unavailable"
 		t, ok := terminals[s.Multiplexer]
 		if s.Multiplexer == config.MultiplexerVineyard && s.Protocol != vterm.Protocol() {
-			multiplexer = "older vineyard, protocol 1 or 2"
+			multiplexer = "vineyard, on the socket of protocols 1 to 3"
 			if s.Protocol != 0 {
 				multiplexer = fmt.Sprintf("older vineyard, protocol %d", s.Protocol)
 			}
