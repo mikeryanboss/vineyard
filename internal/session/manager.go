@@ -40,6 +40,9 @@ type Attachment struct {
 	ShowBar bool `json:"show_bar"`
 	// Peers are the sessions the status bar lists.
 	Peers []Peer `json:"peers"`
+	// Dark is set when the user's terminal has a dark background, which
+	// gives the status bar its colours.
+	Dark bool `json:"dark"`
 }
 
 // Peer is a session an attached terminal's status bar lists.

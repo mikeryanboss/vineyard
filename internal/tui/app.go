@@ -2212,6 +2212,7 @@ func (m Model) attachment(s session.Session, shell bool) session.Attachment {
 		Detach:    common.Keys.Global.Detach.Keys(),
 		ToggleBar: common.Keys.Global.StatusBar.Keys(),
 		ShowBar:   m.opts.Config.StatusBar,
+		Dark:      m.theme.IsDark,
 	}
 	for _, p := range m.sessions {
 		if (p.ID != s.ID || shell) && p.Multiplexer == s.Multiplexer && p.Protocol == s.Protocol && p.Status.Active() {

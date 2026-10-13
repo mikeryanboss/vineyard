@@ -24,11 +24,11 @@ import (
 // in vineyards.go), so that servers of several protocols run side by side.
 // Never change Version or Exists: Client.Info and Client.Holds ask servers of
 // every protocol through them.
-const protocol = 3
+const protocol = 4
 
 // sameCallsSince is the oldest protocol whose calls, all but attaching, match
 // this build's, so that a Vineyard uses an older server of it or later for all
-// but attaching (NewOlderClient). Protocols 1 to 3 differ only in attaching.
+// but attaching (NewOlderClient). Protocols 1 to 4 differ only in attaching.
 // Raise it to protocol with any change to a call's arguments or results:
 // older servers then only say whether their terminals run.
 const sameCallsSince = 1
@@ -309,6 +309,8 @@ type AttachRequest struct {
 	ShowBar bool
 	// Peers are the sessions the status bar lists.
 	Peers []session.Peer
+	// Dark is set when the user's terminal has a dark background.
+	Dark bool
 }
 
 // AttachResult ends an attachment: Err is empty when the user detached or the
@@ -340,7 +342,7 @@ func (d *daemon) attach(conn *net.UnixConn, in, out *os.File) error {
 				resized <- sz
 			}
 		}()
-		b := newBar(req.ShowBar, req.Peers, req.Detach, req.ToggleBar)
+		b := newBar(req.ShowBar, req.Peers, req.Detach, req.ToggleBar, req.Dark)
 		err = attach(d.terminals, t, b, in, out, req.Env, size{req.Width, req.Height}, resized, hungUp)
 	}
 	var result AttachResult

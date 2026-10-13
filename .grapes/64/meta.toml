@@ -1,0 +1,6 @@
+title = 'Give the attached status bar light colours on light terminals'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'vterm']
+created = 2026-10-13T14:28:00Z
+updated = 2026-10-13T14:34:00Z

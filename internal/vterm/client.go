@@ -362,7 +362,7 @@ func (a *attachment) Run() error {
 	enc := gob.NewEncoder(conn)
 	req := AttachRequest{
 		Name: a.name, Env: os.Environ(), Width: width, Height: height,
-		Detach: a.how.Detach, ToggleBar: a.how.ToggleBar, ShowBar: a.how.ShowBar, Peers: a.how.Peers,
+		Detach: a.how.Detach, ToggleBar: a.how.ToggleBar, ShowBar: a.how.ShowBar, Peers: a.how.Peers, Dark: a.how.Dark,
 	}
 	if err := enc.Encode(req); err != nil {
 		return err
