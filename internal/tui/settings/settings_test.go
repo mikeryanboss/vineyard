@@ -104,6 +104,22 @@ func TestSettings_AddProfileAsksForNameThenCommand(t *testing.T) {
 	}
 }
 
+func TestSettings_WTogglesWhereAProfileRunsAndSaves(t *testing.T) {
+	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "w") // codex
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "codex --full-auto  in the main checkout") {
+		t.Errorf("the profile should show it runs in the main checkout:\n%s", view)
+	}
+	_, cmd := press(m, "ctrl+s")
+	saved, ok := msgOf(cmd).(common.SaveConfigMsg)
+	if !ok || saved.Config.Profiles[0].MainCheckout || !saved.Config.Profiles[1].MainCheckout {
+		t.Errorf("saved %+v, want only codex in the main checkout", saved.Config.Profiles)
+	}
+	m, _ = press(m, "w")
+	if m.Config().Profiles[1].MainCheckout {
+		t.Error("w again should move codex back to a worktree")
+	}
+}
+
 func TestSettings_AddProfileRejectsDuplicateName(t *testing.T) {
 	m, _ := press(newSettings(twoProfiles(), nil), "j", "l", "j", "j", "enter")
 	m = typeText(m, "codex")

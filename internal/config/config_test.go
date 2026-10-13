@@ -78,6 +78,33 @@ func TestResolvedProfiles_WithoutProfilesUsesDefaultProgram(t *testing.T) {
 	}
 }
 
+func TestResolvedProfiles_DefaultsOfferClaudeAndAMainCheckoutTerminal(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Profile{
+		{Name: "claude", Program: "claude"},
+		{Name: "terminal", Program: "$SHELL", MainCheckout: true},
+	}
+	if got := cfg.ResolvedProfiles(); !reflect.DeepEqual(got, want) {
+		t.Errorf("profiles = %+v, want %+v", got, want)
+	}
+}
+
+// A file that names its own default program but no profiles predates the
+// default profiles; new sessions must still run its program.
+func TestResolvedProfiles_UnmatchedDefaultProgramComesFirst(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `default_program = "aider"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles := cfg.ResolvedProfiles()
+	if len(profiles) != 3 || profiles[0] != (Profile{Name: "aider", Program: "aider"}) {
+		t.Errorf("profiles = %+v, want aider first, then the defaults", profiles)
+	}
+}
+
 func TestProjectName_DistinguishesSameNamedRepos(t *testing.T) {
 	a, b := ProjectName("/one/app"), ProjectName("/two/app")
 	if a == b {
@@ -215,6 +242,7 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 		Profiles: []Profile{
 			{Name: "claude", Program: "claude"},
 			{Name: "yolo", Program: "claude --dangerously-skip-permissions"},
+			{Name: "dev server", Program: "npm run dev", MainCheckout: true},
 		},
 		WorktreeDir: "../worktrees",
 		Templates:   []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},

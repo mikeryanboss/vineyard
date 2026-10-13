@@ -4,47 +4,47 @@ import "charm.land/bubbles/v2/key"
 
 // ListKeys act on the session list, which has focus by default.
 type ListKeys struct {
-	Up        key.Binding
-	Down      key.Binding
-	New       key.Binding
-	NewPrompt key.Binding
-	Open      key.Binding
-	Attach    key.Binding
-	Shell     key.Binding
-	Kill      key.Binding
-	Pause     key.Binding
-	Resume    key.Binding
-	Push      key.Binding
-	AutoYes   key.Binding
-	Tab       key.Binding
-	PrevTab   key.Binding
-	Focus     key.Binding
-	Collapse  key.Binding
-	Config    key.Binding
-	Issues    key.Binding
-	Quit      key.Binding
+	Up             key.Binding
+	Down           key.Binding
+	New            key.Binding
+	NewFromProfile key.Binding
+	Open           key.Binding
+	Attach         key.Binding
+	Shell          key.Binding
+	Kill           key.Binding
+	Pause          key.Binding
+	Resume         key.Binding
+	Push           key.Binding
+	AutoYes        key.Binding
+	Tab            key.Binding
+	PrevTab        key.Binding
+	Focus          key.Binding
+	Collapse       key.Binding
+	Config         key.Binding
+	Issues         key.Binding
+	Quit           key.Binding
 }
 
 var ListKeyMap = ListKeys{
-	Up:        key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
-	Down:      key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
-	New:       key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
-	NewPrompt: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new with prompt")),
-	Open:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open the shown tab")),
-	Attach:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "attach")),
-	Shell:     key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "shell")),
-	Kill:      key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "kill")),
-	Pause:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "checkout")),
-	Resume:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resume")),
-	Push:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "push")),
-	AutoYes:   key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
-	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
-	PrevTab:   key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
-	Focus:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "show subagents or scroll pane")),
-	Collapse:  key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "hide subagents")),
-	Config:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
-	Issues:    key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
-	Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+	Up:             key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "up")),
+	Down:           key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "down")),
+	New:            key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+	NewFromProfile: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "new from a profile")),
+	Open:           key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open the shown tab")),
+	Attach:         key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "attach")),
+	Shell:          key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "shell")),
+	Kill:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "kill")),
+	Pause:          key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "checkout")),
+	Resume:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resume")),
+	Push:           key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "push")),
+	AutoYes:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "auto-yes")),
+	Tab:            key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "preview/diff/issue/recap")),
+	PrevTab:        key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "previous tab")),
+	Focus:          key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "show subagents or scroll pane")),
+	Collapse:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h", "hide subagents")),
+	Config:         key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "config")),
+	Issues:         key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "issues")),
+	Quit:           key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 }
 
 // PaneKeys act on the preview, diff, or issue pane once it has focus.
@@ -91,6 +91,7 @@ type SettingsKeys struct {
 	Tab    key.Binding
 	Enter  key.Binding
 	Remove key.Binding
+	Where  key.Binding
 	Save   key.Binding
 	Back   key.Binding
 }
@@ -103,6 +104,7 @@ var SettingsKeyMap = SettingsKeys{
 	Tab:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "pane")),
 	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "edit")),
 	Remove: key.NewBinding(key.WithKeys("x", "delete"), key.WithHelp("x", "remove")),
+	Where:  key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "worktree/main checkout")),
 	Save:   key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save")),
 	Back:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 }

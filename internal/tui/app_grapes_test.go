@@ -169,6 +169,7 @@ func TestIssues_GrapesSeesItsOwnWrites(t *testing.T) {
 
 func TestIssues_SessionsKeyWithNoSessionStartsOne(t *testing.T) {
 	m := grapesModel(t, []session.Session{{ID: "a", Title: "fix login", Status: session.StatusReady}})
+	m.opts.Config.Profiles = config.Defaults().Profiles
 	m = keys(m, "i")
 
 	m = send(m, embedded.SessionsMsg{IssueID: 7})
@@ -178,6 +179,10 @@ func TestIssues_SessionsKeyWithNoSessionStartsOne(t *testing.T) {
 	view := screen(m)
 	if !strings.Contains(view, "New session for #7") || !strings.Contains(view, "Embed grapes") {
 		t.Errorf("dialog should be filled in for #7:\n%s", view)
+	}
+	// The prompt would run as commands in the terminal profile's shell.
+	if strings.Contains(view, "terminal") || strings.Contains(view, "main checkout") {
+		t.Errorf("an issue's dialog should offer only profiles that make a worktree:\n%s", view)
 	}
 
 	m = keys(m, "enter", "enter")

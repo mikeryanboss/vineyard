@@ -57,17 +57,17 @@ profile that attaches to an existing tmux session on the user's own server
 - Docs: `README.md` keys and configuration, `docs/architecture.md` Sessions.
 
 ## Acceptance Criteria
-- [ ] `n` shows title only and starts the default profile.
-- [ ] `N` shows a profile picker and a title, no prompt, and starts the chosen profile.
-- [ ] The issue dialog offers only profiles without `main_checkout`.
-- [ ] Defaults hold `claude` and `terminal` (`$SHELL`, `main_checkout = true`); a config's own profiles replace them.
-- [ ] An unmatched `default_program` is offered first as its own command.
-- [ ] A main-checkout session starts in the main checkout without creating a worktree or branch.
-- [ ] Killing it stops its tmux sessions and leaves the main checkout and its branch alone.
-- [ ] Check out and push refuse it, in the manager and in the TUI.
-- [ ] Resume and Locate use the main checkout.
-- [ ] The config screen toggles `main_checkout` with `w` and shows it; saving writes it.
-- [ ] README and architecture docs describe the new `n`/`N` and main-checkout profiles.
+- [x] `n` shows title only and starts the default profile.
+- [x] `N` shows a profile picker and a title, no prompt, and starts the chosen profile.
+- [x] The issue dialog offers only profiles without `main_checkout`.
+- [x] Defaults hold `claude` and `terminal` (`$SHELL`, `main_checkout = true`); a config's own profiles replace them.
+- [x] An unmatched `default_program` is offered first as its own command.
+- [x] A main-checkout session starts in the main checkout without creating a worktree or branch.
+- [x] Killing it stops its tmux sessions and leaves the main checkout and its branch alone.
+- [x] Check out and push refuse it, in the manager and in the TUI.
+- [x] Resume and Locate use the main checkout.
+- [x] The config screen toggles `main_checkout` with `w` and shows it; saving writes it.
+- [x] README and architecture docs describe the new `n`/`N` and main-checkout profiles.
 
 ## Verify
 Run from the worktree root:

@@ -58,8 +58,8 @@ var (
 	keyToggle  = key.NewBinding(key.WithKeys("space"))
 )
 
-// NewSession asks for a title, optionally an initial prompt, and an agent.
-// For a grapes issue, it also offers prompt templates.
+// NewSession asks for a title and, when choosing, the profile to run. For a
+// grapes issue, it also offers prompt templates and the prompt.
 type NewSession struct {
 	theme      common.Theme
 	width      int
@@ -68,6 +68,7 @@ type NewSession struct {
 	withPrompt bool
 	issue      int // the grapes issue the session is for, or 0
 	profiles   []config.Profile
+	choose     bool // whether the profile picker is offered
 	profile    int
 	focus      field
 	err        string
@@ -79,11 +80,15 @@ type NewSession struct {
 	data      prompt.Data
 }
 
-// NewSessionDialog returns the dialog. withPrompt adds the prompt field.
-func NewSessionDialog(theme common.Theme, profiles []config.Profile, withPrompt bool, width int) (*NewSession, tea.Cmd) {
+// NewSessionDialog returns the dialog, which runs the first of profiles.
+// choose offers a picker for the others, first and focused.
+func NewSessionDialog(theme common.Theme, profiles []config.Profile, choose bool, width int) (*NewSession, tea.Cmd) {
 	inner := max(20, width-6) // border and padding
 	title := textinput.New()
 	title.Placeholder = "What should the agent work on?"
+	if choose {
+		title.Placeholder = "What is this session for?"
+	}
 	title.Prompt = ""
 	title.CharLimit = 100
 	title.SetWidth(inner)
@@ -99,23 +104,30 @@ func NewSessionDialog(theme common.Theme, profiles []config.Profile, withPrompt 
 	prompt.SetStyles(textarea.DefaultStyles(theme.IsDark))
 
 	d := &NewSession{
-		theme:      theme,
-		width:      width,
-		title:      title,
-		prompt:     prompt,
-		withPrompt: withPrompt,
-		profiles:   profiles,
+		theme:    theme,
+		width:    width,
+		title:    title,
+		prompt:   prompt,
+		profiles: profiles,
+		choose:   choose,
 	}
-	return d, d.title.Focus()
+	if d.picks() {
+		return d, d.focusOn(fieldProfile)
+	}
+	return d, d.focusOn(fieldTitle)
 }
+
+// picks reports whether the dialog shows the profile picker.
+func (d *NewSession) picks() bool { return d.choose && len(d.profiles) > 1 }
 
 // ForIssue fills the dialog in for a session working on the grapes issue
 // data describes: its title, and a prompt rendered from the template among
 // templates that prompt.Choose picks. Choosing another template, or toggling
 // whether to build the issue's sub-issues, renders the prompt again. The
-// title and prompt stay editable. The prompt field grows to show up to
-// maxPromptHeight lines while the dialog fits in screenHeight.
-func (d *NewSession) ForIssue(title string, templates []config.Template, data prompt.Data, screenHeight int) *NewSession {
+// title and prompt stay editable, and the title has the focus. The prompt
+// field grows to show up to maxPromptHeight lines while the dialog fits in
+// screenHeight.
+func (d *NewSession) ForIssue(title string, templates []config.Template, data prompt.Data, screenHeight int) (*NewSession, tea.Cmd) {
 	d.issue = data.ID
 	d.withPrompt = true
 	d.templates = templates
@@ -125,7 +137,7 @@ func (d *NewSession) ForIssue(title string, templates []config.Template, data pr
 	d.render()
 	others := lipgloss.Height(d.View()) - d.prompt.Height()
 	d.prompt.SetHeight(max(d.prompt.Height(), min(maxPromptHeight, screenHeight-others)))
-	return d
+	return d, d.focusOn(fieldTitle)
 }
 
 // maxPromptHeight is the most lines the prompt of an issue's dialog shows.
@@ -158,7 +170,11 @@ func (d *NewSession) cycleTemplate(step int) {
 
 // fields lists the focus stops in order.
 func (d *NewSession) fields() []field {
-	fields := []field{fieldTitle}
+	var fields []field
+	if d.picks() {
+		fields = append(fields, fieldProfile)
+	}
+	fields = append(fields, fieldTitle)
 	if len(d.templates) > 0 {
 		fields = append(fields, fieldTemplate)
 	}
@@ -167,9 +183,6 @@ func (d *NewSession) fields() []field {
 	}
 	if d.withPrompt {
 		fields = append(fields, fieldPrompt)
-	}
-	if len(d.profiles) > 1 {
-		fields = append(fields, fieldProfile)
 	}
 	return fields
 }
@@ -247,9 +260,7 @@ func (d *NewSession) submit() tea.Cmd {
 	if d.withPrompt {
 		msg.Prompt = strings.TrimSpace(d.prompt.Value())
 	}
-	if len(d.profiles) > 0 {
-		msg.Profile = d.profiles[d.profile]
-	}
+	msg.Profile = d.profiles[d.profile]
 	return func() tea.Msg { return msg }
 }
 
@@ -267,8 +278,9 @@ func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 		case key.Matches(k, keyPrev):
 			return d, d.move(-1)
 		case key.Matches(k, keySubmit):
-			// Enter on the title moves on to the next field; anywhere else it creates.
-			if d.focus == fieldTitle && d.withPrompt && strings.TrimSpace(d.title.Value()) != "" {
+			// Enter on the profile moves on to the title, and on the title to
+			// the next field; anywhere else it creates.
+			if d.focus == fieldProfile || d.focus == fieldTitle && d.withPrompt && strings.TrimSpace(d.title.Value()) != "" {
 				return d, d.move(1)
 			}
 			return d, d.submit()
@@ -319,18 +331,15 @@ func (d *NewSession) blocks() []block {
 	}
 	text := func(s string) block { return block{field: fieldNone, text: s} }
 	heading := "New session"
-	switch {
-	case d.issue > 0:
+	if d.issue > 0 {
 		heading = fmt.Sprintf("New session for #%d", d.issue)
-	case d.withPrompt:
-		heading = "New session with prompt"
 	}
-	blocks := []block{
-		text(t.StyleTitle.Render(heading)),
-		text(""),
-		label("Title", fieldTitle),
-		{field: fieldTitle, text: d.title.View()},
+	runs := text(t.StyleFaint.Render(profileSummary(d.profiles[d.profile])))
+	blocks := []block{text(t.StyleTitle.Render(heading)), text("")}
+	if d.picks() {
+		blocks = append(blocks, label("Profile", fieldProfile), picker(d.profiles[d.profile].Name, fieldProfile), runs, text(""))
 	}
+	blocks = append(blocks, label("Title", fieldTitle), block{field: fieldTitle, text: d.title.View()})
 	if d.issue > 0 {
 		if len(d.templates) > 0 {
 			name := "none"
@@ -352,15 +361,21 @@ func (d *NewSession) blocks() []block {
 	if d.withPrompt {
 		blocks = append(blocks, text(""), label("Prompt", fieldPrompt), block{field: fieldPrompt, text: d.prompt.View()})
 	}
-	if len(d.profiles) > 1 {
-		blocks = append(blocks, text(""), label("Agent", fieldProfile), picker(d.profiles[d.profile].Name, fieldProfile))
-	} else if len(d.profiles) == 1 {
-		blocks = append(blocks, text(""), text(t.StyleFaint.Render("Agent: "+d.profiles[0].Program)))
+	if !d.picks() {
+		blocks = append(blocks, text(""), runs)
 	}
 	if d.err != "" {
 		blocks = append(blocks, text(""), text(t.StyleError.Render(d.err)))
 	}
 	return blocks
+}
+
+// profileSummary says what a session of profile p runs, and where.
+func profileSummary(p config.Profile) string {
+	if p.MainCheckout {
+		return "Runs " + p.Program + " in the main checkout."
+	}
+	return "Runs " + p.Program + " in a new worktree."
 }
 
 // View renders the dialog box.
@@ -375,6 +390,9 @@ func (d *NewSession) View() string {
 // Hints returns the status bar key hints.
 func (d *NewSession) Hints() [][2]string {
 	hints := [][2]string{{"enter", "create"}}
+	if d.focus == fieldProfile {
+		hints = [][2]string{{"enter", "title"}}
+	}
 	if d.withPrompt {
 		hints = append(hints, [2]string{"alt+enter", "newline"})
 	}
@@ -387,7 +405,7 @@ func (d *NewSession) Hints() [][2]string {
 	case d.focus == fieldSubIssues:
 		hints = append(hints, [2]string{"space", "toggle"})
 	case d.focus == fieldProfile:
-		hints = append(hints, [2]string{"←/→", "agent"})
+		hints = append(hints, [2]string{"←/→", "profile"})
 	}
 	return append(hints, [2]string{"esc", "cancel"})
 }

@@ -60,6 +60,7 @@ func (f *fakeBackend) New(opts session.NewOptions) session.Session {
 		Branch:        opts.BranchPrefix + session.Slug(opts.Title, "s"),
 		PendingPrompt: opts.Prompt, AutoYes: opts.AutoYes, Status: session.StatusLoading,
 		Issue: opts.Issue, WorktreePath: opts.WorktreeDir + "/" + session.Slug(opts.Title, "s"),
+		MainCheckout: opts.MainCheckout,
 	}
 }
 
@@ -346,6 +347,7 @@ func TestAppView_PausedSessionDiffTab(t *testing.T) {
 
 func TestAppView_NewSessionDialog(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
+	m.opts.Config.Profiles = config.Defaults().Profiles
 	m = keys(m, "N")
 	testutil.RequireGolden(t, m.View().Content)
 }
@@ -373,6 +375,33 @@ func TestApp_CreateSession(t *testing.T) {
 	}
 	if len(backend.resized) == 0 {
 		t.Error("the new session's window should be sized to the preview")
+	}
+}
+
+// N starts the chosen profile. A main-checkout profile's session is never
+// committed, checked out, or pushed: the work in the main checkout is not
+// the session's own.
+func TestApp_NewFromProfileStartsAMainCheckoutTerminal(t *testing.T) {
+	m, _ := newTestModel(t, nil)
+	m.opts.Config.Profiles = config.Defaults().Profiles
+	m = keys(m, "N", "right", "enter")
+	m = typeText(m, "dev server")
+	m = keys(m, "enter")
+	s, ok := m.selected()
+	if !ok || !s.MainCheckout || s.Program != "$SHELL" || s.PendingPrompt != "" {
+		t.Fatalf("selected = %+v, want the terminal profile's session in the main checkout", s)
+	}
+
+	for _, k := range []string{"c", "s"} {
+		m.status = ""
+		m = keys(m, k)
+		if m.dialog != nil || !strings.Contains(m.status, "main checkout") {
+			t.Errorf("%s: dialog = %T, status = %q; want a refusal naming the main checkout", k, m.dialog, m.status)
+		}
+	}
+	m = keys(m, "D")
+	if view := screen(m); !strings.Contains(view, "left as it is") {
+		t.Errorf("kill should say the main checkout stays:\n%s", view)
 	}
 }
 

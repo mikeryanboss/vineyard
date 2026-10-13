@@ -31,12 +31,17 @@ func press(d dialog.Dialog, k string) (dialog.Dialog, tea.Msg) {
 	return d, cmd()
 }
 
-func TestNewSession_SubmitsTitleAndProfile(t *testing.T) {
+// N opens on the profile picker: enter moves on to the title, and enter
+// there starts the chosen profile.
+func TestNewSession_ChoosingSubmitsTitleAndProfile(t *testing.T) {
 	var d dialog.Dialog
-	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, false, 60)
-	d = typeText(d, "Fix login")
-	d, _ = press(d, "tab") // to the agent picker
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, true, 60)
 	d, _ = press(d, "right")
+	d, _ = d.Update(testutil.Key("enter")) // its command only blinks the cursor
+	if view := testutil.StripANSI(d.View()); strings.Contains(view, "A title is required.") {
+		t.Fatalf("enter on the profile should move to the title, not create:\n%s", view)
+	}
+	d = typeText(d, "Fix login")
 	_, msg := press(d, "enter")
 
 	got, ok := msg.(common.NewSessionMsg)
@@ -48,10 +53,25 @@ func TestNewSession_SubmitsTitleAndProfile(t *testing.T) {
 	}
 }
 
+// n asks only for a title and starts the first profile, the default.
+func TestNewSession_WithoutChoosingRunsTheFirstProfile(t *testing.T) {
+	var d dialog.Dialog
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, false, 60)
+	if view := testutil.StripANSI(d.View()); strings.Contains(view, "‹") || strings.Contains(view, "Prompt") {
+		t.Errorf("the dialog should offer neither a picker nor a prompt:\n%s", view)
+	}
+	d = typeText(d, "Fix login")
+	d, _ = press(d, "tab") // nowhere else to go
+	_, msg := press(d, "enter")
+	if got, ok := msg.(common.NewSessionMsg); !ok || got.Title != "Fix login" || got.Profile.Name != "claude" {
+		t.Errorf("enter produced %#v, want claude titled Fix login", msg)
+	}
+}
+
 func TestNewSession_PromptFieldTakesMultilineInput(t *testing.T) {
 	var d dialog.Dialog
 	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles[:1], true, 60)
-	d = typeText(d, "Docs")
+	d, _ = d.(*dialog.NewSession).ForIssue("Docs", nil, prompt.Data{Issue: prompt.Issue{ID: 7}}, 40)
 	d, msg := press(d, "enter")
 	if _, created := msg.(common.NewSessionMsg); created {
 		t.Fatal("enter on the title should move to the prompt, not create the session")
@@ -88,8 +108,11 @@ func TestNewSession_EscCancels(t *testing.T) {
 	}
 }
 
-func TestNewSessionView_WithPrompt(t *testing.T) {
-	d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles, true, 60)
+func TestNewSessionView_ChoosingAProfile(t *testing.T) {
+	d, _ := dialog.NewSessionDialog(common.NewTheme(true), []config.Profile{
+		{Name: "terminal", Program: "$SHELL", MainCheckout: true},
+		{Name: "claude", Program: "claude"},
+	}, true, 60)
 	testutil.RequireGolden(t, d.View())
 }
 
@@ -104,7 +127,8 @@ var templates = []config.Template{
 func issueDialog(data prompt.Data) *dialog.NewSession {
 	data.ID = 7
 	d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles[:1], true, 60)
-	return d.ForIssue("Embed grapes", templates, data, 40)
+	d, _ = d.ForIssue("Embed grapes", templates, data, 40)
+	return d
 }
 
 func submittedPrompt(t *testing.T, d dialog.Dialog) string {
@@ -142,7 +166,8 @@ func TestNewSession_BuildSubIssuesCheckbox(t *testing.T) {
 	open := func(data prompt.Data) dialog.Dialog {
 		data.ID = 7
 		d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles[:1], true, 60)
-		return d.ForIssue("Embed grapes", []config.Template{{Name: "default", Text: text}}, data, 40)
+		d, _ = d.ForIssue("Embed grapes", []config.Template{{Name: "default", Text: text}}, data, 40)
+		return d
 	}
 	if view := open(prompt.Data{}).View(); strings.Contains(view, "Build sub-issues") {
 		t.Errorf("an issue without sub-issues should have no checkbox:\n%s", view)
@@ -163,7 +188,7 @@ func TestNewSession_BuildSubIssuesCheckbox(t *testing.T) {
 
 func TestNewSession_ShowsTemplateErrors(t *testing.T) {
 	d, _ := dialog.NewSessionDialog(common.NewTheme(true), profiles[:1], true, 60)
-	d = d.ForIssue("Embed grapes", []config.Template{{Name: "default", Text: "{{.Nope}}"}}, prompt.Data{Issue: prompt.Issue{ID: 7}}, 40)
+	d, _ = d.ForIssue("Embed grapes", []config.Template{{Name: "default", Text: "{{.Nope}}"}}, prompt.Data{Issue: prompt.Issue{ID: 7}}, 40)
 	if view := testutil.StripANSI(d.View()); !strings.Contains(view, "Template default:") {
 		t.Errorf("the dialog should show the template's error:\n%s", view)
 	}
@@ -210,12 +235,12 @@ func click(t *testing.T, d dialog.Dialog, text string) (dialog.Dialog, tea.Msg) 
 	return d, nil
 }
 
-func TestNewSession_ClicksFocusFieldsAndStepTheAgent(t *testing.T) {
+func TestNewSession_ClicksFocusFieldsAndStepTheProfile(t *testing.T) {
 	var d dialog.Dialog
-	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, false, 60)
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, true, 60)
 	d, _ = click(t, d, "›")
 	if !strings.Contains(testutil.StripANSI(d.View()), "‹ codex ›") {
-		t.Errorf("a click on › should show the next agent:\n%s", testutil.StripANSI(d.View()))
+		t.Errorf("a click on › should show the next profile:\n%s", testutil.StripANSI(d.View()))
 	}
 	d, _ = click(t, d, "Title")
 	d = typeText(d, "Fix login")
@@ -225,23 +250,23 @@ func TestNewSession_ClicksFocusFieldsAndStepTheAgent(t *testing.T) {
 	}
 }
 
-func TestNewSession_OffersTheAgentKeysOnItsFieldOnly(t *testing.T) {
+func TestNewSession_OffersTheProfileKeysOnItsFieldOnly(t *testing.T) {
 	var d dialog.Dialog
-	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, false, 60)
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, true, 60)
 	offers := func() bool {
 		for _, h := range d.Hints() {
-			if h == [2]string{"←/→", "agent"} {
+			if h == [2]string{"←/→", "profile"} {
 				return true
 			}
 		}
 		return false
 	}
-	if offers() {
-		t.Error("on the title, ←/→ move the cursor; the hints must not offer them for the agent")
+	if !offers() {
+		t.Error("on the profile field, the hints should offer ←/→")
 	}
 	d, _ = press(d, "tab")
-	if !offers() {
-		t.Error("on the agent field, the hints should offer ←/→")
+	if offers() {
+		t.Error("on the title, ←/→ move the cursor; the hints must not offer them for the profile")
 	}
 }
 

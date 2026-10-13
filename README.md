@@ -39,7 +39,7 @@ Run `vineyard` inside a git repository.
 
 | Key | Action |
 | --- | --- |
-| `n` / `N` | New session / new session with a prompt |
+| `n` / `N` | New session with the default profile / with a profile you pick, such as a terminal |
 | `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the issue from Issue, the full recap from Recap. On a subagent, attach to its view |
 | `o` | Attach to the agent, or the selected subagent's view, from any tab; `ctrl-q` returns |
 | `tab` / `shift+tab` | Switch the pane: preview, diff, issue, recap |
@@ -89,9 +89,20 @@ program = "claude"
 [[profiles]]
 name = "codex"
 program = "codex"
+
+[[profiles]]
+name = "terminal"
+program = "$SHELL"
+main_checkout = true                  # run in the main checkout, not a new worktree
 ```
 
-With more than one profile, the new-session dialog asks which agent to run.
+A profile is a command a session runs: an agent, a shell, a dev server. `n`
+runs the default; `N` asks which one. Without `[[profiles]]`, Vineyard offers
+`claude` and `terminal`; a file's own profiles replace both. A profile with
+`main_checkout` runs in the repository's main checkout, with no worktree or
+branch of its own: `D` only stops its program, and `s` and `c` refuse it. On
+the config screen, `w` on a profile toggles `main_checkout`. An issue's
+session (`a` on an issue) is offered only profiles without it.
 
 `diff_command` runs through `sh` in the session's worktree, with `{base}`
 replaced by the commit where the session's own work begins: where its branch

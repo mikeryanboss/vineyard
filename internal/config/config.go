@@ -18,15 +18,19 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
 
-// Profile is a named command for launching an agent.
+// Profile is a named command for launching an agent or another program.
 type Profile struct {
 	Name    string `toml:"name"`
 	Program string `toml:"program"`
+	// MainCheckout runs the program in the repository's main checkout instead
+	// of a new worktree and branch, as for a terminal beside the agents.
+	MainCheckout bool `toml:"main_checkout,omitempty"`
 }
 
 // Config is the user configuration.
@@ -38,7 +42,8 @@ type Config struct {
 	BranchPrefix string `toml:"branch_prefix"`
 	// AutoYes makes new sessions accept agent permission prompts automatically.
 	AutoYes bool `toml:"auto_yes"`
-	// Profiles are the launch commands offered when creating a session.
+	// Profiles are the launch commands offered when creating a session. A
+	// file's profiles replace the default ones.
 	Profiles []Profile `toml:"profiles"`
 	// WorktreeDir is where new sessions' worktrees go: relative to the
 	// repository root, absolute, or starting with "~/".
@@ -60,6 +65,10 @@ func Defaults() Config {
 		BranchPrefix:   defaultBranchPrefix(),
 		WorktreeDir:    filepath.Join(DirName, "worktrees"),
 		DiffCommand:    "hunk diff {base} --watch",
+		Profiles: []Profile{
+			{Name: "claude", Program: "claude"},
+			{Name: "terminal", Program: "$SHELL", MainCheckout: true},
+		},
 	}
 }
 
@@ -71,21 +80,15 @@ func defaultBranchPrefix() string {
 	return strings.ToLower(u.Username) + "/"
 }
 
-// ResolvedProfiles returns the profiles to offer, default first. Without
-// configured profiles, DefaultProgram becomes the only one.
+// ResolvedProfiles returns the profiles to offer, default first. When no
+// profile is named DefaultProgram, DefaultProgram comes first as a command of
+// its own.
 func (c Config) ResolvedProfiles() []Profile {
-	if len(c.Profiles) == 0 {
-		return []Profile{{Name: c.DefaultProgram, Program: c.DefaultProgram}}
+	i := slices.IndexFunc(c.Profiles, func(p Profile) bool { return p.Name == c.DefaultProgram })
+	if i < 0 {
+		return append([]Profile{{Name: c.DefaultProgram, Program: c.DefaultProgram}}, c.Profiles...)
 	}
-	profiles := make([]Profile, 0, len(c.Profiles))
-	for _, p := range c.Profiles {
-		if p.Name == c.DefaultProgram {
-			profiles = append([]Profile{p}, profiles...)
-		} else {
-			profiles = append(profiles, p)
-		}
-	}
-	return profiles
+	return append([]Profile{c.Profiles[i]}, slices.Delete(slices.Clone(c.Profiles), i, i+1)...)
 }
 
 // DirName is the name of the data directory in a repository's main checkout.
