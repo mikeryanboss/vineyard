@@ -65,8 +65,9 @@ func (v *vineyards) current() *vterm.Client { return v.client(vterm.Protocol()) 
 
 // Older returns the multiplexer that runs the sessions recorded with
 // protocol, another than this build's: a client of it when it speaks this
-// build's protocol, as one on protocol 0's socket may, and otherwise one
-// that only tells whether it still runs a terminal.
+// build's protocol, as one on protocol 0's socket may; a client for all but
+// attaching when its calls match this build's; and otherwise one that only
+// tells whether it still runs a terminal.
 func (v *vineyards) Older(protocol int) tui.Terminal {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -75,9 +76,14 @@ func (v *vineyards) Older(protocol int) tui.Terminal {
 	}
 	client := v.client(protocol)
 	info, err := client.Info()
-	var t tui.Terminal = olderVineyard{client, olderErr(info, err)}
-	if err == nil && info != nil && info.Protocol == vterm.Protocol() {
+	var t tui.Terminal
+	switch {
+	case err == nil && info != nil && info.Protocol == vterm.Protocol():
 		t = client
+	case err == nil && info != nil && vterm.SameCalls(info.Protocol):
+		t = vterm.NewOlderClient(client.Socket())
+	default:
+		t = olderVineyard{client, olderErr(info, err)}
 	}
 	v.older[protocol] = t
 	return t
@@ -90,9 +96,9 @@ func olderErr(info *vterm.ServerInfo, err error) error {
 	case err != nil:
 		return fmt.Errorf("%w: %v", session.ErrOlderMultiplexer, err)
 	case info == nil:
-		return fmt.Errorf("%w; it no longer runs", session.ErrOlderMultiplexer)
+		return fmt.Errorf("%w, which no longer runs", session.ErrOlderMultiplexer)
 	}
-	return fmt.Errorf("%w (process %d, protocol %d). Use the Vineyard that started it, or let the agent finish",
+	return fmt.Errorf("%w (process %d, protocol %d), which this Vineyard cannot reach. Use the Vineyard that started it, or let the agent finish",
 		session.ErrOlderMultiplexer, info.PID, info.Protocol)
 }
 
@@ -117,8 +123,8 @@ func (v *vineyards) protocols() ([]int, error) {
 	return protocols, nil
 }
 
-// olderVineyard is a Vineyard multiplexer of another protocol than this
-// build's, which this build cannot use. It can only tell whether the
+// olderVineyard is a Vineyard multiplexer of a protocol whose calls differ
+// from this build's, which this build cannot use. It can only tell whether the
 // multiplexer still runs a terminal; while it does, every other call fails
 // with err, which says so.
 type olderVineyard struct {

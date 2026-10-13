@@ -129,8 +129,10 @@ scripts/drive              drives a development build in tmux, for debugging and
   server's calls. A running server outlives the Vineyard that started it, so
   each protocol's server has its own socket: after an update, agents keep
   running on the older server and new sessions start on the new one
-  (`vineyards.go`). Never change `Version` or `Exists`, through which a
-  Vineyard asks older servers whether their agents still run.
+  (`vineyards.go`). Vineyard shows those agents but cannot attach to them.
+  Raise `sameCallsSince` with any change to a call's arguments or results,
+  and never change `Version` or `Exists`, through which a Vineyard asks older
+  servers whether their agents still run.
 
 ## Verify a Change
 

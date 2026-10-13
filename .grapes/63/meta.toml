@@ -1,0 +1,6 @@
+title = 'Show agents on older Vineyard multiplexers whose calls match'
+status = 'done'
+priority = 'high'
+labels = ['multiplexer']
+created = 2026-10-13T14:20:00Z
+updated = 2026-10-13T14:23:00Z

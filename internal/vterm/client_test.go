@@ -330,3 +330,18 @@ func TestAttachThroughTheServer(t *testing.T) {
 		}
 	}
 }
+
+// A client of an older server never starts one, and refuses a server whose
+// calls differ from this build's, as one of protocol 0 would.
+func TestOlderClient(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "s")
+	if err := NewOlderClient(socket).Start("a", t.TempDir(), "", 50, 12); err == nil {
+		t.Error("started a terminal without a server")
+	}
+	if _, err := os.Stat(socket); !os.IsNotExist(err) {
+		t.Errorf("a server started on %s", socket)
+	}
+	if SameCalls(0) || !SameCalls(1) || !SameCalls(protocol) || SameCalls(protocol+1) {
+		t.Error("SameCalls does not cover exactly protocols 1 to this build's")
+	}
+}

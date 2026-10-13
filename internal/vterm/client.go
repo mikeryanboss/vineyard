@@ -31,6 +31,9 @@ type Client struct {
 	socket string
 	// server is the command that runs a server on socket.
 	server []string
+	// older is set for a client of an older server whose calls match this
+	// build's, which it uses for all but attaching.
+	older bool
 
 	mu    sync.Mutex
 	calls *rpc.Client
@@ -42,6 +45,17 @@ func NewClient(socket string, server ...string) *Client {
 	return &Client{socket: socket, server: server}
 }
 
+// NewOlderClient returns a client of an older server at socket, whose
+// protocol's calls match this build's (SameCalls). It makes every call but
+// attaching, which fails, and never starts a server.
+func NewOlderClient(socket string) *Client {
+	return &Client{socket: socket, older: true}
+}
+
+// SameCalls reports whether a server of protocol answers this build's calls,
+// all but attaching, alike.
+func SameCalls(p int) bool { return sameCallsSince <= p && p <= protocol }
+
 // Socket returns the path of the server's socket.
 func (c *Client) Socket() string { return c.socket }
 
@@ -52,8 +66,8 @@ func (c *Client) Log() string { return c.socket + ".log" }
 type ServerInfo struct {
 	PID, Protocol int
 	// Terminals names the server's terminals when Listed, which is when its
-	// protocol is this build's and it answers List, as servers before List
-	// did not.
+	// protocol's calls match this build's and it answers List, as servers
+	// before List did not.
 	Terminals []string
 	Listed    bool
 }
@@ -71,7 +85,7 @@ func (c *Client) Info() (*ServerInfo, error) {
 	}
 	defer calls.Close()
 	info := &ServerInfo{PID: v.PID, Protocol: v.Protocol}
-	if v.Protocol == protocol {
+	if SameCalls(v.Protocol) {
 		info.Listed = calls.Call("Terminals.List", struct{}{}, &info.Terminals) == nil
 	}
 	return info, nil
@@ -125,7 +139,7 @@ func (c *Client) connect(start bool) (*rpc.Client, error) {
 	}
 	for deadline := time.Now().Add(serverStartTimeout); ; time.Sleep(10 * time.Millisecond) {
 		calls, v, err := c.handshake(start)
-		if err == nil && v.Protocol != protocol {
+		if err == nil && v.Protocol != protocol && !(c.older && SameCalls(v.Protocol)) {
 			calls.Close()
 			return nil, fmt.Errorf("end the agents of Vineyard's server, process %d, or kill it: it is from another version of Vineyard (protocol %d, want %d, at %s)", v.PID, v.Protocol, protocol, c.socket)
 		}
@@ -202,7 +216,7 @@ func (c *Client) startServer() (*net.UnixConn, error) {
 // call calls the server's method. Without start, a missing server is an
 // error that noServer recognises.
 func (c *Client) call(start bool, method string, args, reply any) error {
-	calls, err := c.connect(start)
+	calls, err := c.connect(start && !c.older)
 	if err != nil {
 		return err
 	}
@@ -315,6 +329,14 @@ func (a *attachment) SetStdout(w io.Writer) { a.out = w }
 func (a *attachment) SetStderr(io.Writer)   {}
 
 func (a *attachment) Run() error {
+	if a.client.older {
+		info, err := a.client.Info()
+		if err != nil || info == nil {
+			return fmt.Errorf("%w, which no longer answers: %v", session.ErrOlderMultiplexer, err)
+		}
+		return fmt.Errorf("use the Vineyard that started it; %w (process %d, protocol %d), which this Vineyard cannot attach to",
+			session.ErrOlderMultiplexer, info.PID, info.Protocol)
+	}
 	in, inOK := a.in.(*os.File)
 	out, outOK := a.out.(*os.File)
 	if !inOK || !outOK || !term.IsTerminal(in.Fd()) || !term.IsTerminal(out.Fd()) {

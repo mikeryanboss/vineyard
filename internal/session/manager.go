@@ -85,8 +85,8 @@ func NewManager(repo git.Repo, terminals map[string]Terminal, defaultMultiplexer
 
 // ErrOlderMultiplexer is the error of operations on a terminal that runs on
 // the Vineyard multiplexer of another protocol, which this Vineyard cannot
-// reach.
-var ErrOlderMultiplexer = errors.New("this agent runs on an older Vineyard multiplexer, which this Vineyard cannot reach")
+// perform there.
+var ErrOlderMultiplexer = errors.New("this agent runs on an older Vineyard multiplexer")
 
 // terminal returns the multiplexer that runs s.
 func (m *Manager) terminal(s Session) (Terminal, error) {
