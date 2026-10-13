@@ -25,6 +25,8 @@ type bar struct {
 	peers          []peer
 	// detach and toggle are the names of the detach and status bar keys.
 	detach, toggle []string
+	// colors are the bar's colours, for the user's terminal's background.
+	colors barColors
 }
 
 // peer is a session the bar lists.
@@ -39,8 +41,13 @@ type peer struct {
 	ran, gone bool
 }
 
-func newBar(shown bool, peers []session.Peer, detach, toggle []string) *bar {
-	b := &bar{shown: shown, detach: detach, toggle: toggle}
+// newBar returns a bar listing peers, for a terminal with a dark background
+// when dark is set and a light one otherwise.
+func newBar(shown bool, peers []session.Peer, detach, toggle []string, dark bool) *bar {
+	b := &bar{shown: shown, detach: detach, toggle: toggle, colors: lightBar}
+	if dark {
+		b.colors = darkBar
+	}
 	for _, p := range peers {
 		b.peers = append(b.peers, peer{Peer: p, ran: p.Running})
 	}
@@ -101,26 +108,40 @@ func (p peer) status() peerStatus {
 	return peerReady
 }
 
-// Styles of the bar: a dark bar, as tmux's status line is green, on dark and
-// light terminals alike. The server does not know which the user's is, and
-// themes change the 16 basic colours, so the bar takes its colours from the
-// 256-colour palette, which themes leave alone.
-var (
-	barStyle  = ansi.NewStyle().BackgroundColor(ansi.IndexedColor(238)).ForegroundColor(ansi.IndexedColor(252))
-	hintStyle = barStyle.ForegroundColor(ansi.IndexedColor(248))
-	// iconStyles style each status's icon, and finished titles too.
-	iconStyles = map[peerStatus]ansi.Style{
-		peerRunning:  barStyle.ForegroundColor(ansi.IndexedColor(220)),
-		peerFinished: barStyle.ForegroundColor(ansi.IndexedColor(114)).Bold(),
-		peerReady:    barStyle,
+// barColors are the styles of a bar: a little darker than a light
+// terminal's background, or lighter than a dark one's. Themes change the 16
+// basic colours, so the bar takes its colours from the 256-colour palette,
+// which they leave alone.
+type barColors struct {
+	bar, hint ansi.Style
+	// icons style each status's icon, and finished titles too.
+	icons map[peerStatus]ansi.Style
+}
+
+func newBarColors(background, text, hint, running, finished ansi.IndexedColor) barColors {
+	bar := ansi.NewStyle().BackgroundColor(background).ForegroundColor(text)
+	return barColors{
+		bar:  bar,
+		hint: bar.ForegroundColor(hint),
+		icons: map[peerStatus]ansi.Style{
+			peerRunning:  bar.ForegroundColor(running),
+			peerFinished: bar.ForegroundColor(finished).Bold(),
+			peerReady:    bar,
+		},
 	}
-	icons = map[peerStatus]string{peerRunning: "◑", peerFinished: "✓", peerReady: "●"}
+}
+
+var (
+	darkBar  = newBarColors(238, 252, 248, 220, 114)
+	lightBar = newBarColors(254, 235, 242, 130, 28)
+	icons    = map[peerStatus]string{peerRunning: "◑", peerFinished: "✓", peerReady: "●"}
 )
 
 // text returns the bar as styled text width cells wide: each peer's status
 // icon and title, or when those do not fit, how many peers have each status,
 // then the keys on the right.
 func (b *bar) text(width int) string {
+	barStyle, hintStyle, iconStyles := b.colors.bar, b.colors.hint, b.colors.icons
 	var items []string
 	counts := map[peerStatus]int{}
 	for _, p := range b.peers {
@@ -137,6 +158,9 @@ func (b *bar) text(width int) string {
 	}
 	sep := barStyle.Styled("  ")
 	left := barStyle.Styled(" ") + strings.Join(items, sep)
+	if len(items) == 0 {
+		left = hintStyle.Styled(" no other sessions")
+	}
 	var hints []string
 	if len(b.detach) > 0 {
 		hints = append(hints, strings.Join(b.detach, "/")+" back")
