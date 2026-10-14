@@ -55,10 +55,10 @@ Change:
   (`olderVineyard.Kill`), so Kill stops instead of orphaning it.
 
 ## Acceptance Criteria
-- [ ] Restore finds an agent on an older server that its record does not name, marks the session ready, and records that protocol.
-- [ ] Restore finds an agent on this build's server when the record names an older protocol.
-- [ ] Kill and Pause end an agent that runs on a server other than the recorded one.
-- [ ] The reproduction above no longer leaves the agent running.
+- [x] Restore finds an agent on an older server that its record does not name, marks the session ready, and records that protocol.
+- [x] Restore finds an agent on this build's server when the record names an older protocol.
+- [x] Kill and Pause end an agent that runs on a server other than the recorded one.
+- [x] The reproduction above no longer leaves the agent running.
 
 ## Verify
 Run from the worktree:

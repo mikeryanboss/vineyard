@@ -184,6 +184,7 @@ func runTUI(program string, autoYes bool, issue int) (err error) {
 	manager := session.NewManager(repo, managed, cfg.Multiplexer, config.ProjectName(repo.Root))
 	manager.Protocol = vterm.Protocol()
 	manager.Older = func(protocol int) session.Terminal { return vineyards.Older(protocol) }
+	manager.Protocols = vineyards.protocols
 	sessions, err := store.Update(func(saved []session.Session) ([]session.Session, error) {
 		return manager.Restore(saved, worktreeDir)
 	})
