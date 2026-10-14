@@ -6,3 +6,9 @@
 
 ### 2026-10-14T12:10
 [DONE] `internal/tui/app.go` (`mainIssues`, `shownIssues`, `syncList`, `tabLabels`), `internal/tui/list/list.go`, `internal/tui/common/theme.go` (`ClipIssues`), tests in `internal/tui/app_grapes_test.go`, docs in `docs/architecture.md`.
+
+### 2026-10-14T12:40
+[DECISION] By request, the PR also fixes the picker: `dialog.Pick` takes the screen height above the status bar, shows as many choices as fit, scrolls with the cursor, and shows `n/total` beside its title when some are hidden.
+
+### 2026-10-14T12:40
+[VERIFY] `gofmt -l .` empty; `go vet ./...` clean; `go test ./...` PASS. New test `TestPick_ScrollsChoicesThatDoNotFit` (height 10, 20 choices: at most 10 lines, scrolls to the last, click chooses the clicked row). In the dev build on a 120x35 window, a 47-issue picker fits the screen and scrolls to 41/47; `main`'s build cuts it off at #39. PASS; screenshots in the PR.

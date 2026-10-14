@@ -124,7 +124,10 @@ the rest; a session on a sub-issue alone shows the sub-issue. Only the direct
 parent counts, since grapes loads parent cycles. Matching sessions to an issue
 (`showSessions`, `promptData`) uses every linked issue. The row and the label
 name at most three; with more, they name two and count the rest
-(`common.ClipIssues`), as in `#11 #12 +3`.
+(`common.ClipIssues`), as in `#11 #12 +3`. The issue picker, like the picker
+of an issue's sessions, is a `dialog.Pick` no taller than the screen above the
+status bar: choices that do not fit scroll with the cursor, and the title shows
+its position, as in `3/20`.
 
 The pane's issue tab shows those issues, rendered by
 `embedded.Model.RenderIssue` at the pane's width. Given the session's worktree,

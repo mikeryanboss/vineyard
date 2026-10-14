@@ -15,6 +15,10 @@ Two changes:
    parent still shows the sub-issue.
 2. **At most three numbers.** The list title and the tab label show up to three
    issue numbers; with more, they show the first two and `+N` for the rest.
+3. **A picker that fits.** The issue picker, and the picker of an issue's
+   sessions, list one line per choice and do not scroll, so twenty top-level
+   issues overflow a short terminal. The picker shows as many choices as fit
+   the screen, scrolls with the cursor, and shows the cursor's position.
 
 ## Context
 - `issuesOf` in `internal/tui/app.go`: the full set, recorded issue plus issues
@@ -25,6 +29,8 @@ Two changes:
   the filtered set (planned).
 - `syncList` passes `issuesOf` to `list.Item.Issues`; it passes the filtered set
   (planned). `renderItem` in `internal/tui/list/list.go` prints them.
+- `Pick` in `internal/tui/dialog/dialog.go` renders every choice; its callers
+  are `showIssues` and `showSessions` in `internal/tui/app.go`.
 - Parents come from `embedded.Model.Issue(id).Parent`. Only the direct parent is
   checked: grapes does not reject parent cycles on load, and walking further up
   could loop.
@@ -36,6 +42,8 @@ Two changes:
 - [x] `showSessions` still finds a session for each of its sub-issues.
 - [x] With more than three main issues, the list title and tab label show two
   numbers and `+N`.
+- [x] A picker with more choices than fit the screen stays within it, scrolls
+  to keep the cursor shown, and a click chooses the choice clicked.
 - [x] `gofmt -l .`, `go vet ./...`, and `go test ./...` pass.
 
 ## Verify

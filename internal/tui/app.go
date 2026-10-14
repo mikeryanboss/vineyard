@@ -1720,7 +1720,7 @@ func (m Model) showSessions(issueID int) (tea.Model, tea.Cmd) {
 			Msg:   jumpToSessionMsg{id: s.ID},
 		}
 	}
-	m.dialog = dialog.NewPick(m.theme, fmt.Sprintf("Sessions working on #%d", issueID), choices, width)
+	m.dialog = dialog.NewPick(m.theme, fmt.Sprintf("Sessions working on #%d", issueID), choices, width, m.height-statusBarHeight)
 	return m, nil
 }
 
@@ -1775,7 +1775,7 @@ func (m Model) showIssues(s session.Session, ok bool) (tea.Model, tea.Cmd) {
 		issue, _ := m.grapes.Issue(id)
 		choices[i] = dialog.Choice{Label: fmt.Sprintf("#%d %s", id, issue.Title), Msg: openIssueMsg{id: id}}
 	}
-	m.dialog = dialog.NewPick(m.theme, "Issues of "+s.Title, choices, min(70, m.width-4))
+	m.dialog = dialog.NewPick(m.theme, "Issues of "+s.Title, choices, min(70, m.width-4), m.height-statusBarHeight)
 	return m, nil
 }
 

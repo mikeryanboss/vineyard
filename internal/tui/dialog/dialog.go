@@ -514,12 +514,28 @@ type Pick struct {
 	title   string
 	choices []Choice
 	cursor  int
+	top     int // the first choice shown
 	width   int
+	height  int
 }
 
-// NewPick returns a picker for choices, which must not be empty.
-func NewPick(theme common.Theme, title string, choices []Choice, width int) *Pick {
-	return &Pick{theme: theme, title: title, choices: choices, width: width}
+// pickChrome is the number of lines a Pick box has besides its choices: the
+// border, the padding, the title, and the blank line under it.
+const pickChrome = 6
+
+// NewPick returns a picker for choices, which must not be empty, in a box at
+// most height lines tall. Choices that do not fit scroll with the cursor.
+func NewPick(theme common.Theme, title string, choices []Choice, width, height int) *Pick {
+	return &Pick{theme: theme, title: title, choices: choices, width: width, height: height}
+}
+
+// rows returns the number of choices the box shows.
+func (d *Pick) rows() int { return max(1, min(len(d.choices), d.height-pickChrome)) }
+
+// move moves the cursor by delta, scrolling to keep it shown.
+func (d *Pick) move(delta int) {
+	d.cursor = max(0, min(d.cursor+delta, len(d.choices)-1))
+	d.top = max(min(d.top, d.cursor), d.cursor-d.rows()+1)
 }
 
 // Update handles input. Clicks are relative to the dialog box: a click on a
@@ -530,9 +546,9 @@ func (d *Pick) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, keys.Down):
-			d.cursor = min(d.cursor+1, len(d.choices)-1)
+			d.move(1)
 		case key.Matches(msg, keys.Up):
-			d.cursor = max(d.cursor-1, 0)
+			d.move(-1)
 		case key.Matches(msg, keys.Choose):
 			return d, d.choose()
 		case key.Matches(msg, keys.Cancel):
@@ -541,15 +557,15 @@ func (d *Pick) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		switch msg.Button {
 		case tea.MouseWheelDown:
-			d.cursor = min(d.cursor+1, len(d.choices)-1)
+			d.move(1)
 		case tea.MouseWheelUp:
-			d.cursor = max(d.cursor-1, 0)
+			d.move(-1)
 		}
 	case tea.MouseClickMsg:
-		// The choices are the last lines of content, below the title.
-		first := lipgloss.Height(d.View()) - contentTop - len(d.choices)
-		if i := msg.Y - first; i >= 0 && i < len(d.choices) {
-			d.cursor = i
+		// The choices shown are the last lines of content, below the title.
+		first := lipgloss.Height(d.View()) - contentTop - d.rows()
+		if i := msg.Y - first; i >= 0 && i < d.rows() {
+			d.cursor = d.top + i
 			return d, d.choose()
 		}
 	}
@@ -566,9 +582,13 @@ func (d *Pick) choose() tea.Cmd {
 func (d *Pick) View() string {
 	t := d.theme
 	inner := max(10, d.width-6) // border and padding
-	parts := []string{t.StyleTitle.Render(d.title), ""}
-	for i, c := range d.choices {
-		label := ansi.Truncate(c.Label, inner-2, "…")
+	title := t.StyleTitle.Render(d.title)
+	if d.rows() < len(d.choices) {
+		title += t.StyleFaint.Render(fmt.Sprintf("  %d/%d", d.cursor+1, len(d.choices)))
+	}
+	parts := []string{title, ""}
+	for i := d.top; i < d.top+d.rows(); i++ {
+		label := ansi.Truncate(d.choices[i].Label, inner-2, "…")
 		if i == d.cursor {
 			parts = append(parts, t.StyleTitle.Foreground(t.ColorAccent).Render("› "+label))
 		} else {
