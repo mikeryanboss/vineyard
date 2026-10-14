@@ -51,6 +51,7 @@ func DefaultKeys() Keys {
 			"resume":           {"r"},
 			"push":             {"s"},
 			"auto_yes":         {"a"},
+			"rename":           {"R"},
 			"next_tab":         {"tab"},
 			"prev_tab":         {"shift+tab"},
 			"expand":           {"l", "right"},

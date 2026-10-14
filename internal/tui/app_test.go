@@ -772,6 +772,45 @@ func TestApp_ToggleAutoYesIsSaved(t *testing.T) {
 	}
 }
 
+// Renaming changes only the title: the ID, branch, and terminal were named
+// after the old one and stay.
+func TestApp_RenameIsSaved(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	before := m.sessions[0]
+	m = press(m, "R", "ctrl+u")
+	m = typeText(m, "Login loop")
+	m = keys(m, "enter")
+	if m.dialog != nil {
+		t.Error("enter should close the dialog")
+	}
+	want := before
+	want.Title = "Login loop"
+	if got := m.sessions[0]; got != want {
+		t.Errorf("renamed session = %+v, want %+v", got, want)
+	}
+	if last := backend.saved[len(backend.saved)-1]; last[0] != want {
+		t.Errorf("saved %+v, want %+v", last[0], want)
+	}
+}
+
+func TestApp_RenameRefusesEmptyTitlesAndBusySessions(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	m = press(m, "R", "ctrl+u", "enter")
+	if m.dialog == nil || m.sessions[0].Title != "Fix login redirect" {
+		t.Errorf("an empty title should keep the dialog open and the title; dialog %v, title %q", m.dialog, m.sessions[0].Title)
+	}
+	m = keys(m, "esc")
+	if m.dialog != nil {
+		t.Fatal("esc should close the dialog")
+	}
+
+	m.busy["login-1"] = true
+	m = press(m, "R")
+	if m.dialog != nil {
+		t.Error("R should not rename a busy session: its operation saves the title it started with")
+	}
+}
+
 func TestApp_PaneFocusRoutesKeys(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
 	m = keys(m, "l")
