@@ -468,6 +468,69 @@ func TestIssueTab_FollowsGrapesReloads(t *testing.T) {
 	}
 }
 
+// lineWith returns the line of view that contains text, or "".
+func lineWith(view, text string) string {
+	for line := range strings.Lines(view) {
+		if strings.Contains(line, text) {
+			return line
+		}
+	}
+	return ""
+}
+
+// A planner that writes an issue and its sub-issues shows only the issue,
+// whose tab lists the rest; a session on the sub-issue alone shows it. Both
+// still count as working on the sub-issue.
+func TestIssues_SubIssuesHideUnderTheirParent(t *testing.T) {
+	m, _ := newTestModel(t, []session.Session{
+		{ID: "a", Title: "planner", Status: session.StatusReady, Issue: 7},
+		{ID: "b", Title: "worker", Status: session.StatusReady, Issue: 8},
+	})
+	root := t.TempDir()
+	writeIssue(t, root, 7, "Embed grapes")
+	writeIssue(t, root, 8, "Pick a session")
+	appendMeta(t, root, 8, "parent = 7\n")
+	m = withGrapes(t, m, root)
+	m = update(m, diffMsg{stats: map[string]git.Stat{"a": {Paths: []string{".grapes/8/meta.toml"}}}})
+	m = keys(m, "tab", "tab")
+
+	view := screen(m)
+	if row := lineWith(view, "planner"); !strings.Contains(row, "#7 planner") || strings.Contains(row, "#8") {
+		t.Errorf("the planner's row should show #7 alone: %q", row)
+	}
+	if row := lineWith(view, "worker"); !strings.Contains(row, "#8 worker") {
+		t.Errorf("the worker's row should show its sub-issue #8: %q", row)
+	}
+	if !strings.Contains(view, "Issue #7 ") || strings.Count(view, "Created ") != 1 {
+		t.Errorf("the issue tab should show #7 alone, its sub-issue listed in it:\n%s", view)
+	}
+
+	m = keys(m, "i")
+	m = send(m, embedded.SessionsMsg{IssueID: 8})
+	if _, ok := m.dialog.(*dialog.Pick); !ok {
+		t.Fatalf("dialog = %T, want a picker of both sessions on #8", m.dialog)
+	}
+}
+
+// A session linked to many issues names two and counts the rest, in its row
+// and its issue tab's label.
+func TestIssues_ManyIssuesShowTwoAndACount(t *testing.T) {
+	m := grapesModel(t, []session.Session{{ID: "a", Title: "planner", Status: session.StatusReady}})
+	var paths []string
+	for id := 11; id <= 15; id++ {
+		paths = append(paths, fmt.Sprintf(".grapes/%d/meta.toml", id))
+	}
+	m = update(m, diffMsg{stats: map[string]git.Stat{"a": {Paths: paths}}})
+
+	view := screen(m)
+	if !strings.Contains(view, "#11 #12 +3 planner") {
+		t.Errorf("the row should show #11 #12 +3:\n%s", view)
+	}
+	if !strings.Contains(view, "Issues #11 #12 +3") {
+		t.Errorf("the tab label should show #11 #12 +3:\n%s", view)
+	}
+}
+
 // The prompt describes the issue as grapes and Vineyard know it: its label
 // picks the template, and a sub-issue shows the branch of its session.
 func TestIssues_PromptDescribesTheIssue(t *testing.T) {

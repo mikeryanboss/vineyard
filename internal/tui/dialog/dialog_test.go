@@ -1,6 +1,7 @@
 package dialog_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -290,7 +291,7 @@ func TestConfirm_ClicksAnswer(t *testing.T) {
 
 func TestPick_ClickChoosesAndWheelMoves(t *testing.T) {
 	choices := []dialog.Choice{{Label: "one", Msg: "1"}, {Label: "two", Msg: "2"}, {Label: "three", Msg: "3"}}
-	var d dialog.Dialog = dialog.NewPick(common.NewTheme(true), "Pick one", choices, 40)
+	var d dialog.Dialog = dialog.NewPick(common.NewTheme(true), "Pick one", choices, 40, 20)
 	if _, msg := click(t, d, "two"); msg != "2" {
 		t.Errorf("a click on two chose %#v", msg)
 	}
@@ -298,5 +299,33 @@ func TestPick_ClickChoosesAndWheelMoves(t *testing.T) {
 	d, _ = d.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	if _, msg := press(d, "enter"); msg != "3" {
 		t.Errorf("two wheel steps down chose %#v, want three", msg)
+	}
+}
+
+// A session can link twenty issues: the picker stays within the screen,
+// scrolls with the cursor, and a click chooses the choice under it.
+func TestPick_ScrollsChoicesThatDoNotFit(t *testing.T) {
+	var choices []dialog.Choice
+	for i := 1; i <= 20; i++ {
+		choices = append(choices, dialog.Choice{Label: fmt.Sprintf("c%02d", i), Msg: i})
+	}
+	var d dialog.Dialog = dialog.NewPick(common.NewTheme(true), "Pick one", choices, 40, 10)
+	view := testutil.StripANSI(d.View())
+	if lines := strings.Count(view, "\n") + 1; lines > 10 {
+		t.Errorf("the picker is %d lines tall, want at most 10:\n%s", lines, view)
+	}
+	if !strings.Contains(view, "1/20") || !strings.Contains(view, "c01") || strings.Contains(view, "c05") {
+		t.Errorf("the picker should show its first choices and the position 1/20:\n%s", view)
+	}
+
+	for range 19 {
+		d, _ = press(d, "down")
+	}
+	view = testutil.StripANSI(d.View())
+	if !strings.Contains(view, "20/20") || !strings.Contains(view, "› c20") || strings.Contains(view, "c01") {
+		t.Errorf("the picker should scroll to its last choice:\n%s", view)
+	}
+	if _, msg := click(t, d, "c18"); msg != 18 {
+		t.Errorf("a click on c18 chose %#v", msg)
 	}
 }

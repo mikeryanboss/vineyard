@@ -25,7 +25,8 @@ const headerHeight = 2
 type Item struct {
 	Session session.Session
 	Stat    git.Stat
-	// Issues are the grapes issues the session works on, in ascending order.
+	// Issues are the main grapes issues the session works on, in ascending
+	// order.
 	Issues []int
 	// Subagents are the session's subagents worth showing, each followed by
 	// those it started.
@@ -391,8 +392,12 @@ func (m Model) renderItem(item Item, sub int) []string {
 		tag = style(t.StyleFaint).Render(" auto")
 	}
 	issues := ""
-	for _, id := range item.Issues {
+	ids, more := common.ClipIssues(item.Issues)
+	for _, id := range ids {
 		issues += style(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render(fmt.Sprintf("#%d", id)) + style(lipgloss.NewStyle()).Render(" ")
+	}
+	if more > 0 {
+		issues += style(t.StyleFaint).Render(fmt.Sprintf("+%d", more)) + style(lipgloss.NewStyle()).Render(" ")
 	}
 	titleWidth := m.width - 4 - ansi.StringWidth(tag) - ansi.StringWidth(issues)
 	titleText := style(titleStyle).Render(ansi.Truncate(s.Title, max(0, titleWidth), "…"))
