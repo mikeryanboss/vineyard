@@ -166,6 +166,16 @@ func StatusIcon(s session.Status) string {
 	}
 }
 
+// ClipIssues returns the issue numbers a session's title or tab label shows of
+// ids, and how many more it counts instead: all of them up to three, or else
+// the first two.
+func ClipIssues(ids []int) ([]int, int) {
+	if len(ids) <= 3 {
+		return ids, 0
+	}
+	return ids[:2], len(ids) - 2
+}
+
 // FormatKeyHint renders a key and its action for the status bar.
 func (t Theme) FormatKeyHint(k, action string) string {
 	return t.StyleStatusKey.Render(k) + " " + action

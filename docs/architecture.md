@@ -117,6 +117,15 @@ it compares against the default branch's tip, so it drops a branch's issues
 once the branch merges.
 Recorded issues survive pausing, which removes the worktree.
 
+The list row, the issue tab, its label, and the issue picker show a session's
+main issues (`mainIssues`): those whose parent is not linked too. A planner
+that writes an issue and its sub-issues shows the one, whose rendering lists
+the rest; a session on a sub-issue alone shows the sub-issue. Only the direct
+parent counts, since grapes loads parent cycles. Matching sessions to an issue
+(`showSessions`, `promptData`) uses every linked issue. The row and the label
+name at most three; with more, they name two and count the rest
+(`common.ClipIssues`), as in `#11 #12 +3`.
+
 The pane's issue tab shows those issues, rendered by
 `embedded.Model.RenderIssue` at the pane's width. Given the session's worktree,
 grapes shows that worktree's copy of each issue, as the agent left it.

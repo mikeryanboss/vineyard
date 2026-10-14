@@ -472,7 +472,7 @@ func (m *Model) syncList() {
 		if m.busy[s.ID] {
 			s.Status = session.StatusLoading
 		}
-		items[i] = list.Item{Session: s, Stat: m.stats[s.ID], Issues: m.issuesOf(s)}
+		items[i] = list.Item{Session: s, Stat: m.stats[s.ID], Issues: m.mainIssues(m.issuesOf(s))}
 		if s.Status.Active() {
 			items[i].Subagents = m.conversations[s.ID].Kept()
 			items[i].Shown = m.shownSubagent(s.ID)
@@ -1639,28 +1639,39 @@ func (m Model) issuesOf(s session.Session) []int {
 	return issueIDs(ids, m.stats[s.ID].Paths)
 }
 
-// shownIssues returns the issues of what the pane shows for s: those of s,
-// or of its subagent shown. A subagent in a worktree of its own has the
+// shownIssues returns the main issues of what the pane shows for s: those of
+// s, or of its subagent shown. A subagent in a worktree of its own has the
 // issues of that worktree's diff; one in its session's, those whose files it
 // edited.
 func (m Model) shownIssues(s session.Session) []int {
 	a, ok := m.list.SelectedSubagent()
 	if !ok || a.ID != m.shownAgent {
-		return m.issuesOf(s)
+		return m.mainIssues(m.issuesOf(s))
 	}
 	var paths []string
 	if m.agentTree != "" {
 		for _, f := range m.diff.Files() {
 			paths = append(paths, f.OldPath, f.NewPath)
 		}
-		return issueIDs(nil, paths)
+		return m.mainIssues(issueIDs(nil, paths))
 	}
 	for _, path := range a.Edited {
 		if rel, err := filepath.Rel(s.WorktreePath, path); err == nil {
 			paths = append(paths, rel)
 		}
 	}
-	return issueIDs(nil, paths)
+	return m.mainIssues(issueIDs(nil, paths))
+}
+
+// mainIssues returns ids without the issues whose parent is among them: a
+// planner that writes an issue and its sub-issues shows the one, whose tab
+// lists the others. Only the direct parent counts, since grapes loads parent
+// cycles and walking further up could loop.
+func (m Model) mainIssues(ids []int) []int {
+	return slices.DeleteFunc(slices.Clone(ids), func(id int) bool {
+		issue, _ := m.grapes.Issue(id)
+		return issue.Parent > 0 && slices.Contains(ids, issue.Parent)
+	})
 }
 
 // issueIDs adds to ids the grapes issues whose files paths, relative to a
@@ -2456,8 +2467,12 @@ func (m Model) tabLabels() []tabLabel {
 		if len(ids) > 1 {
 			issueLabel = "Issues"
 		}
+		ids, more := common.ClipIssues(ids)
 		for _, id := range ids {
 			issueLabel += fmt.Sprintf(" #%d", id)
+		}
+		if more > 0 {
+			issueLabel += fmt.Sprintf(" +%d", more)
 		}
 	}
 	texts := map[tab]string{tabPreview: "Preview", tabDiff: diffLabel, tabIssue: issueLabel, tabTerminal: "Terminal", tabRecap: "Recap"}
