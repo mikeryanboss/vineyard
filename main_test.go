@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/rpc"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -103,6 +106,85 @@ func TestRun_DebugPrintsPaths(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".vineyard")); !os.IsNotExist(err) {
 		t.Error("debug created .vineyard")
+	}
+}
+
+// sessions tells an agent which session works on an issue and the name its
+// Claude Code agent takes messages by: the issues are those the TUI links,
+// and only running agents in the session's worktree count.
+func TestRun_SessionsPrintsIssuesAndAgents(t *testing.T) {
+	repo := t.TempDir()
+	worktree := filepath.Join(repo, ".vineyard", "worktrees", "fix-1a2b3c")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git(repo, "init", "-q", "-b", "main")
+	git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+	base := git(repo, "rev-parse", "HEAD")
+	git(repo, "worktree", "add", "-q", "-b", "7/fix", worktree)
+	writeIssue := func(id string) {
+		if err := os.MkdirAll(filepath.Join(worktree, ".grapes", id), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(worktree, ".grapes", id, "meta.toml"), []byte("title = 'x'\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeIssue("9") // committed on the branch
+	git(worktree, "add", "-A")
+	git(worktree, "commit", "-q", "-m", "issue 9")
+	writeIssue("11") // not yet committed
+	store := session.NewStore(config.Dir(repo))
+	for _, s := range []session.Session{
+		{ID: "fix-1a2b3c", Title: "fix", Branch: "7/fix", Issue: 7, BaseCommit: base, Status: session.StatusRunning},
+		{ID: "old-4d5e6f", Title: "old", Branch: "3/old", Issue: 3, BaseCommit: base, Status: session.StatusPaused},
+	} {
+		if err := store.Add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	claude := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claude)
+	ended := exec.Command("true")
+	if err := ended.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(claude, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for file, entry := range map[string]string{
+		"1.json": fmt.Sprintf(`{"pid": %d, "cwd": %q, "name": "7/fix"}`, os.Getpid(), worktree),
+		"2.json": fmt.Sprintf(`{"pid": %d, "cwd": %q, "name": "crashed"}`, ended.Process.Pid, worktree),
+		"3.json": fmt.Sprintf(`{"pid": %d, "cwd": %q, "name": "elsewhere"}`, os.Getpid(), repo),
+	} {
+		if err := os.WriteFile(filepath.Join(claude, "sessions", file), []byte(entry), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Chdir(worktree)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"sessions"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("sessions exit code %d: %s", code, stderr.String())
+	}
+	var got []listedSession
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("%v:\n%s", err, stdout.String())
+	}
+	want := []listedSession{
+		{ID: "fix-1a2b3c", Title: "fix", Branch: "7/fix", Status: "running", Issues: []int{7, 9, 11}, Worktree: worktree, Agents: []string{"7/fix"}},
+		{ID: "old-4d5e6f", Title: "old", Branch: "3/old", Status: "paused", Issues: []int{3}, Worktree: filepath.Join(repo, ".vineyard", "worktrees", "old-4d5e6f"), Agents: []string{}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("sessions = %+v\nwant %+v", got, want)
 	}
 }
 

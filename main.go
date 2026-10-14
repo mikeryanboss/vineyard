@@ -111,6 +111,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 0
 		case "debug":
 			return runDebug(stdout, stderr)
+		case "sessions":
+			if err := runSessions(stdout); err != nil {
+				fmt.Fprintf(stderr, "Error: %v\n", err)
+				return 1
+			}
+			return 0
 		default:
 			fmt.Fprintf(stderr, "Unknown command: %s\n\n", rest[0])
 			writeHelp(stderr)
@@ -436,6 +442,7 @@ FLAGS:
 
 COMMANDS:
   debug                     Print the server's and sessions' state, data paths, and log ends
+  sessions                  Print the sessions as JSON: their issues, worktrees, and Claude Code names
   version                   Print the version
   help                      Show this help
 

@@ -52,6 +52,9 @@ A PR is the review gate. Open or reuse one with the [pr skill](.agents/skills/pr
 - Never merge without explicit human approval. If the reviewer requests changes, push new commits to the same branch and tell the user.
 - Your job ends when the PR merges. Leave `main`, the branch, and the worktree alone: the human pulls `main` and deletes the session.
 
+## Other agents
+To tell the agent working on another issue something, find its name with `vineyard sessions | jq '.[] | select(.issues | index(<id>)) | .agents'` and message it.
+
 ## Verify state, don't recall it
 Humans and other agents change shared state concurrently; a PR you opened minutes ago may already be merged. Check PR, issue, and branch state when you report or act on it (`gh pr view <n> --json state`, `git fetch origin main`), including before adding commits to an existing PR. Empty output is evidence: `gh pr list` printing nothing means there are no open PRs.
 

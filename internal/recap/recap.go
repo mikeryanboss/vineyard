@@ -41,16 +41,25 @@ type Recap struct {
 	Entries []Entry
 }
 
-// ProjectsDir returns where Claude Code keeps its transcripts.
-func ProjectsDir() (string, error) {
+// ConfigDir returns Claude Code's own directory, which holds its transcripts.
+func ConfigDir() (string, error) {
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "projects"), nil
+		return dir, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", "projects"), nil
+	return filepath.Join(home, ".claude"), nil
+}
+
+// ProjectsDir returns where Claude Code keeps its transcripts.
+func ProjectsDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "projects"), nil
 }
 
 var nonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]`)

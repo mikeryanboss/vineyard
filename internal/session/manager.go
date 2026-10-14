@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mikeryanboss/vineyard/internal/config"
@@ -219,7 +220,7 @@ func (m *Manager) Start(s Session, width, height int) (Session, error) {
 	if err := git.AddWorktree(m.Repo.Root, s.WorktreePath, s.Branch, base); err != nil {
 		return s, err
 	}
-	if err := terminal.Start(s.TmuxName, s.WorktreePath, s.Program, width, height); err != nil {
+	if err := terminal.Start(s.TmuxName, s.WorktreePath, launchCommand(s), width, height); err != nil {
 		cleanup := errors.Join(
 			git.RemoveWorktree(m.Repo.Root, s.WorktreePath),
 			git.DeleteBranch(m.Repo.Root, s.Branch),
@@ -308,13 +309,32 @@ func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 	return s, nil
 }
 
+// launchCommand is the command that starts s's program afresh. Claude Code
+// in a worktree is named after the session's branch: other Claude Code
+// sessions list it, and message it, by that name, which for an issue's
+// session begins with the issue. The conversation keeps the name, so a
+// resume needs none. Main-checkout sessions share their branch, and keep
+// Claude Code's own name.
+func launchCommand(s Session) string {
+	if ProgramName(s.Program) != "claude" || s.MainCheckout || s.Branch == "" {
+		return s.Program
+	}
+	return s.Program + " --name " + shellQuote(s.Branch)
+}
+
+// shellQuote quotes s as one word for the shell both multiplexers run
+// programs with.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // resumeCommand is the command that relaunches s's program. For Claude Code
 // it resumes s.Conversation while that conversation's transcript is on disk:
 // `claude --resume` exits at once when it finds none, as after Claude Code
 // cleaned up old transcripts, and the session could never restart.
 func resumeCommand(s Session) (string, error) {
 	if ProgramName(s.Program) != "claude" || s.Conversation == "" {
-		return s.Program, nil
+		return launchCommand(s), nil
 	}
 	projects, err := recap.ProjectsDir()
 	if err != nil {
@@ -322,7 +342,7 @@ func resumeCommand(s Session) (string, error) {
 	}
 	transcript := filepath.Join(recap.Dir(projects, s.WorktreePath), s.Conversation+".jsonl")
 	if _, err := os.Stat(transcript); errors.Is(err, fs.ErrNotExist) {
-		return s.Program, nil
+		return launchCommand(s), nil
 	} else if err != nil {
 		return "", err
 	}

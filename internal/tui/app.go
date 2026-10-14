@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1647,11 +1646,7 @@ func isClaude(s session.Session) bool { return session.ProgramName(s.Program) ==
 // issues stay linked after the branch merges. Grapes' TouchedIssues compares
 // against the default branch's tip instead and loses them then.
 func (m Model) issuesOf(s session.Session) []int {
-	var ids []int
-	if s.Issue > 0 {
-		ids = append(ids, s.Issue)
-	}
-	return issueIDs(ids, m.stats[s.ID].Paths)
+	return s.Issues(m.stats[s.ID].Paths)
 }
 
 // shownIssues returns the main issues of what the pane shows for s: those of
@@ -1668,14 +1663,14 @@ func (m Model) shownIssues(s session.Session) []int {
 		for _, f := range m.diff.Files() {
 			paths = append(paths, f.OldPath, f.NewPath)
 		}
-		return m.mainIssues(issueIDs(nil, paths))
+		return m.mainIssues(session.IssueIDs(nil, paths))
 	}
 	for _, path := range a.Edited {
 		if rel, err := filepath.Rel(s.WorktreePath, path); err == nil {
 			paths = append(paths, rel)
 		}
 	}
-	return m.mainIssues(issueIDs(nil, paths))
+	return m.mainIssues(session.IssueIDs(nil, paths))
 }
 
 // mainIssues returns ids without the issues whose parent is among them: a
@@ -1687,23 +1682,6 @@ func (m Model) mainIssues(ids []int) []int {
 		issue, _ := m.grapes.Issue(id)
 		return issue.Parent > 0 && slices.Contains(ids, issue.Parent)
 	})
-}
-
-// issueIDs adds to ids the grapes issues whose files paths, relative to a
-// worktree, lie in, and sorts them.
-func issueIDs(ids []int, paths []string) []int {
-	for _, path := range paths {
-		rest, ok := strings.CutPrefix(path, ".grapes/")
-		if !ok {
-			continue
-		}
-		dir, _, _ := strings.Cut(rest, "/")
-		if id, err := strconv.Atoi(dir); err == nil && id > 0 && !slices.Contains(ids, id) {
-			ids = append(ids, id)
-		}
-	}
-	slices.Sort(ids)
-	return ids
 }
 
 // showSessions answers grapes' request for the sessions working on an issue.
