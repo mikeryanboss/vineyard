@@ -403,9 +403,13 @@ a session goes to the session's own. Both name their socket `vineyard`, or
   configuration's (`Config.MultiplexerFor`), `vineyard` by default. The new
   session dialog shows it.
 - **Restore** looks for each session's terminal in every multiplexer, its
-  recorded one first, and records where it found it. A session that recorded
-  none, as those saved before sessions had one, and runs nowhere gets the
-  configured default.
+  recorded one first, then on every older Vineyard server
+  (`Manager.Protocols`), and records where it found it. A session that
+  recorded none, as those saved before sessions had one, and runs nowhere
+  gets the configured default.
+- **Kill and check out** stop the agent where that search finds it, not
+  where the session records it: a server without the terminal answers that
+  it ended, so a wrong record left the agent running in a deleted worktree.
 - **Unavailable**: a session whose multiplexer is not available, such as tmux
   when it is not installed, shows as stopped. Starting, resuming, and reading
   it fail with `session.Unavailable`; killing it only removes its worktree.

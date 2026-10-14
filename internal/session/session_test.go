@@ -63,6 +63,7 @@ func newTestManager(t *testing.T) (*Manager, *fakeTerminal) {
 	term := newFakeTerminal()
 	m := NewManager(repo, map[string]Terminal{"vineyard": term}, "vineyard", "shop-1a2b3c4d")
 	m.now = func() time.Time { return time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC) }
+	m.Protocols = func() ([]int, error) { return []int{m.Protocol}, nil }
 	return m, term
 }
 
@@ -129,6 +130,7 @@ func moveRepo(t *testing.T, m *Manager) *Manager {
 	}
 	next := NewManager(repo, m.Terminals, m.Default, m.Project)
 	next.now = m.now
+	next.Protocols = m.Protocols
 	return next
 }
 
@@ -893,5 +895,43 @@ func TestOlderVineyardMultiplexer(t *testing.T) {
 	}
 	if resumed.Protocol != 2 || !current.Exists(s.TmuxName) {
 		t.Errorf("resumed on protocol %d; current runs %v", resumed.Protocol, current.live)
+	}
+}
+
+// A record can name a Vineyard multiplexer other than the one running the
+// agent. Restore finds the agent wherever it runs, and Kill and Pause end it
+// there: trusting the record, they asked a multiplexer without the terminal,
+// which answered that it had ended, and left the agent running in a deleted
+// worktree.
+func TestAgentsOnMultiplexersTheirRecordsDoNotName(t *testing.T) {
+	m, current := newTestManager(t)
+	m.Protocol = 5
+	older := map[int]*fakeTerminal{0: newFakeTerminal(), 3: newFakeTerminal()}
+	m.Older = func(protocol int) Terminal { return older[protocol] }
+	m.Protocols = func() ([]int, error) { return []int{5, 0, 3}, nil }
+
+	onOlder := startSession(t, m, "on older") // recorded on protocol 5
+	delete(current.live, onOlder.TmuxName)
+	older[3].live[onOlder.TmuxName] = onOlder.WorktreePath
+	onCurrent := startSession(t, m, "on current")
+	onCurrent.Protocol = 0
+
+	got := restore(t, m, onOlder, onCurrent)
+	if got[0].Status != StatusReady || got[0].Protocol != 3 || got[1].Status != StatusReady || got[1].Protocol != 5 {
+		t.Errorf("restored on protocols %d (%s) and %d (%s); want 3 and 5, both ready",
+			got[0].Protocol, got[0].Status, got[1].Protocol, got[1].Status)
+	}
+
+	if _, err := m.Kill(onOlder, false); err != nil {
+		t.Fatal(err)
+	}
+	if older[3].Exists(onOlder.TmuxName) {
+		t.Error("kill left the agent running on the multiplexer its record does not name")
+	}
+	if _, err := m.Pause(onCurrent); err != nil {
+		t.Fatal(err)
+	}
+	if current.Exists(onCurrent.TmuxName) {
+		t.Error("check out left the agent running on the multiplexer its record does not name")
 	}
 }

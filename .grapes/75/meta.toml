@@ -1,0 +1,6 @@
+title = 'Find and stop agents on Vineyard servers their records do not name'
+status = 'done'
+priority = 'high'
+labels = ['bug', 'multiplexer']
+created = 2026-10-14T14:44:00Z
+updated = 2026-10-14T14:48:00Z

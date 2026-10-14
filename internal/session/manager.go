@@ -78,6 +78,10 @@ type Manager struct {
 	// Older returns for it, which an earlier Vineyard started.
 	Protocol int
 	Older    func(protocol int) Terminal
+	// Protocols returns the protocols of the Vineyard multiplexers there are
+	// sockets for, in whose terminals Restore, Kill, and Pause look for
+	// agents.
+	Protocols func() ([]int, error)
 
 	now func() time.Time
 }
@@ -416,10 +420,18 @@ func errMainCheckout(s Session, verb string) error {
 	return fmt.Errorf("%q runs in the main checkout; Vineyard does not %s it", s.Title, verb)
 }
 
-// stopTerminals ends the agent and the session's shell, if one is open. A
-// multiplexer that is not available, such as tmux when it is not installed,
-// runs nothing to end.
+// stopTerminals ends the agent and the session's shell, if one is open, in
+// the multiplexer that runs the agent, whichever s records: one without the
+// terminal reports it ended. A multiplexer that is not available, such as
+// tmux when it is not installed, runs nothing to end.
 func (m *Manager) stopTerminals(s Session) error {
+	found, ok, err := m.running(s)
+	if err != nil {
+		return err
+	}
+	if ok {
+		s = found
+	}
 	terminal, err := m.terminal(s)
 	if err != nil {
 		return nil
@@ -466,7 +478,8 @@ func (m *Manager) Push(s Session) (Session, error) {
 // each session's worktree and branch.
 //
 // Each session's terminal is looked for in every multiplexer, its own first,
-// and the session records the one running it. A session whose terminal runs
+// older Vineyard multiplexers included, and the session records the one
+// running it. A session whose terminal runs
 // nowhere becomes stopped; its worktree is left alone. One that recorded no
 // multiplexer, as sessions saved before sessions had one, gets Default.
 func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, error) {
@@ -493,13 +506,12 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 	for i, s := range out {
 		if s.Status != StatusPaused {
 			out[i].Status = StatusStopped
-			if name, ok := m.running(s); ok {
-				if name != s.Multiplexer {
-					out[i].Multiplexer, out[i].Protocol = name, 0
-					if name == config.MultiplexerVineyard {
-						out[i].Protocol = m.Protocol
-					}
-				}
+			found, ok, err := m.running(s)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out[i] = found
 				out[i].Status = StatusReady
 			}
 		}
@@ -510,18 +522,37 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 	return out, nil
 }
 
-// running returns the multiplexer that runs s's terminal, looking in the one
-// s records first.
-func (m *Manager) running(s Session) (string, bool) {
+// running returns s recording where its terminal runs: in the multiplexer s
+// records, in any other, or in any older Vineyard multiplexer. A record can
+// name the wrong one, whatever wrote it. Trusted, it shows a running agent
+// stopped, and killing the session leaves the agent running.
+func (m *Manager) running(s Session) (Session, bool, error) {
 	if t, err := m.terminal(s); err == nil && t.Exists(s.TmuxName) {
-		return s.Multiplexer, true
+		return s, true, nil
 	}
 	for _, name := range slices.Sorted(maps.Keys(m.Terminals)) {
-		if name != s.Multiplexer && m.Terminals[name].Exists(s.TmuxName) {
-			return name, true
+		protocol := 0
+		if name == config.MultiplexerVineyard {
+			protocol = m.Protocol
+		}
+		recorded := name == s.Multiplexer && protocol == s.Protocol
+		if !recorded && m.Terminals[name].Exists(s.TmuxName) {
+			s.Multiplexer, s.Protocol = name, protocol
+			return s, true, nil
 		}
 	}
-	return "", false
+	protocols, err := m.Protocols()
+	if err != nil {
+		return s, false, err
+	}
+	for _, protocol := range protocols {
+		recorded := s.Multiplexer == config.MultiplexerVineyard && protocol == s.Protocol
+		if protocol != m.Protocol && !recorded && m.Older(protocol).Exists(s.TmuxName) {
+			s.Multiplexer, s.Protocol = config.MultiplexerVineyard, protocol
+			return s, true, nil
+		}
+	}
+	return s, false, nil
 }
 
 // Locate fills in where saved sessions' worktrees are and what they have
