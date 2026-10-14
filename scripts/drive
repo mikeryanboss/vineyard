@@ -15,14 +15,20 @@ usage: scripts/drive <command> [args]
                                   of the screen; -e prints all of it, with colours
   exit                            print Vineyard's stderr and exit status, once it exited
   stop                            end the window, and the development multiplexers
+The window's tmux server is vineyard-drive-<checkout>, and Vineyard's
+VINEYARD_SOCKET is vineyard-drive-dev-<checkout>, where <checkout> is the name
+of the directory holding this script's repository or worktree.
 USAGE
 	exit 2
 }
 
 # The window runs on a tmux server of its own, and Vineyard on sockets named
-# differently: VINEYARD_SOCKET names Vineyard's tmux socket too.
-outer=(tmux -L vineyard-drive)
-socket=vineyard-drive-dev
+# differently: VINEYARD_SOCKET names Vineyard's tmux socket too. Both names
+# end in the name of this script's checkout, unique per worktree, so agents
+# in other worktrees drive builds of their own beside this one.
+checkout=$(basename "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)")
+outer=(tmux -L "vineyard-drive-$checkout")
+socket=vineyard-drive-dev-$checkout
 
 # The window's repository, which keeps Vineyard's stderr in its .vineyard.
 repo() { "${outer[@]}" show-environment -g DRIVE_REPO | cut -d= -f2-; }

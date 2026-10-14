@@ -71,7 +71,8 @@ before driving the TUI. Each step costs more context than the one before.
    scripts/drive keys n; scripts/drive type fix; scripts/drive keys Enter
    scripts/drive screen 2        # the screen, 2 seconds on
    scripts/drive exit            # Vineyard's stderr and exit status, once it quit
-   (cd .grapes/<id>/tmp/demo && VINEYARD_SOCKET=vineyard-drive-dev ../vineyard debug)
+   socket=vineyard-drive-dev-$(basename "$PWD")   # drive's VINEYARD_SOCKET
+   (cd .grapes/<id>/tmp/demo && VINEYARD_SOCKET=$socket ../vineyard debug)
    scripts/drive stop            # the window, and the development multiplexers
    ```
 
@@ -79,7 +80,9 @@ before driving the TUI. Each step costs more context than the one before.
    `VINEYARD_SOCKET` name, which names Vineyard's tmux socket too; the window
    outlives Vineyard, so its exit can be read; and `stop` ends the
    development server without `pkill -f` patterns that match the shell
-   running them.
+   running them. Both names end in the directory name of the checkout that
+   holds the script, so agents running their own worktree's copy drive builds
+   of their own at the same time.
 
 To reproduce a failure across versions, build the earlier commit in a
 temporary worktree (`git worktree add --detach <dir> <commit>`) and run each
