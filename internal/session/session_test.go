@@ -242,6 +242,33 @@ func TestStart_IssueSessionBranchesByIssue(t *testing.T) {
 	}
 }
 
+// Claude Code is named after the session's branch, so other Claude Code
+// sessions list it, and address their messages to it, by the branch, which
+// for an issue's session starts with the issue.
+func TestStart_NamesClaudeCodeAfterTheBranch(t *testing.T) {
+	m, term := newTestManager(t)
+	tests := []struct{ program, prefix, want string }{
+		{"claude --model opus", "test/", "claude --model opus --name 'test/fix'"},
+		{"aider", "test/", "aider"},
+		{"claude", "o'brien/", `claude --name 'o'\''brien/fix'`},
+	}
+	for i, tt := range tests {
+		m.now = func() time.Time { return time.Date(2026, 10, 8, 12, 0, i, 0, time.UTC) }
+		s, err := m.Start(m.New(NewOptions{Title: "fix", Program: tt.program, BranchPrefix: tt.prefix, WorktreeDir: worktrees(m)}), 80, 24)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := term.programs[s.TmuxName]; got != tt.want {
+			t.Errorf("started %q, want %q", got, tt.want)
+		}
+	}
+	// The shell reads the quoted branch back as one word.
+	out, err := exec.Command("sh", "-c", "printf %s "+shellQuote("o'brien/fix")).Output()
+	if err != nil || string(out) != "o'brien/fix" {
+		t.Errorf("sh read %q, %v; want o'brien/fix", out, err)
+	}
+}
+
 // commitIssue commits a minimal grapes issue id to the repository at root.
 func commitIssue(t *testing.T, root string, id int) {
 	t.Helper()
@@ -369,8 +396,8 @@ func TestResume_ClaudeContinuesItsConversation(t *testing.T) {
 
 	tests := []struct{ name, program, conversation, want string }{
 		{"saved conversation", "claude --model opus", "kept", "claude --model opus --resume kept"},
-		{"no conversation yet", "claude", "", "claude"},
-		{"transcript cleaned up", "claude", "gone", "claude"},
+		{"no conversation yet", "claude", "", "claude --name 'test/crashy'"},
+		{"transcript cleaned up", "claude", "gone", "claude --name 'test/crashy'"},
 		{"another agent", "aider", "kept", "aider"},
 	}
 	for _, tt := range tests {

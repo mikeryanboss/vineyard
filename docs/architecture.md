@@ -30,7 +30,12 @@ see Multiplexers per Session):
   the checkout Vineyard runs in, adds the worktree with relative links
   (`git worktree add --relative-paths`, git 2.48+), and launches the program
   sized to the preview pane. A failed launch removes the worktree and branch
-  again.
+  again. Claude Code launches with `--name <branch>` (`launchCommand`): other
+  Claude Code sessions list it, and message it, by that name instead of one
+  derived from the worktree's directory. Its conversation keeps the name, so
+  `--resume` passes none; a relaunch without a transcript passes it again.
+  Claude Code then writes no `ai-title`, so the recap tab shows no title.
+  Main-checkout sessions share their branch and keep Claude Code's name.
 - `Pause` records the checked-out branch, commits all changes as a checkpoint,
   stops the agent and its shell, and removes the worktree so the branch can be
   checked out elsewhere. The recorded branch is what `Resume` checks out.
@@ -110,12 +115,21 @@ templates directory is missing; after that they are the repository's.
 Standalone grapes runs this command for its sessions key, so sessions can be
 started from grapes without vineyard open.
 
-`issuesOf` links sessions to issues: the recorded `Issue`, plus every
-`.grapes/<id>/` the session's diff changes (see Diffs), as the git poll last saw
-it in `git.Stat.Paths`. Grapes' own `embedded.Model.TouchedIssues` is not used:
+`issuesOf` links sessions to issues (`Session.Issues`): the recorded `Issue`,
+plus every `.grapes/<id>/` the session's diff changes (see Diffs), as the git
+poll last saw it in `git.Stat.Paths`. Grapes' own `embedded.Model.TouchedIssues` is not used:
 it compares against the default branch's tip, so it drops a branch's issues
 once the branch merges.
 Recorded issues survive pausing, which removes the worktree.
+
+`vineyard sessions` (`sessions.go`) prints the same links as JSON for agents,
+computing each diff itself, with the names of the Claude Code agents whose
+working directory is the session's worktree. Claude Code keeps a file per
+running session in `$CLAUDE_CONFIG_DIR/sessions/<pid>.json` with its `pid`,
+`cwd`, and `name`; the format is undocumented and was read off 2.1.299. A
+crashed session's file stays behind, so only files whose process runs count.
+The command changes nothing: it reads `sessions.json` and git, and prints the
+status Vineyard last saved.
 
 The list row, the issue tab, its label, and the issue picker show a session's
 main issues (`mainIssues`): those whose parent is not linked too. A planner

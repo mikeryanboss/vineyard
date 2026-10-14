@@ -79,6 +79,15 @@ auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed
 server runs, whether each session's agent runs, and the ends of the logs: what
 went wrong is usually there.
 
+Claude Code sessions can message each other. Vineyard names each Claude Code
+agent after its session's branch, so an agent sees its peers as, say,
+`71/fewer-issue-numbers`, not after the worktree's directory. `vineyard
+sessions` prints the sessions as JSON: each one's branch, status, worktree,
+the grapes issues it works on, and the names of the Claude Code agents running
+in its worktree. An agent that finds a problem in issue 71's work asks
+`vineyard sessions | jq '.[] | select(.issues | index(71)) | .agents'` whom to
+tell.
+
 ## Configuration
 
 Each repository keeps its settings in `.vineyard/config.toml`; commit it to

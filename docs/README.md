@@ -36,6 +36,7 @@ main.go
 | Task | Start here | Then read |
 | --- | --- | --- |
 | CLI, flags, startup | `main.go` | `internal/config/config.go` |
+| `vineyard sessions`, Claude Code agent names | `sessions.go` | `launchCommand` in `internal/session/manager.go`; Grapes in `architecture.md` |
 | Debugging a failure, logs, driving the TUI | Debugging in `development.md` | `runDebug` in `main.go`, `scripts/drive` |
 | Session lifecycle (create, pause, resume, kill, push) | `internal/session/manager.go` | `internal/git/git.go` |
 | Session fields, persistence, locking | `internal/session/session.go`, `store.go` | `leader.go`, `lock_unix.go` |
@@ -71,6 +72,7 @@ main.go
 ```text
 main.go                    CLI and TUI bootstrap
 vineyards.go               Vineyard's servers, one per protocol
+sessions.go                `vineyard sessions`: sessions, their issues, and their Claude Code agents as JSON
 internal/config/           config schema, defaults, data directory layout
 internal/git/              git CLI wrapper: worktrees, commits, pushes, diffs
 internal/tmux/             tmux client on Vineyard's private socket

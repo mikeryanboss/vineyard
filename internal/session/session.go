@@ -5,6 +5,8 @@ package session
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -115,4 +117,32 @@ func Slug(s, fallback string) string {
 		return fallback
 	}
 	return slug
+}
+
+// Issues returns the grapes issues s works on, in ascending order: the one it
+// was started for, and those whose files paths, the paths its diff changes
+// relative to its worktree, lie in.
+func (s Session) Issues(paths []string) []int {
+	var ids []int
+	if s.Issue > 0 {
+		ids = append(ids, s.Issue)
+	}
+	return IssueIDs(ids, paths)
+}
+
+// IssueIDs adds to ids the grapes issues whose files paths, relative to a
+// worktree, lie in, and sorts them.
+func IssueIDs(ids []int, paths []string) []int {
+	for _, path := range paths {
+		rest, ok := strings.CutPrefix(path, ".grapes/")
+		if !ok {
+			continue
+		}
+		dir, _, _ := strings.Cut(rest, "/")
+		if id, err := strconv.Atoi(dir); err == nil && id > 0 && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
