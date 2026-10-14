@@ -47,6 +47,7 @@ type ListKeys struct {
 	Resume         key.Binding
 	Push           key.Binding
 	AutoYes        key.Binding
+	Rename         key.Binding
 	NextTab        key.Binding
 	PrevTab        key.Binding
 	Expand         key.Binding
@@ -151,6 +152,7 @@ func NewKeyMap(keys config.Keys) KeyMap {
 			Resume:         b("list", "resume"),
 			Push:           b("list", "push"),
 			AutoYes:        b("list", "auto_yes"),
+			Rename:         b("list", "rename"),
 			NextTab:        b("list", "next_tab"),
 			PrevTab:        b("list", "prev_tab"),
 			Expand:         b("list", "expand"),

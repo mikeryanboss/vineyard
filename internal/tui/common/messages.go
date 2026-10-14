@@ -26,6 +26,12 @@ type NewSessionMsg struct {
 	Issue int
 }
 
+// RenameMsg asks for a session's title to be changed.
+type RenameMsg struct {
+	SessionID string
+	Title     string
+}
+
 // ConfirmedMsg reports that the user confirmed an action.
 type ConfirmedMsg struct {
 	Action    Action

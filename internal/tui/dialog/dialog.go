@@ -1,6 +1,6 @@
 // Package dialog provides the modal dialogs drawn over the main screen:
-// creating a session, confirming destructive actions, and picking one of
-// several choices.
+// creating a session, renaming one, confirming destructive actions, and
+// picking one of several choices.
 package dialog
 
 import (
@@ -426,6 +426,62 @@ func (d *NewSession) Hints() [][2]string {
 		hints = append(hints, [2]string{hint(keys.PrevOption, keys.NextOption), "profile"})
 	}
 	return append(hints, [2]string{hint(keys.Cancel), "cancel"})
+}
+
+// Rename asks for a session's new title.
+type Rename struct {
+	theme     common.Theme
+	width     int
+	heading   string
+	title     textinput.Model
+	sessionID string
+}
+
+// NewRename returns the dialog for the session with sessionID, its title
+// filled in and focused.
+func NewRename(theme common.Theme, sessionID, title string, width int) (*Rename, tea.Cmd) {
+	input := textinput.New()
+	input.Prompt = ""
+	input.CharLimit = 100
+	input.SetWidth(max(20, width-6)) // border and padding
+	input.SetStyles(textinput.DefaultStyles(theme.IsDark))
+	input.SetValue(title)
+	d := &Rename{theme: theme, width: width, heading: fmt.Sprintf("Rename %q", title), title: input, sessionID: sessionID}
+	return d, d.title.Focus()
+}
+
+// Update handles input. Enter with an empty title does nothing.
+func (d *Rename) Update(msg tea.Msg) (Dialog, tea.Cmd) {
+	if k, ok := msg.(tea.KeyPressMsg); ok {
+		keys := common.Keys.Form
+		switch {
+		case key.Matches(k, keys.Cancel):
+			return d, cancel
+		case key.Matches(k, keys.Submit):
+			title := strings.TrimSpace(d.title.Value())
+			if title == "" {
+				return d, nil
+			}
+			renamed := common.RenameMsg{SessionID: d.sessionID, Title: title}
+			return d, func() tea.Msg { return renamed }
+		}
+	}
+	var cmd tea.Cmd
+	d.title, cmd = d.title.Update(msg)
+	return d, cmd
+}
+
+// View renders the dialog box.
+func (d *Rename) View() string {
+	t := d.theme
+	heading := ansi.Truncate(d.heading, d.width-6, "…")
+	return t.StyleDialog.Width(d.width).Render(lipgloss.JoinVertical(lipgloss.Left, t.StyleTitle.Render(heading), "", d.title.View()))
+}
+
+// Hints returns the status bar key hints.
+func (d *Rename) Hints() [][2]string {
+	keys := common.Keys.Form
+	return [][2]string{{common.Hint(keys.Submit), "rename"}, {common.Hint(keys.Cancel), "cancel"}}
 }
 
 // Confirm asks a yes/no question before an action.

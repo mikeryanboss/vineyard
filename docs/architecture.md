@@ -302,7 +302,7 @@ terminal window. Three rules keep them consistent:
   (`Store.Update`).
 - **Each process reloads.** Every status tick reads `sessions.json` and adopts
   it (`adopt` in `internal/tui/app.go`): sessions saved elsewhere appear,
-  sessions removed elsewhere go, saved fields such as auto-yes take effect. A
+  sessions removed elsewhere go, saved fields such as auto-yes and the title take effect. A
   session this process is starting or operating on keeps its local state. While
   a session is active both locally and as saved, the local running or ready
   state wins, because this process's own screen polls decide it. A reload

@@ -53,6 +53,7 @@ Run `vineyard` inside a git repository.
 | `r` | Resume a checked-out or stopped session; Claude Code continues its conversation |
 | `D` | Kill the session; a branch with commits is kept |
 | `a` | Toggle auto-yes, which accepts the agent's permission prompts |
+| `R` | Rename the session; its branch and worktree keep their names |
 | `i` | Open the grapes issues; on an issue, `a` goes to or starts its session |
 | `C` | Edit the configuration |
 | `q` | Quit; agents keep running |
@@ -180,6 +181,7 @@ checkout = ["c"]                            # commit, stop, remove the worktree
 resume = ["r"]
 push = ["s"]
 auto_yes = ["a"]
+rename = ["R"]                              # change the session's title
 next_tab = ["tab"]
 prev_tab = ["shift+tab"]
 expand = ["l", "right"]                     # show subagents, or focus the pane

@@ -1322,6 +1322,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dialog = nil
 		return m.createSession(msg, false)
 
+	case common.RenameMsg:
+		m.dialog = nil
+		// The session as it is now: polls may have changed it while the
+		// dialog was open.
+		i := m.find(msg.SessionID)
+		if i < 0 {
+			return m, nil
+		}
+		s := m.sessions[i]
+		old := s.Title
+		s.Title = msg.Title
+		m.replace(s)
+		m.syncList()
+		return m, tea.Batch(m.replaceCmd(s), m.setStatus(fmt.Sprintf("Renamed %q to %q.", old, s.Title), false))
+
 	case embedded.CloseMsg:
 		m.issuesOpen = false
 		return m, nil
@@ -2114,6 +2129,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		write := m.replaceCmd(s)
 		return m, tea.Batch(write, m.setStatus("Auto-yes "+state+" for "+s.Title+".", false))
+	case key.Matches(msg, keys.Rename):
+		d, cmd := dialog.NewRename(m.theme, s.ID, s.Title, min(70, m.width-4))
+		m.dialog = d
+		return m, cmd
 	}
 	return m, nil
 }
@@ -2590,7 +2609,7 @@ func (m Model) renderStatusBar() string {
 		hints = append(hints, [][2]string{
 			{hint(list.Shell), "shell"}, {hint(list.Terminal), "new terminal"}, {hint(list.Push), "push"},
 			{hint(list.Checkout), "checkout"}, {hint(list.Resume), "resume"}, {hint(list.Kill), "kill"},
-			{hint(list.AutoYes), "auto-yes"}, {hint(list.NextTab), tabNames[m.nextTab()]},
+			{hint(list.AutoYes), "auto-yes"}, {hint(list.Rename), "rename"}, {hint(list.NextTab), tabNames[m.nextTab()]},
 		}...)
 		if !m.list.Expandable() { // otherwise expand shows the subagents first
 			hints = append(hints, [2]string{hint(list.Expand), "scroll"})
