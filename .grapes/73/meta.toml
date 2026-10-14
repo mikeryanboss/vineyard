@@ -1,0 +1,6 @@
+title = "Name scripts/drive's tmux server and socket after the worktree"
+status = 'done'
+priority = 'medium'
+labels = ['tooling']
+created = 2026-10-14T12:17:00Z
+updated = 2026-10-14T12:18:00Z
