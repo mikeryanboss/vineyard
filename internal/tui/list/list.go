@@ -212,18 +212,27 @@ func (m Model) entryHeight(item Item) int {
 func (m Model) Len() int { return len(m.items) }
 
 // move moves the selection one row down, or up when delta is -1, through
-// sessions and their subagent rows.
-func (m Model) move(delta int) Model {
+// sessions and their subagent rows. With wrap, moving past the last row
+// selects the first session and moving past the first session the last row;
+// without, the selection stops at the ends.
+func (m Model) move(delta int, wrap bool) Model {
 	if len(m.items) == 0 {
 		return m
 	}
+	last := len(m.items) - 1
 	row := m.row() + delta
 	switch {
 	case row < -1 && m.selected > 0:
 		m.selected--
 		row = m.rows(m.items[m.selected]) - 1
-	case row >= m.rows(m.items[m.selected]) && m.selected < len(m.items)-1:
+	case row < -1 && wrap:
+		m.selected = last
+		row = m.rows(m.items[last]) - 1
+	case row >= m.rows(m.items[m.selected]) && m.selected < last:
 		m.selected++
+		row = -1
+	case row >= m.rows(m.items[m.selected]) && wrap:
+		m.selected = 0
 		row = -1
 	}
 	m.selectRow(max(-1, min(row, m.rows(m.items[m.selected])-1)))
@@ -263,19 +272,21 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, common.Keys.List.Up):
-			return m.move(-1), nil
+			return m.move(-1, true), nil
 		case key.Matches(msg, common.Keys.List.Down):
-			return m.move(1), nil
+			return m.move(1, true), nil
 		}
 		return m, nil
 	case tea.MouseClickMsg:
 		return m.click(msg.Y), nil
 	case tea.MouseWheelMsg:
+		// One flick of the wheel sends a burst of events, which wrapping
+		// would carry past the end and around again.
 		switch msg.Button {
 		case tea.MouseWheelUp:
-			return m.move(-1), nil
+			return m.move(-1, false), nil
 		case tea.MouseWheelDown:
-			return m.move(1), nil
+			return m.move(1, false), nil
 		}
 		return m, nil
 	}

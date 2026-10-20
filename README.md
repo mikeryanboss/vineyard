@@ -40,6 +40,7 @@ Run `vineyard` inside a git repository.
 
 | Key | Action |
 | --- | --- |
+| `j` / `k`, `↓` / `↑` | Move the selection down / up through sessions and their subagent rows. Down from the last row selects the first session, up from the first session the last row |
 | `n` / `N` | New session with the default profile / with a profile you pick, such as a terminal. Leave the title empty for a random one, such as "amber riesling" |
 | `enter` | Open the shown tab: attach to the agent from Preview, open the diff tool from Diff, the session's issue from Issue, if it has one, the shell from Terminal, the full recap from Recap. On a subagent, attach to its view |
 | `o` | Attach to the agent, or the selected subagent's view, from any tab; `ctrl+q` returns |
@@ -68,10 +69,10 @@ or a config field (click it again to edit it); click `▸ N subagents` to show a
 session's subagents and `▾ N subagents` to hide them. A double click acts:
 on a session, the preview, or the diff's code it does what `enter` does, on a
 subagent it opens the subagent's view, and on a tab it opens the tab, as
-`enter` does there. The wheel moves the selection in the list and scrolls the
-pane. Scrolling back in the preview reads tmux's scrollback, which an agent
-drawing fullscreen, such as Claude Code with `"tui": "fullscreen"`, does not
-have; attach to scroll it.
+`enter` does there. The wheel moves the selection in the list, stopping at its
+ends, and scrolls the pane. Scrolling back in the preview reads tmux's
+scrollback, which an agent drawing fullscreen, such as Claude Code with
+`"tui": "fullscreen"`, does not have; attach to scroll it.
 
 Flags: `-p <command>` runs a different agent in new sessions, `-y` turns on
 auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed
