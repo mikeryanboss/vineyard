@@ -728,6 +728,40 @@ func TestStore_ReplaceDoesNotReviveRemovedSession(t *testing.T) {
 	}
 }
 
+// A Vineyard saves the order it shows, which may predate another Vineyard's
+// changes: a session added meanwhile is kept, last, and one removed stays
+// gone.
+func TestStore_ArrangeKeepsOtherVineyardsChanges(t *testing.T) {
+	store := NewStore(t.TempDir())
+	for _, id := range []string{"a", "b", "c"} {
+		if err := store.Add(Session{ID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shown := []string{"c", "a", "b"} // the order this Vineyard shows
+	// Meanwhile another Vineyard removes a and adds d.
+	if err := store.Remove("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Add(Session{ID: "d"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Arrange(shown); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, s := range loaded {
+		ids = append(ids, s.ID)
+	}
+	if !slices.Equal(ids, []string{"c", "b", "d"}) {
+		t.Errorf("saved %q, want c, b, d", ids)
+	}
+}
+
 // One Vineyard leads at a time; the role passes on when the leader lets go.
 func TestLeader_OneAtATime(t *testing.T) {
 	dir := t.TempDir()

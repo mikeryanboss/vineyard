@@ -238,6 +238,10 @@ func (f *fakeBackend) Remove(id string) error {
 	})
 }
 
+func (f *fakeBackend) Arrange(ids []string) error {
+	return f.write(func(file []session.Session) []session.Session { return session.Arrange(file, ids) })
+}
+
 func (f *fakeBackend) Load(string) ([]session.Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -808,6 +812,128 @@ func TestApp_RenameRefusesEmptyTitlesAndBusySessions(t *testing.T) {
 	m = press(m, "R")
 	if m.dialog != nil {
 		t.Error("R should not rename a busy session: its operation saves the title it started with")
+	}
+}
+
+// order returns the sessions' IDs in order.
+func order(sessions []session.Session) []string {
+	var ids []string
+	for _, s := range sessions {
+		ids = append(ids, s.ID)
+	}
+	return ids
+}
+
+// m, then j or k, moves the selected session, and the selection follows it.
+// Nothing is saved until enter; then other Vineyards' reloads show the order.
+func TestApp_MoveSession(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = keys(m, "m", "j", "j")
+	want := []string{"tests-2", "docs-3", "login-1", "cache-4", "new-5"}
+	if got := order(m.sessions); !slices.Equal(got, want) {
+		t.Fatalf("order = %q, want %q", got, want)
+	}
+	if selectedID(m) != "login-1" {
+		t.Errorf("selected %s, want the moved session", selectedID(m))
+	}
+	if !strings.Contains(screen(m), "↕") || !strings.Contains(screen(m), "esc cancel") {
+		t.Errorf("the list should mark the moved session and the status bar show the move keys:\n%s", screen(m))
+	}
+	if len(backend.saved) != 0 {
+		t.Fatal("a move in progress was saved")
+	}
+	m = keys(m, "enter")
+	if m.moving != "" {
+		t.Error("enter should end the move")
+	}
+	if got := order(backend.file); !slices.Equal(got, want) {
+		t.Errorf("saved %q, want %q", got, want)
+	}
+}
+
+// A moved session stops at the ends, and before a session still starting:
+// that one is not saved yet, and a reload puts it last.
+func TestApp_MoveStopsAtTheEnds(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	start := order(m.sessions)
+	m = keys(m, "m", "k")
+	if got := order(m.sessions); !slices.Equal(got, start) {
+		t.Errorf("up from the top: order = %q, want %q", got, start)
+	}
+	m = keys(m, "j", "j", "j", "j", "j", "enter")
+	want := []string{"tests-2", "docs-3", "cache-4", "login-1", "new-5"}
+	if got := order(m.sessions); !slices.Equal(got, want) {
+		t.Errorf("down to the bottom: order = %q, want %q", got, want)
+	}
+	if got := order(backend.file); !slices.Equal(got, want) {
+		t.Errorf("saved %q, want %q", got, want)
+	}
+}
+
+func TestApp_CancelledMoveRestoresTheOrder(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	start := order(m.sessions)
+	for _, cancel := range []string{"esc", "ctrl+q"} {
+		m = keys(m, "m", "j", "j", cancel)
+		if got := order(m.sessions); m.moving != "" || !slices.Equal(got, start) {
+			t.Errorf("after %s: moving %q, order %q; want no move and %q", cancel, m.moving, got, start)
+		}
+		if selectedID(m) != "login-1" {
+			t.Errorf("after %s: selected %s, want the moved session", cancel, selectedID(m))
+		}
+	}
+	if len(backend.saved) != 0 {
+		t.Errorf("a cancelled move saved %d times", len(backend.saved))
+	}
+}
+
+// The order is saved only when the move ends, so until then a reload of the
+// saved order must not undo it. A session another Vineyard adds meanwhile is
+// kept, last.
+func TestApp_ReloadDoesNotUndoAMove(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	stale := reloadedMsg{sessions: slices.Clone(backend.file), writes: m.writes}
+	m = keys(m, "m", "j")
+	m = send(m, stale)           // a reload that started before the move
+	m = send(m, statusTickMsg{}) // the next tick's
+	moved := []string{"tests-2", "login-1", "docs-3", "cache-4", "new-5"}
+	if got := order(m.sessions); !slices.Equal(got, moved) {
+		t.Fatalf("after reloads: order = %q, want the move's %q", got, moved)
+	}
+	backend.file = append(backend.file, session.Session{ID: "other", Title: "Other", Status: session.StatusPaused})
+	m = keys(m, "enter")
+	m = send(m, statusTickMsg{})
+	want := append(moved, "other")
+	if got := order(backend.file); !slices.Equal(got, want) {
+		t.Errorf("saved %q, want %q", got, want)
+	}
+	if got := order(m.sessions); !slices.Equal(got, want) {
+		t.Errorf("after the move: order = %q, want %q", got, want)
+	}
+}
+
+// While moving, keys other than the move's and the mouse do nothing, and a
+// session that is busy or starting cannot be moved.
+func TestApp_MoveIgnoresOtherInputAndBusySessions(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	m = keys(m, "m", "D", "l", "n")
+	if m.dialog != nil || m.focus != focusList {
+		t.Errorf("keys acted during a move: dialog %v, focus %d", m.dialog, m.focus)
+	}
+	m = clickOn(t, m, "Docs pass", headerHeight)
+	if selectedID(m) != "login-1" || m.moving != "login-1" {
+		t.Errorf("a click during a move selected %s, moving %q", selectedID(m), m.moving)
+	}
+	m = keys(m, "esc")
+
+	m.busy["login-1"] = true
+	m = keys(m, "m")
+	if m.moving != "" || m.status == "" {
+		t.Errorf("m on a busy session: moving %q, status %q; want no move and a reason", m.moving, m.status)
+	}
+	m = keys(m, "k") // the last session, still starting
+	if m = keys(m, "m"); selectedID(m) != "new-5" || m.moving != "" {
+		t.Errorf("m on %s, a starting session: moving %q, want no move", selectedID(m), m.moving)
 	}
 }
 

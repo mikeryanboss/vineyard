@@ -76,6 +76,8 @@ type Backend interface {
 	Add(s session.Session) error
 	Replace(s session.Session) error
 	Remove(id string) error
+	// Arrange saves the sessions in the order of ids, changing none of them.
+	Arrange(ids []string) error
 	// Load reads the saved sessions and finds their worktrees, falling back
 	// to <worktreeDir>/<id>.
 	Load(worktreeDir string) ([]session.Session, error)
@@ -141,6 +143,7 @@ func (b LiveBackend) terminal(s session.Session) Terminal {
 func (b LiveBackend) Add(s session.Session) error     { return b.Store.Add(s) }
 func (b LiveBackend) Replace(s session.Session) error { return b.Store.Replace(s) }
 func (b LiveBackend) Remove(id string) error          { return b.Store.Remove(id) }
+func (b LiveBackend) Arrange(ids []string) error      { return b.Store.Arrange(ids) }
 func (b LiveBackend) Lead() (bool, error)             { return b.Leader.Lead() }
 
 func (b LiveBackend) Load(worktreeDir string) ([]session.Session, error) {

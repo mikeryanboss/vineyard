@@ -21,6 +21,7 @@ type KeyMap struct {
 	Form     FormKeys
 	Confirm  ConfirmKeys
 	Pick     PickKeys
+	Move     MoveKeys
 }
 
 // GlobalKeys act everywhere: Quit and Back before any other key, Detach and
@@ -48,6 +49,7 @@ type ListKeys struct {
 	Push           key.Binding
 	AutoYes        key.Binding
 	Rename         key.Binding
+	Move           key.Binding
 	NextTab        key.Binding
 	PrevTab        key.Binding
 	Expand         key.Binding
@@ -118,6 +120,14 @@ type PickKeys struct {
 	Cancel key.Binding
 }
 
+// MoveKeys move a session in the list, once the list's Move key started it.
+type MoveKeys struct {
+	Up     key.Binding
+	Down   key.Binding
+	Done   key.Binding
+	Cancel key.Binding
+}
+
 // NewKeyMap returns the bindings of keys, which holds every mode and action
 // of config.DefaultKeys, as Config.ResolvedKeys returns. It panics when keys
 // and the KeyMap disagree on the actions.
@@ -153,6 +163,7 @@ func NewKeyMap(keys config.Keys) KeyMap {
 			Push:           b("list", "push"),
 			AutoYes:        b("list", "auto_yes"),
 			Rename:         b("list", "rename"),
+			Move:           b("list", "move"),
 			NextTab:        b("list", "next_tab"),
 			PrevTab:        b("list", "prev_tab"),
 			Expand:         b("list", "expand"),
@@ -209,6 +220,12 @@ func NewKeyMap(keys config.Keys) KeyMap {
 			Down:   b("pick", "down"),
 			Choose: b("pick", "choose"),
 			Cancel: b("pick", "cancel"),
+		},
+		Move: MoveKeys{
+			Up:     b("move", "up"),
+			Down:   b("move", "down"),
+			Done:   b("move", "done"),
+			Cancel: b("move", "cancel"),
 		},
 	}
 	total := 0

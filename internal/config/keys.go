@@ -28,6 +28,7 @@ type Keys map[string]map[string][]string
 //   - form: typing into the new-session dialog or a config value
 //   - confirm: a yes/no question
 //   - pick: choosing one of several options
+//   - move: moving a session in the list
 func DefaultKeys() Keys {
 	return Keys{
 		"global": {
@@ -52,6 +53,7 @@ func DefaultKeys() Keys {
 			"push":             {"s"},
 			"auto_yes":         {"a"},
 			"rename":           {"R"},
+			"move":             {"m"},
 			"next_tab":         {"tab"},
 			"prev_tab":         {"shift+tab"},
 			"expand":           {"l", "right"},
@@ -108,6 +110,12 @@ func DefaultKeys() Keys {
 			"down":   {"j", "down"},
 			"choose": {"enter"},
 			"cancel": {"esc", "q"},
+		},
+		"move": {
+			"up":     {"k", "up"},
+			"down":   {"j", "down"},
+			"done":   {"enter"},
+			"cancel": {"esc"},
 		},
 	}
 }

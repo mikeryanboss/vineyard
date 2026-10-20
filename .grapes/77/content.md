@@ -55,21 +55,21 @@ later.
   keys.
 
 ## Acceptance Criteria
-- [ ] `m` then `j`/`k` moves the selected session down/up one place, and the
+- [x] `m` then `j`/`k` moves the selected session down/up one place, and the
       selection stays on it.
-- [ ] The session stops at the top and bottom, and does not pass a session
+- [x] The session stops at the top and bottom, and does not pass a session
       that is still starting.
-- [ ] `enter` saves the new order to `sessions.json`; another Vineyard's
+- [x] `enter` saves the new order to `sessions.json`; another Vineyard's
       reload shows it. A session another Vineyard added during the move is
       kept.
-- [ ] `esc` and `ctrl+q` restore the order the move began with and save
+- [x] `esc` and `ctrl+q` restore the order the move began with and save
       nothing.
-- [ ] While moving, a reload does not undo the move, and other keys and
+- [x] While moving, a reload does not undo the move, and other keys and
       clicks do nothing.
-- [ ] `m` on a busy or starting session says it is busy and starts no move.
-- [ ] The moved session is marked in the list, and the status bar shows the
+- [x] `m` on a busy or starting session says it is busy and starts no move.
+- [x] The moved session is marked in the list, and the status bar shows the
       move keys; the list's hints include `m move`.
-- [ ] README key table and default keys block, `docs/architecture.md` (Key
+- [x] README key table and default keys block, `docs/architecture.md` (Key
       Bindings, Several Vineyards), and the `docs/README.md` invariant on
       writes describe the move and `Arrange`.
 
