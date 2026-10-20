@@ -1,0 +1,6 @@
+title = 'Move sessions in the list'
+status = 'in_progress'
+priority = 'medium'
+labels = ['tui', 'list']
+created = 2026-10-20T18:01:00Z
+updated = 2026-10-20T18:04:00Z
