@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -94,6 +95,30 @@ func (s Store) Remove(id string) error {
 		return slices.DeleteFunc(saved, func(o Session) bool { return o.ID == id }), nil
 	})
 	return err
+}
+
+// Arrange saves the sessions in the order of ids. It changes no session:
+// those another Vineyard added meanwhile come last, and those it removed stay
+// gone.
+func (s Store) Arrange(ids []string) error {
+	_, err := s.Update(func(saved []Session) ([]Session, error) {
+		return Arrange(saved, ids), nil
+	})
+	return err
+}
+
+// Arrange returns sessions in the order of ids. Sessions ids does not name
+// come last, in the order they had.
+func Arrange(sessions []Session, ids []string) []Session {
+	rank := func(s Session) int {
+		if i := slices.Index(ids, s.ID); i >= 0 {
+			return i
+		}
+		return len(ids)
+	}
+	sessions = slices.Clone(sessions)
+	slices.SortStableFunc(sessions, func(a, b Session) int { return cmp.Compare(rank(a), rank(b)) })
+	return sessions
 }
 
 // save replaces the saved sessions. The file is written to a temporary name

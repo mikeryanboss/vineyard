@@ -53,6 +53,7 @@ main.go
 | Root model, keys, polling, layout | `internal/tui/app.go` | `internal/tui/backend.go` |
 | Mouse | `handleMouse` in `internal/tui/app.go` | TUI Message Flow in `architecture.md` |
 | Session list | `internal/tui/list/` | |
+| Moving a session in the list | `moveKey` in `internal/tui/app.go` | `Store.Arrange` in `internal/session/store.go` |
 | Live preview and scrollback | `internal/tui/preview/` | |
 | Dialogs | `internal/tui/dialog/` | |
 | Config screen | `internal/tui/settings/` | `SaveConfigMsg` in `internal/tui/app.go` |
@@ -118,8 +119,8 @@ scripts/drive              drives a development build in tmux, for debugging and
 - Every message the root model does not handle goes to the embedded grapes
   model, shown or not; its file watching and reloads depend on it.
 - Several Vineyards may share a repository. Change saved sessions one at a
-  time through `Backend.Add`, `Replace`, or `Remove`, never by writing the
-  whole list. Type into agents on Vineyard's own initiative only when this
+  time through `Backend.Add`, `Replace`, or `Remove`, and their order through
+  `Arrange`, never by writing the whole list. Type into agents on Vineyard's own initiative only when this
   process leads; typing the user asks for, such as opening a subagent, works
   in every Vineyard.
 - Never press Esc in Claude Code unless the screen shows its agent list

@@ -55,6 +55,7 @@ Run `vineyard` inside a git repository.
 | `D` | Kill the session; a branch with commits is kept |
 | `a` | Toggle auto-yes, which accepts the agent's permission prompts |
 | `R` | Rename the session; its branch and worktree keep their names |
+| `m` | Move the session in the list: `j` / `k` move it, `enter` keeps the new order, `esc` puts it back. Every Vineyard on the repository shows the order |
 | `i` | Open the grapes issues; on an issue, `a` goes to or starts its session |
 | `C` | Edit the configuration |
 | `q` | Quit; agents keep running |
@@ -192,6 +193,7 @@ resume = ["r"]
 push = ["s"]
 auto_yes = ["a"]
 rename = ["R"]                              # change the session's title
+move = ["m"]                                # move the session in the list
 next_tab = ["tab"]
 prev_tab = ["shift+tab"]
 expand = ["l", "right"]                     # show subagents, or focus the pane
@@ -248,6 +250,12 @@ up = ["k", "up"]
 down = ["j", "down"]
 choose = ["enter"]
 cancel = ["esc", "q"]
+
+[keys.move]  # moving a session in the list
+up = ["k", "up"]
+down = ["j", "down"]
+done = ["enter"]                            # keep and save the new order
+cancel = ["esc"]                            # put the session back
 ```
 
 </details>

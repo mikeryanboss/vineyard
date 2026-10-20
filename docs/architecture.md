@@ -324,8 +324,10 @@ terminal window. Three rules keep them consistent:
   `sessions.lock`, read `sessions.json`, change one session, and write it back,
   so no process overwrites another's sessions. `Replace` of a session that is
   no longer saved does nothing: a process still showing a session another one
-  killed must not bring it back. Startup's `Restore` runs under the same lock
-  (`Store.Update`).
+  killed must not bring it back. `Store.Arrange` changes no session, only
+  their order: it sorts the saved sessions into the order this process shows,
+  so a session added elsewhere meanwhile goes last and one removed stays gone.
+  Startup's `Restore` runs under the same lock (`Store.Update`).
 - **Each process reloads.** Every status tick reads `sessions.json` and adopts
   it (`adopt` in `internal/tui/app.go`): sessions saved elsewhere appear,
   sessions removed elsewhere go, saved fields such as auto-yes and the title take effect. A
@@ -334,7 +336,9 @@ terminal window. Three rules keep them consistent:
   state wins, because this process's own screen polls decide it. A reload
   starts only with no write of this process pending and is dropped if one was
   issued while it ran, so it never undoes this process's own change, such as a
-  cleared pending prompt.
+  cleared pending prompt. While the user moves a session (`moving` in
+  `internal/tui/app.go`), nothing is saved until the move ends, so reloads
+  neither start nor apply.
 - **One process leads.** Every process polls every screen, so only the holder
   of `lock` (`session.Leader`) types into agents on its own: it delivers
   pending prompts and answers auto-yes prompts. The others try to take the lock
@@ -593,7 +597,7 @@ switch. Zooming leaves agents' tmux windows at the split-pane size
 ## Key Bindings
 
 `config.DefaultKeys` lists every mode (`global`, `list`, `pane`, `settings`,
-`form`, `confirm`, `pick`), its actions, and their default keys.
+`form`, `confirm`, `pick`, `move`), its actions, and their default keys.
 `Config.Keys` holds only what `[keys.<mode>]` tables in `config.toml` set, so
 `Save` writes back what the user wrote. `Config.ResolvedKeys` lays those over
 the defaults and rejects unknown modes and actions, key names Bubble Tea never
@@ -631,6 +635,8 @@ the status bar get none. Each child maps a position to what its `View` draws:
 the list's entry heights, the tab labels (`tabLabels`), the diff's
 `fileStarts`, a dialog's content lines. Mouse release and motion events are
 not handled, and reach grapes like any other message the root leaves alone.
+While a session is moved, `handleMouse` ignores the mouse: only the move's
+keys end the move.
 
 Bubble Tea reports single clicks only. `doubleClick` pairs a click on the list
 or pane with the one before it when both land within a column on the same line

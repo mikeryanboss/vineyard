@@ -51,6 +51,8 @@ type Model struct {
 	// expanded holds the IDs of the sessions whose subagent rows are shown.
 	// The others show one line counting their subagents.
 	expanded map[string]bool
+	// moving marks the selected session as being moved.
+	moving bool
 }
 
 // New returns an empty list.
@@ -145,6 +147,12 @@ func (m Model) SetTheme(theme common.Theme) Model {
 // SetFocused marks whether keyboard input goes to the list.
 func (m Model) SetFocused(focused bool) Model {
 	m.focused = focused
+	return m
+}
+
+// SetMoving marks whether the selected session is being moved.
+func (m Model) SetMoving(moving bool) Model {
+	m.moving = moving
 	return m
 }
 
@@ -412,7 +420,11 @@ func (m Model) renderItem(item Item, sub int) []string {
 	}
 	titleWidth := m.width - 4 - ansi.StringWidth(tag) - ansi.StringWidth(issues)
 	titleText := style(titleStyle).Render(ansi.Truncate(s.Title, max(0, titleWidth), "…"))
-	titleLine := marker + icon + style(lipgloss.NewStyle()).Render(" ") + issues + titleText + tag
+	titleMarker := marker
+	if selected && m.moving {
+		titleMarker = style(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render("↕")
+	}
+	titleLine := titleMarker + icon + style(lipgloss.NewStyle()).Render(" ") + issues + titleText + tag
 
 	stat := ""
 	if !item.Stat.IsZero() {

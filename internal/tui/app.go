@@ -303,6 +303,12 @@ type Model struct {
 	// none pending, and dropped if another was issued while it ran.
 	writes        int
 	pendingWrites int
+	// moving is the ID of the session the user is moving in the list, or "",
+	// and moveStart the sessions' order, by ID, when the move began, which
+	// cancelling restores. Until the move ends, nothing is saved and no
+	// reload replaces the order.
+	moving    string
+	moveStart []string
 
 	list    list.Model
 	preview preview.Model
@@ -454,6 +460,10 @@ func (m *Model) replace(s session.Session) {
 func (m *Model) remove(id string) {
 	if i := m.find(id); i >= 0 {
 		m.sessions = slices.Delete(m.sessions, i, i+1)
+	}
+	if id == m.moving {
+		m.moving = ""
+		m.list = m.list.SetMoving(false)
 	}
 	delete(m.stats, id)
 	delete(m.hashes, id)
@@ -1050,7 +1060,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusInFlight = true
 			cmds = append(cmds, m.statusCmd())
 		}
-		if !m.reloadInFlight && m.pendingWrites == 0 {
+		if !m.reloadInFlight && m.pendingWrites == 0 && m.moving == "" {
 			m.reloadInFlight = true
 			cmds = append(cmds, m.reloadCmd())
 		}
@@ -1304,8 +1314,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, m.setError(fmt.Errorf("reloading sessions: %w", msg.err))
 		}
-		if msg.writes != m.writes {
-			return m, nil // may predate this process's own change; the next tick reloads
+		if msg.writes != m.writes || m.moving != "" {
+			// It may predate this process's own change, or undo a move in
+			// progress; the next tick reloads.
+			return m, nil
 		}
 		m.adopt(msg.sessions)
 		m.syncList()
@@ -1978,13 +1990,18 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case key.Matches(msg, common.Keys.Global.Back):
 		// Returns to the session list from anywhere, as the detach key does
-		// from an attached agent or shell. On the list it does nothing.
+		// from an attached agent or shell. On the list it only cancels a
+		// move.
+		m.cancelMove()
 		m.dialog = nil
 		m.configOpen = false
 		m.issuesOpen = false
 		m.setFocus(focusList)
 		m.setZoom(false)
 		return m, nil
+	}
+	if m.moving != "" {
+		return m.moveKey(msg)
 	}
 	if m.dialog != nil {
 		var cmd tea.Cmd
@@ -2122,8 +2139,70 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		d, cmd := dialog.NewRename(m.theme, s.ID, s.Title, min(70, m.width-4))
 		m.dialog = d
 		return m, cmd
+	case key.Matches(msg, keys.Move):
+		// The session, not one of its subagents, is moved and selected.
+		m.moving, m.moveStart = s.ID, m.order()
+		m.list = m.list.Select(s.ID).SetMoving(true)
+		return m, m.refreshShown()
 	}
 	return m, nil
+}
+
+// moveKey handles a key while a session is being moved. Other keys do
+// nothing until the move ends.
+func (m Model) moveKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	keys := common.Keys.Move
+	switch {
+	case key.Matches(msg, keys.Up):
+		m.moveBy(-1)
+	case key.Matches(msg, keys.Down):
+		m.moveBy(1)
+	case key.Matches(msg, keys.Done):
+		order := m.order()
+		changed := !slices.Equal(order, m.moveStart)
+		m.moving, m.moveStart = "", nil
+		m.list = m.list.SetMoving(false)
+		if changed {
+			return m, m.writeCmd(func(b Backend) error { return b.Arrange(order) })
+		}
+	case key.Matches(msg, keys.Cancel):
+		m.cancelMove()
+	}
+	return m, nil
+}
+
+// moveBy moves the session being moved one place down, or up for -1. It
+// stops at the ends, and before a session that is still starting: that one
+// is not saved yet, and stays last until it is.
+func (m *Model) moveBy(delta int) {
+	i := m.find(m.moving)
+	j := i + delta
+	if j < 0 || j >= len(m.sessions) || m.sessions[j].Status == session.StatusLoading {
+		return
+	}
+	m.sessions[i], m.sessions[j] = m.sessions[j], m.sessions[i]
+	m.syncList() // the selection follows the session
+}
+
+// cancelMove ends a move, if one is in progress, and restores the order it
+// began with.
+func (m *Model) cancelMove() {
+	if m.moving == "" {
+		return
+	}
+	m.sessions = session.Arrange(m.sessions, m.moveStart)
+	m.moving, m.moveStart = "", nil
+	m.list = m.list.SetMoving(false)
+	m.syncList()
+}
+
+// order returns the sessions' IDs in the order the list shows them.
+func (m Model) order() []string {
+	ids := make([]string, len(m.sessions))
+	for i, s := range m.sessions {
+		ids[i] = s.ID
+	}
+	return ids
 }
 
 // ready returns the selected session if it can be acted on. When it cannot,
@@ -2234,6 +2313,9 @@ func (m Model) attachment(s session.Session, shell bool) session.Attachment {
 // handleMouse handles clicks and the wheel. A double click on the list or
 // pane does what enter does there.
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.moving != "" {
+		return m, nil // a move ends by its keys
+	}
 	mouse := msg.Mouse()
 	_, click := msg.(tea.MouseClickMsg)
 	var first clickAt // the first click of a double click
@@ -2564,6 +2646,9 @@ func (m Model) renderStatusBar() string {
 		hints = m.dialog.Hints()
 	case m.configOpen:
 		hints = m.settings.Hints()
+	case m.moving != "":
+		move := common.Keys.Move
+		hints = [][2]string{{hint(move.Down, move.Up), "move"}, {hint(move.Done), "done"}, {hint(move.Cancel), "cancel"}}
 	case m.focus == focusPane && m.tab == tabDiff:
 		hints = [][2]string{
 			{hint(pane.Down, pane.Up), "scroll"}, {hint(pane.HalfDown, pane.HalfUp), "page"},
@@ -2602,7 +2687,8 @@ func (m Model) renderStatusBar() string {
 		hints = append(hints, [][2]string{
 			{hint(list.Shell), "shell"}, {hint(list.Terminal), "new terminal"}, {hint(list.Push), "push"},
 			{hint(list.Checkout), "checkout"}, {hint(list.Resume), "resume"}, {hint(list.Kill), "kill"},
-			{hint(list.AutoYes), "auto-yes"}, {hint(list.Rename), "rename"}, {hint(list.NextTab), tabNames[m.nextTab()]},
+			{hint(list.AutoYes), "auto-yes"}, {hint(list.Rename), "rename"}, {hint(list.Move), "move"},
+			{hint(list.NextTab), tabNames[m.nextTab()]},
 		}...)
 		if !m.list.Expandable() { // otherwise expand shows the subagents first
 			hints = append(hints, [2]string{hint(list.Expand), "scroll"})
