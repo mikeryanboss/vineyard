@@ -44,17 +44,56 @@ func TestListView_ScrollsSelectionIntoView(t *testing.T) {
 	testutil.RequireGolden(t, m.View())
 }
 
-func TestList_NavigationClamps(t *testing.T) {
-	m := newList(36, 20)
+func TestList_NavigationWrapsAround(t *testing.T) {
+	m := newList(36, 8) // room for two entries
 	m, _ = m.Update(testutil.Key("k"))
+	if item, _ := m.Selected(); item.Session.ID != "new-5" {
+		t.Errorf("up at the top selected %q, want the last session", item.Session.ID)
+	}
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "Starting up") {
+		t.Errorf("the last session is scrolled out of view:\n%s", view)
+	}
+	m, _ = m.Update(testutil.Key("down"))
 	if item, _ := m.Selected(); item.Session.ID != "login-1" {
-		t.Errorf("up at the top selected %q", item.Session.ID)
+		t.Errorf("down at the bottom selected %q, want the first session", item.Session.ID)
+	}
+	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "Fix login redirect") {
+		t.Errorf("the first session is scrolled out of view:\n%s", view)
+	}
+}
+
+// Up from the first session wraps to the last row, the last session's last
+// subagent when it is expanded, and down from there wraps to the first
+// session itself.
+func TestList_NavigationWrapsThroughSubagentRows(t *testing.T) {
+	items := withSubagents()
+	items[0].Subagents, items[4].Subagents = nil, items[0].Subagents
+	m, ok := list.New(common.NewTheme(true)).SetItems(items).SetSize(36, 20).Select("new-5").Expand()
+	if !ok {
+		t.Fatal("the last session's subagents did not expand")
+	}
+	m = m.Select("login-1")
+	m, _ = m.Update(testutil.Key("k"))
+	if item, _ := m.Selected(); item.Session.ID != "new-5" || selectedSub(m) != "a6" {
+		t.Errorf("up at the top selected %s row %q, want new-5 row a6", item.Session.ID, selectedSub(m))
+	}
+	m, _ = m.Update(testutil.Key("j"))
+	if item, _ := m.Selected(); item.Session.ID != "login-1" || selectedSub(m) != "" {
+		t.Errorf("down at the bottom selected %s row %q, want the session login-1", item.Session.ID, selectedSub(m))
+	}
+}
+
+func TestList_WheelStopsAtTheEnds(t *testing.T) {
+	m := newList(36, 20)
+	m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if item, _ := m.Selected(); item.Session.ID != "login-1" {
+		t.Errorf("wheel up at the top selected %q", item.Session.ID)
 	}
 	for range 10 {
-		m, _ = m.Update(testutil.Key("down"))
+		m, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	}
 	if item, _ := m.Selected(); item.Session.ID != "new-5" {
-		t.Errorf("down past the end selected %q", item.Session.ID)
+		t.Errorf("wheel down past the end selected %q", item.Session.ID)
 	}
 }
 
