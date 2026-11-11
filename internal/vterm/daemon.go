@@ -24,11 +24,11 @@ import (
 // in vineyards.go), so that servers of several protocols run side by side.
 // Never change Version or Exists: Client.Info and Client.Holds ask servers of
 // every protocol through them.
-const protocol = 5
+const protocol = 6
 
 // sameCallsSince is the oldest protocol whose calls, all but attaching, match
 // this build's, so that a Vineyard uses an older server of it or later for all
-// but attaching (NewOlderClient). Protocols 1 to 5 differ only in attaching.
+// but attaching (NewOlderClient). Protocols 1 to 6 differ only in attaching.
 // Raise it to protocol with any change to a call's arguments or results:
 // older servers then only say whether their terminals run.
 const sameCallsSince = 1

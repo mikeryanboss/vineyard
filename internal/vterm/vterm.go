@@ -241,11 +241,13 @@ func (s *Server) CaptureHistory(name string, lines int) (string, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var b strings.Builder
-	if history := t.emu.Scrollback(); history != nil {
-		all := history.Lines()
-		for _, line := range all[max(0, len(all)-lines):] {
-			b.WriteString(line.Render())
-			b.WriteByte('\n')
+	if !t.emu.IsAltScreen() {
+		if history := t.emu.Scrollback(); history != nil {
+			all := history.Lines()
+			for _, line := range all[max(0, len(all)-lines):] {
+				b.WriteString(line.Render())
+				b.WriteByte('\n')
+			}
 		}
 	}
 	b.WriteString(t.emu.Render())

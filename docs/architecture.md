@@ -451,7 +451,7 @@ them.
   of another protocol to `vineyards.Older`, which returns:
   - a client, when that server speaks this build's protocol;
   - `vterm.NewOlderClient`, when its calls match this build's
-    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 5 differ only in
+    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 6 differ only in
     attaching). It makes every call, so the session shows its screen and
     status and can be killed;
   - otherwise `olderVineyard`, which asks only `Version` and `Exists`, through
@@ -490,14 +490,17 @@ them.
   the server: an `a` connection whose first byte carries the input and output
   file descriptors (`SCM_RIGHTS`), then an `AttachRequest` with the user's
   environment, terminal size, keys, and status bar. The server puts that terminal in raw mode,
-  enters the alternate screen, and redraws the emulator on it with
-  ultraviolet's diffing renderer, at most 60 times a second. Typed input goes
-  to the program until a detach byte. The client forwards SIGWINCH as new sizes and
-  waits for the `AttachResult`; if its connection drops, the server ends the
-  attachment. The program's output never reaches the user's terminal
-  directly, so modes it sets there are only those that change input (cursor
-  keys, mouse, focus, bracketed paste), set and reset as the program does and
-  reset on detach.
+  enters the alternate screen, enables SGR mouse reporting, and redraws the emulator on it with
+  ultraviolet's diffing renderer, at most 60 times a second. On the primary
+  screen, the mouse wheel scrolls the emulator's scrollback, anchored while new
+  lines arrive, and typed input returns to the live screen and goes to the
+  program until a detach byte; other mouse events reach the program only when
+  it enabled mouse tracking (and on the alternate screen, the wheel does too).
+  The client forwards SIGWINCH as new sizes and waits for the `AttachResult`;
+  if its connection drops, the server ends the attachment. The program's output
+  never reaches the user's terminal directly, so modes mirrored there are only
+  those that change input (cursor keys, motion mouse modes, focus, bracketed
+  paste), reset before sets and reset on detach.
 - **Status bar** (`bar.go`): while attached, the TUI's loop is blocked in
   `tea.Exec`, so the server keeps the attached terminal's status bar. The
   `AttachRequest` carries the attached session's title, which the bar names
