@@ -80,21 +80,21 @@ Changes (planned):
 - `docs/architecture.md`: document attached scrollback and protocol `6`.
 
 ## Acceptance Criteria
-- [ ] Turning the mouse wheel up while attached to a primary-screen terminal on
+- [x] Turning the mouse wheel up while attached to a primary-screen terminal on
       Vineyard's server scrolls into `t.emu`'s scrollback, and turning it down
       returns to the live screen, even when the program did not enable mouse
       mode (such as `agy` or `bash`).
-- [ ] Clicking in an attached terminal whose program did not enable mouse mode
+- [x] Clicking in an attached terminal whose program did not enable mouse mode
       writes nothing to the program.
-- [ ] New lines scrolling off the live screen while the user is scrolled up keep
+- [x] New lines scrolling off the live screen while the user is scrolled up keep
       the viewed scrollback lines in place, and typing input jumps the view back
       to the live screen and delivers the input.
-- [ ] On the alternate screen (`?1049h`), wheel and click events still reach a
+- [x] On the alternate screen (`?1049h`), wheel and click events still reach a
       program that enabled mouse tracking, and switching back to the primary
       screen (`?1049l`) leaves mouse wheel scrollback working.
-- [ ] `Server.CaptureHistory` omits primary-screen scrollback while the
+- [x] `Server.CaptureHistory` omits primary-screen scrollback while the
       terminal is on the alternate screen.
-- [ ] `protocol` in `internal/vterm/daemon.go` is `6` with `sameCallsSince = 1`,
+- [x] `protocol` in `internal/vterm/daemon.go` is `6` with `sameCallsSince = 1`,
       and `docs/architecture.md` reflects the behaviour.
 
 ## Verify

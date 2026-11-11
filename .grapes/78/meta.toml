@@ -1,6 +1,6 @@
 title = "Scroll attached terminals on Vineyard's server with the mouse wheel"
-status = 'in_progress'
+status = 'done'
 priority = 'high'
 labels = ['vterm', 'mouse']
 created = 2026-11-11T22:38:00Z
-updated = 2026-11-11T22:47:00Z
+updated = 2026-11-11T23:05:00Z
