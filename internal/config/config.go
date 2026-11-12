@@ -68,6 +68,8 @@ type Config struct {
 	// StatusBar shows a status bar on every attached terminal, until its
 	// key (keys.global.status_bar) hides it.
 	StatusBar bool `toml:"status_bar"`
+	// PeerMessages lets sessions send each other messages with vineyard send.
+	PeerMessages bool `toml:"peer_messages"`
 	// Keys replace the default keys of the actions they name
 	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
 	Keys Keys `toml:"keys,omitempty"`
@@ -97,6 +99,7 @@ func Defaults() Config {
 		DiffCommand:    "hunk diff {base} --watch",
 		Multiplexer:    MultiplexerVineyard,
 		StatusBar:      true,
+		PeerMessages:   true,
 	}
 }
 

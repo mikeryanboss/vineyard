@@ -53,7 +53,7 @@ A PR is the review gate. Open or reuse one with the [pr skill](.agents/skills/pr
 - Your job ends when the PR merges. Leave `main`, the branch, and the worktree alone: the human pulls `main` and deletes the session.
 
 ## Other agents
-To tell the agent working on another issue something, find its name with `vineyard sessions | jq '.[] | select(.issues | index(<id>)) | .agents'` and message it.
+To tell the agent working on another issue something, find its session with `vineyard sessions | jq '.[] | select(.issues | index(<id>))'`. Between two Claude Code sessions (`agents` non-empty on both), message its `agents` name with `SendMessage`; across different harnesses, run `vineyard send <branch-or-id> <message>`.
 
 ## Verify state, don't recall it
 Humans and other agents change shared state concurrently; a PR you opened minutes ago may already be merged. Check PR, issue, and branch state when you report or act on it (`gh pr view <n> --json state`, `git fetch origin main`), including before adding commits to an existing PR. Empty output is evidence: `gh pr list` printing nothing means there are no open PRs.

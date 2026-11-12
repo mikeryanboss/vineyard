@@ -123,13 +123,35 @@ once the branch merges.
 Recorded issues survive pausing, which removes the worktree.
 
 `vineyard sessions` (`sessions.go`) prints the same links as JSON for agents,
-computing each diff itself, with the names of the Claude Code agents whose
-working directory is the session's worktree. Claude Code keeps a file per
-running session in `$CLAUDE_CONFIG_DIR/sessions/<pid>.json` with its `pid`,
-`cwd`, and `name`; the format is undocumented and was read off 2.1.299. A
-crashed session's file stays behind, so only files whose process runs count.
-The command changes nothing: it reads `sessions.json` and git, and prints the
-status Vineyard last saved.
+computing each diff itself, with each session's `program` (`ProgramName`) and
+the names of the Claude Code agents whose working directory is the session's
+worktree. Claude Code keeps a file per running session in
+`$CLAUDE_CONFIG_DIR/sessions/<pid>.json` with its `pid`, `cwd`, and `name`; the
+format is undocumented and was read off 2.1.299. A crashed session's file stays
+behind, so only files whose process runs count. The command changes nothing: it
+reads `sessions.json` and git, and prints the status Vineyard last saved.
+
+## Peer Messages
+
+Claude Code sessions message each other directly with `SendMessage`; `vineyard
+send <session> <message>` (`send.go`) carries plain-text messages across
+different harnesses, refusing pairs where both checkouts have live Claude Code
+registry entries so those keep using `SendMessage`. `<session>` matches an `ID`
+or a unique `Branch`, and the sender is identified from the checkout containing
+`os.Getwd()`.
+
+Messages are wrapped as `<peer_message from="…" reply="vineyard send '…' '…'">`
+and delivered via `Paste`, a 150 ms pause, and `SendEnter` once the recipient's
+screen is non-blank, unchanged across `stillFor` (600 ms), free of trust or
+permission prompts and unsent `PendingPrompt`s, and—for Claude Code—showing its
+main conversation with the subagent list unfocused. When a recipient is busy,
+the message waits in `.vineyard/inbox/<id>.json` (`internal/session/inbox.go`)
+and a detached `vineyard drain` process polls every second until the recipient
+settles or stops. Two per-session flocks (`<id>.lock` and `<id>.deliver.lock`)
+hand off ownership without stranding or duplicating messages, and
+`Store.Remove` discards any queued file. Setting `peer_messages = false` in
+`.vineyard/config.toml` refuses `vineyard send`, discards queued messages on
+drain, and marks `send` disabled in `vineyard help`.
 
 The list row, the issue tab, its label, and the issue picker show a session's
 main issues (`mainIssues`): those whose parent is not linked too. A planner
@@ -309,6 +331,7 @@ views, so a draft survives opening a subagent.
   sessions.json                atomic rename on every write
   sessions.lock                flock held for each read-change-write of sessions.json
   lock                         flock held by the Vineyard that leads
+  inbox/                       queued cross-harness peer messages and per-session locks
   worktrees/<session id>/      the default worktree_dir
 ```
 

@@ -96,6 +96,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if len(rest) == 3 && rest[0] == "drain" {
+		// vineyard send starts a detached drainer this way when the recipient
+		// is busy; see startDrainerProcess.
+		return runDrainCommand(rest[1], rest[2], stderr)
+	}
+	if len(rest) > 0 && rest[0] == "send" {
+		if len(rest) != 3 {
+			fmt.Fprintf(stderr, "usage: vineyard send <session> <message>\n\n")
+			writeHelp(stderr)
+			return 2
+		}
+		if err := runSend(rest[1], rest[2], stdout); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if len(rest) > 1 {
 		fmt.Fprintf(stderr, "%s does not accept arguments\n\n", rest[0])
 		writeHelp(stderr)
@@ -429,8 +446,28 @@ func printLogEnd(w io.Writer, path string) {
 	}
 }
 
+func peerMessagesEnabled() bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return true
+	}
+	repo, err := git.FindRepo(cwd)
+	if err != nil {
+		return true
+	}
+	cfg, err := config.Load(config.Dir(repo.Root))
+	if err != nil {
+		return true
+	}
+	return cfg.PeerMessages
+}
+
 func writeHelp(w io.Writer) {
-	fmt.Fprint(w, `vineyard — run coding agents side by side, each in its own worktree
+	sendDesc := "Send a peer message to another running session"
+	if !peerMessagesEnabled() {
+		sendDesc += " (disabled in config.toml)"
+	}
+	fmt.Fprintf(w, `vineyard — run coding agents side by side, each in its own worktree
 
 USAGE:
   vineyard [flags]          Launch the TUI for the repository in the current directory
@@ -442,8 +479,9 @@ FLAGS:
   -i, --issue <id>          Open at grapes issue <id>: its session, or a new one for it
 
 COMMANDS:
+  sessions                  Print the sessions as JSON: their program, issues, worktrees, and Claude Code names
+  send <session> <message>  %s
   debug                     Print the server's and sessions' state, data paths, and log ends
-  sessions                  Print the sessions as JSON: their issues, worktrees, and Claude Code names
   version                   Print the version
   help                      Show this help
 
@@ -452,7 +490,7 @@ in tmux (multiplexer in config.toml); the next launch picks them up.
 Each repository keeps its configuration and sessions in .vineyard/ in its main checkout;
 only .vineyard/config.toml is meant to be committed.
 Agent sessions run on the socket "vineyard" (override with VINEYARD_SOCKET).
-`)
+`, sendDesc)
 }
 
 // displayPath shortens a path in the user's home directory to start with ~.

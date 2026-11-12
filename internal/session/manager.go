@@ -323,12 +323,12 @@ func launchCommand(s Session) string {
 	if ProgramName(s.Program) != "claude" || s.MainCheckout || s.Branch == "" {
 		return s.Program
 	}
-	return s.Program + " --name " + shellQuote(s.Branch)
+	return s.Program + " --name " + ShellQuote(s.Branch)
 }
 
-// shellQuote quotes s as one word for the shell both multiplexers run
+// ShellQuote quotes s as one word for the shell both multiplexers run
 // programs with.
-func shellQuote(s string) string {
+func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
@@ -425,7 +425,7 @@ func errMainCheckout(s Session, verb string) error {
 // terminal reports it ended. A multiplexer that is not available, such as
 // tmux when it is not installed, runs nothing to end.
 func (m *Manager) stopTerminals(s Session) error {
-	found, ok, err := m.running(s)
+	found, ok, err := m.Running(s)
 	if err != nil {
 		return err
 	}
@@ -506,7 +506,7 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 	for i, s := range out {
 		if s.Status != StatusPaused {
 			out[i].Status = StatusStopped
-			found, ok, err := m.running(s)
+			found, ok, err := m.Running(s)
 			if err != nil {
 				return nil, err
 			}
@@ -522,11 +522,11 @@ func (m *Manager) Restore(sessions []Session, worktreeDir string) ([]Session, er
 	return out, nil
 }
 
-// running returns s recording where its terminal runs: in the multiplexer s
+// Running returns s recording where its terminal runs: in the multiplexer s
 // records, in any other, or in any older Vineyard multiplexer. A record can
 // name the wrong one, whatever wrote it. Trusted, it shows a running agent
 // stopped, and killing the session leaves the agent running.
-func (m *Manager) running(s Session) (Session, bool, error) {
+func (m *Manager) Running(s Session) (Session, bool, error) {
 	if t, err := m.terminal(s); err == nil && t.Exists(s.TmuxName) {
 		return s, true, nil
 	}
