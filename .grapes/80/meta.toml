@@ -1,0 +1,6 @@
+title = 'Stop a program that stops reading its input from freezing its terminal'
+status = 'todo'
+priority = 'medium'
+labels = ['bug', 'vterm']
+created = 2026-11-12T13:58:00Z
+updated = 2026-11-12T12:58:00Z
