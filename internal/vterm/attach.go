@@ -26,6 +26,13 @@ const (
 	maxMouseSeq = 32
 )
 
+// stallTimeout is how long one write to the user's terminal may take before
+// attach gives up on it. Tests shorten it.
+var stallTimeout = 5 * time.Second
+
+// errStalled ends an attachment whose user's terminal stopped reading.
+var errStalled = errors.New("terminal stopped reading")
+
 // programModes are the non-mouse input modes mirrored from the program onto
 // the user's terminal, so that keys, focus events, and pastes arrive as the
 // program asked. Mouse modes are always kept on so the wheel scrolls
@@ -56,7 +63,12 @@ type size struct{ Width, Height int }
 // which says what their terminal supports. The terminal takes the user's
 // terminal's size less b's rows, first initial and then each one resized
 // receives. b lists terminals of s.
-func attach(s *Server, t *terminal, b *bar, in, out *os.File, env []string, initial size, resized <-chan size, stop <-chan struct{}) error {
+//
+// Frames are rendered while holding t.mu and written to out after releasing
+// it, by a writer goroutine, so a terminal that stops reading blocks no one
+// else. If a write takes longer than stallTimeout, attach returns errStalled
+// at once, and the writer stays blocked until the terminal hangs up.
+func attach(s *Server, t *terminal, b *bar, in, out *os.File, env []string, initial size, resized <-chan size, stop <-chan struct{}) (err error) {
 	if !term.IsTerminal(in.Fd()) {
 		return errors.New("attaching needs a terminal")
 	}
@@ -100,14 +112,21 @@ func attach(s *Server, t *terminal, b *bar, in, out *os.File, env []string, init
 	changed, unwatch := t.watch()
 	defer unwatch()
 	b.sample(s)
-	scr := newScreen(out, env)
+	w := newWriter(out)
+	defer close(w.frames)
+	scr := newScreen(env)
 	t.mu.Lock()
-	err = scr.open(t, b)
+	scr.open(t, b)
 	t.mu.Unlock()
-	defer scr.close()
-	if err != nil {
-		return err
-	}
+	w.send(scr.take())
+	defer func() {
+		if errors.Is(err, errStalled) || w.wait() != nil {
+			return
+		}
+		scr.close()
+		w.send(scr.take())
+		w.wait()
+	}()
 
 	ticker := time.NewTicker(frame)
 	defer ticker.Stop()
@@ -180,21 +199,76 @@ func attach(s *Server, t *terminal, b *bar, in, out *os.File, env []string, init
 			b.sample(s)
 			dirty = dirty || b.visible
 		case <-ticker.C:
-			if !dirty {
+			if !dirty || w.busy() {
 				continue
 			}
 			dirty = false
 			t.mu.Lock()
-			err := scr.draw(t, b)
+			scr.draw(t, b)
 			t.mu.Unlock()
+			if f := scr.take(); len(f) > 0 {
+				w.send(f)
+			}
+		case err := <-w.written:
+			w.stalled = nil
 			if err != nil {
 				return err
 			}
+		case <-w.stalled:
+			return errStalled
 		case <-t.exited:
 			return nil
 		case <-stop:
 			return nil
 		}
+	}
+}
+
+// writer writes frames to the user's terminal, one at a time, in its own
+// goroutine. A frame holds only the changes since the one before, so frames
+// are never dropped or queued: the next is rendered once the last is written.
+type writer struct {
+	frames chan []byte
+	// written receives each frame's write error.
+	written chan error
+	// stalled fires once the frame being written has taken stallTimeout, and
+	// is nil while no frame is being written.
+	stalled <-chan time.Time
+}
+
+// newWriter starts writing to out the frames sent until frames is closed.
+func newWriter(out io.Writer) *writer {
+	w := &writer{frames: make(chan []byte), written: make(chan error, 1)}
+	go func() {
+		for f := range w.frames {
+			_, err := out.Write(f)
+			w.written <- err
+		}
+	}()
+	return w
+}
+
+// busy reports whether a frame is being written.
+func (w *writer) busy() bool { return w.stalled != nil }
+
+// send starts writing f. The last frame must be written.
+func (w *writer) send(f []byte) {
+	w.frames <- f
+	w.stalled = time.After(stallTimeout)
+}
+
+// wait waits for the frame being written, if any, and returns its write
+// error, or errStalled once it has taken stallTimeout.
+func (w *writer) wait() error {
+	if !w.busy() {
+		return nil
+	}
+	select {
+	case err := <-w.written:
+		w.stalled = nil
+		return err
+	case <-w.stalled:
+		return errStalled
 	}
 }
 
@@ -301,10 +375,11 @@ func parseSGRParams(p []byte) (b, x, y int, ok bool) {
 	return vals[0], vals[1], vals[2], true
 }
 
-// screen draws a terminal's emulator on the user's terminal, sending only
-// what changed since the last frame.
+// screen renders a terminal's emulator for the user's terminal into out,
+// only what changed since the last frame. The bytes in out must reach the
+// user's terminal in order and in full.
 type screen struct {
-	out      io.Writer
+	out      *bytes.Buffer
 	renderer *uv.TerminalRenderer
 	buf      *uv.RenderBuffer
 	hidden   bool
@@ -315,15 +390,23 @@ type screen struct {
 	scroll, history int
 }
 
-func newScreen(out io.Writer, env []string) *screen {
+func newScreen(env []string) *screen {
+	out := new(bytes.Buffer)
 	return &screen{out: out, renderer: uv.NewTerminalRenderer(out, env)}
+}
+
+// take returns what was rendered since the last take.
+func (s *screen) take() []byte {
+	f := bytes.Clone(s.out.Bytes())
+	s.out.Reset()
+	return f
 }
 
 // open takes over the user's terminal with the alternate screen and draws
 // the first frame. Hold t.mu.
-func (s *screen) open(t *terminal, b *bar) error {
+func (s *screen) open(t *terminal, b *bar) {
 	s.renderer.EnterAltScreen()
-	return s.draw(t, b)
+	s.draw(t, b)
 }
 
 // syncScroll updates history from t's scrollback and keeps scroll anchored on
@@ -397,13 +480,10 @@ func (s *screen) handleMouse(t *terminal, ev mouseEvent) (string, bool) {
 	return ansi.MouseX10(b, ev.x-1, ev.y-1), false
 }
 
-// draw sends the changes since the last frame, and the cursor, to the user's
-// terminal: t's screen or scrollback, and b under it while b is visible.
-// Hold t.mu.
-func (s *screen) draw(t *terminal, b *bar) error {
-	if err := s.syncModes(t); err != nil {
-		return err
-	}
+// draw renders the changes since the last frame, and the cursor: t's screen
+// or scrollback, and b under it while b is visible. Hold t.mu.
+func (s *screen) draw(t *terminal, b *bar) {
+	s.syncModes(t)
 	s.syncScroll(t)
 	width, height := t.emu.Width(), t.emu.Height()
 	rows := height
@@ -439,20 +519,15 @@ func (s *screen) draw(t *terminal, b *bar) error {
 		cursor := t.emu.CursorPosition()
 		s.renderer.MoveTo(cursor.X, cursor.Y)
 	}
-	if err := s.renderer.Flush(); err != nil {
-		return err
-	}
+	s.renderer.Flush()
 	if hidden := t.emu.CursorHidden() || s.scroll > 0; hidden != s.hidden {
 		s.hidden = hidden
 		seq := ansi.ShowCursor
 		if hidden {
 			seq = ansi.HideCursor
 		}
-		if _, err := io.WriteString(s.out, seq); err != nil {
-			return err
-		}
+		s.out.WriteString(seq)
 	}
-	return nil
 }
 
 // desiredModes returns the input modes to keep set on the user's terminal:
@@ -479,7 +554,7 @@ func desiredModes(t *terminal) []ansi.Mode {
 // desiredModes. Resets precede sets so switching between mutually exclusive
 // mouse tracking modes (such as ?1002l then ?1000h) leaves tracking enabled.
 // Hold t.mu.
-func (s *screen) syncModes(t *terminal) error {
+func (s *screen) syncModes(t *terminal) {
 	want := desiredModes(t)
 	var set, reset []ansi.Mode
 	for _, m := range s.modes {
@@ -500,22 +575,16 @@ func (s *screen) syncModes(t *terminal) error {
 	if len(set) > 0 {
 		seq += ansi.SetMode(set...)
 	}
-	if seq == "" {
-		return nil
-	}
-	_, err := io.WriteString(s.out, seq)
-	return err
+	s.out.WriteString(seq)
 }
 
 // close resets the input modes it set and leaves the alternate screen.
-func (s *screen) close() error {
+func (s *screen) close() {
 	seq := ansi.ResetStyle + ansi.ShowCursor
 	if len(s.modes) > 0 {
 		seq += ansi.ResetMode(s.modes...)
 	}
-	if _, err := io.WriteString(s.out, seq); err != nil {
-		return err
-	}
+	s.out.WriteString(seq)
 	s.renderer.ExitAltScreen()
-	return s.renderer.Flush()
+	s.renderer.Flush()
 }

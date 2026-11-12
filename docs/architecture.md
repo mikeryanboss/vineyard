@@ -501,6 +501,15 @@ them.
   never reaches the user's terminal directly, so modes mirrored there are only
   those that change input (cursor keys, motion mouse modes, focus, bracketed
   paste), reset before sets and reset on detach.
+  Each frame is rendered into a buffer while holding the terminal's `mu`
+  and written after releasing it, by a writer goroutine of the attachment,
+  so a user's terminal that stops reading blocks no one else. The next frame
+  is rendered only once the last is written: frames carry only changes, so
+  none may be dropped or queued. A write that has not finished within
+  `stallTimeout` (5 s) ends the attachment with "terminal stopped reading",
+  without the exit sequences; the blocked writer leaks until the terminal
+  hangs up. The user's file descriptors stay blocking: their open file is
+  shared with the user's shell, which `O_NONBLOCK` would reach.
 - **Status bar** (`bar.go`): while attached, the TUI's loop is blocked in
   `tea.Exec`, so the server keeps the attached terminal's status bar. The
   `AttachRequest` carries the attached session's title, which the bar names

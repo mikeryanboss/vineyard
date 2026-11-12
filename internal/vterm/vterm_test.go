@@ -372,3 +372,66 @@ func TestParseMouse(t *testing.T) {
 		t.Errorf("X10 release = %+v n=%d inc=%v", ev, n, inc)
 	}
 }
+
+// A viewer whose terminal stops reading, as a VS Code terminal whose tab is
+// gone does, must not hold up the terminal it views: its screen can still be
+// captured, and the attachment ends with errStalled soon after stallTimeout.
+func TestAttachStalledViewer(t *testing.T) {
+	old := stallTimeout
+	stallTimeout = time.Second
+	t.Cleanup(func() { stallTimeout = old })
+	s := New()
+	// A new full screen every 10ms makes each frame large, so the frames fill
+	// the viewer's pseudo-terminal quickly.
+	start(t, s, "a", `while :; do head -c 7500 /dev/urandom | base64 -w 200; sleep 0.01; done`)
+	term, err := s.terminal("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The test never reads user, so writes to tty block once its buffers fill.
+	// Closing user ends the blocked write.
+	user, tty, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	t.Cleanup(func() {
+		close(stop)
+		user.Close()
+		tty.Close()
+	})
+	b := newBar(false, "Test", nil, []string{"ctrl+q"}, nil, true)
+	go func() {
+		done <- attach(s, term, b, tty, tty, []string{"TERM=xterm-256color"}, size{200, 50}, nil, stop)
+	}()
+
+	time.Sleep(stallTimeout / 2)
+	select {
+	case err := <-done:
+		t.Fatalf("attachment ended before its viewer stalled: %v", err)
+	default:
+	}
+	captured := make(chan error, 1)
+	go func() {
+		_, err := s.Capture("a")
+		captured <- err
+	}()
+	select {
+	case err := <-captured:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(stallTimeout / 2):
+		t.Fatal("Capture waited for a viewer that stopped reading")
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, errStalled) {
+			t.Fatalf("attachment ended with %v, want %v", err, errStalled)
+		}
+	case <-time.After(3 * stallTimeout):
+		t.Fatal("attachment to a viewer that stopped reading never ended")
+	}
+}
