@@ -439,3 +439,70 @@ func TestRun_SendQueuesWhileBusyAndDeliversInOrderOnceReady(t *testing.T) {
 		t.Errorf("delivery = %+v, want text=%q keys=[Enter]", got[0], wantText)
 	}
 }
+
+func TestRun_PeerMessagesDisabledMarksHelpAndStopsSendAndDrain(t *testing.T) {
+	srv := newSendRPCServer(t)
+	drainers := fastSendTimers(t)
+	repo, _, wtAgy, store := initSendTestRepo(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	if err := store.Replace(session.Session{
+		ID: "fix-111111", Title: "fix", Program: "claude",
+		Branch: "7/fix", PendingPrompt: "busy",
+		TmuxName: "term-claude", Multiplexer: config.MultiplexerVineyard, Protocol: vterm.Protocol(),
+		Status: session.StatusRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv.setStaticScreen("term-claude", "❯ ")
+
+	// Default config: help shows send without a disabled note, and busy send queues.
+	t.Chdir(wtAgy)
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("help exit %d: %s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "disabled in config.toml") {
+		t.Fatalf("default help unexpectedly marked send disabled:\n%s", stdout.String())
+	}
+	stdout.Reset()
+	if code := run([]string{"send", "7/fix", "queued before disable"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("send before disable exit %d: %s", code, stderr.String())
+	}
+
+	// Disable peer_messages in the main checkout's .vineyard/config.toml:
+	// help in a linked worktree marks send disabled, send is refused, and the
+	// background drainer discards the already-queued message without delivering it.
+	cfg, err := config.Load(config.Dir(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.PeerMessages = false
+	if err := config.Save(config.Dir(repo), cfg); err != nil {
+		t.Fatal(err)
+	}
+	drainers.Wait()
+
+	for _, args := range [][]string{{"help"}, {"-h"}} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := run(args, &stdout, &stderr); code != 0 {
+			t.Fatalf("%v exit %d: %s", args, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "Send a peer message to another running session (disabled in config.toml)") {
+			t.Errorf("%v output missing disabled marker:\n%s", args, stdout.String())
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"send", "7/fix", "blocked"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "peer messages are disabled in .vineyard/config.toml") {
+		t.Errorf("disabled send: code=%d stderr=%q, want disabled error", code, stderr.String())
+	}
+	if got := srv.recorded(); len(got) != 0 {
+		t.Errorf("unexpected deliveries when peer_messages = false: %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(config.Dir(repo), "inbox", "fix-111111.json")); !os.IsNotExist(err) {
+		t.Errorf("queued inbox file remained after disabling peer_messages: err=%v", err)
+	}
+}

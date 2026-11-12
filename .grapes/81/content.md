@@ -71,6 +71,7 @@ Planned changes:
 - [x] When the recipient is idle and ready for input, `vineyard send` delivers a `<peer_message>` block with `from` and `reply` attributes via bracketed `Paste` and `SendEnter`.
 - [x] When the recipient is busy (screen changing, awaiting trust/permission, holding an unsent `PendingPrompt`, or viewing/focusing a Claude Code subagent), `vineyard send` queues the message without blocking and delivers it in FIFO order once the recipient becomes ready, even with no Vineyard TUI running or attached.
 - [x] `help`, `README.md`, `AGENTS.md`, and `docs/` describe `vineyard send` and when to use Claude Code's `SendMessage` vs. `vineyard send`.
+- [x] `peer_messages` in `.vineyard/config.toml` (default `true`, editable on the `C` config screen) disables `vineyard send`, drains/discards queued messages when turned off, and marks `send` disabled in `vineyard help`.
 
 ## Verify
 Run from `/home/mboss/dev/vineyard/.vineyard/worktrees/coms-4190f5`:

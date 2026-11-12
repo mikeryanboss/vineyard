@@ -54,12 +54,6 @@ var errSessionStopped = errors.New("session is not running")
 // when the session is waiting for input or queuing for background delivery
 // while it works.
 func runSend(to, message string, stdout io.Writer) error {
-	if strings.TrimSpace(message) == "" {
-		return errors.New("message is empty")
-	}
-	if len(message) > maxMessageBytes {
-		return fmt.Errorf("message exceeds %d bytes", maxMessageBytes)
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -71,6 +65,15 @@ func runSend(to, message string, stdout io.Writer) error {
 	env, err := openSendEnv(repo)
 	if err != nil {
 		return err
+	}
+	if !env.peerMessages {
+		return errors.New("peer messages are disabled in .vineyard/config.toml")
+	}
+	if strings.TrimSpace(message) == "" {
+		return errors.New("message is empty")
+	}
+	if len(message) > maxMessageBytes {
+		return fmt.Errorf("message exceeds %d bytes", maxMessageBytes)
 	}
 	saved, err := env.store.Load()
 	if err != nil {
@@ -210,6 +213,10 @@ func runDrain(repoRoot, id string) error {
 	}
 
 	for {
+		if cfg, err := config.Load(env.dir); err == nil && !cfg.PeerMessages {
+			_, _ = d.Pop()
+			return nil
+		}
 		saved, err := env.store.Load()
 		if err != nil {
 			return err
@@ -274,13 +281,14 @@ func runDrain(repoRoot, id string) error {
 }
 
 type sendEnv struct {
-	repo        git.Repo
-	dir         string
-	worktreeDir string
-	store       session.Store
-	vineyards   *vineyards
-	terminals   map[string]tui.Terminal
-	manager     *session.Manager
+	repo         git.Repo
+	dir          string
+	worktreeDir  string
+	peerMessages bool
+	store        session.Store
+	vineyards    *vineyards
+	terminals    map[string]tui.Terminal
+	manager      *session.Manager
 }
 
 func openSendEnv(repo git.Repo) (*sendEnv, error) {
@@ -307,13 +315,14 @@ func openSendEnv(repo git.Repo) (*sendEnv, error) {
 	mgr.Older = func(protocol int) session.Terminal { return vy.Older(protocol) }
 	mgr.Protocols = vy.protocols
 	return &sendEnv{
-		repo:        repo,
-		dir:         dir,
-		worktreeDir: worktreeDir,
-		store:       session.NewStore(dir),
-		vineyards:   vy,
-		terminals:   terminals,
-		manager:     mgr,
+		repo:         repo,
+		dir:          dir,
+		worktreeDir:  worktreeDir,
+		peerMessages: cfg.PeerMessages,
+		store:        session.NewStore(dir),
+		vineyards:    vy,
+		terminals:    terminals,
+		manager:      mgr,
 	}, nil
 }
 

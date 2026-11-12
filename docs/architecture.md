@@ -149,7 +149,9 @@ the message waits in `.vineyard/inbox/<id>.json` (`internal/session/inbox.go`)
 and a detached `vineyard drain` process polls every second until the recipient
 settles or stops. Two per-session flocks (`<id>.lock` and `<id>.deliver.lock`)
 hand off ownership without stranding or duplicating messages, and
-`Store.Remove` discards any queued file.
+`Store.Remove` discards any queued file. Setting `peer_messages = false` in
+`.vineyard/config.toml` refuses `vineyard send`, discards queued messages on
+drain, and marks `send` disabled in `vineyard help`.
 
 The list row, the issue tab, its label, and the issue picker show a session's
 main issues (`mainIssues`): those whose parent is not linked too. A planner

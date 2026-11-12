@@ -280,3 +280,16 @@ func TestSettings_StatusBarToggles(t *testing.T) {
 		t.Error("enter again should turn it on")
 	}
 }
+
+func TestSettings_PeerMessagesToggles(t *testing.T) {
+	cfg := twoProfiles()
+	cfg.PeerMessages = true
+	m, _ := press(newSettings(cfg, nil), "l", "j", "j", "j", "j", "j", "j", "j", "enter")
+	if m.Config().PeerMessages {
+		t.Fatal("enter on the peer messages field should turn it off")
+	}
+	m, _ = press(m, "enter")
+	if !m.Config().PeerMessages {
+		t.Error("enter again should turn it on")
+	}
+}

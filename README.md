@@ -106,6 +106,7 @@ worktree_dir = ".vineyard/worktrees"  # relative to the repository, absolute, or
 diff_command = "hunk diff {base} --watch"  # run by enter on the Diff tab
 multiplexer = "vineyard"              # runs new sessions; or "tmux"
 status_bar = true                     # bar on attached terminals; ctrl+k toggles it
+peer_messages = true                  # let sessions message each other with vineyard send
 
 disabled_profiles = ["terminal"]     # built-in profiles not to offer
 
