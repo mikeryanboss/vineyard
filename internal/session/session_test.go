@@ -265,7 +265,7 @@ func TestStart_NamesClaudeCodeAfterTheBranch(t *testing.T) {
 		}
 	}
 	// The shell reads the quoted branch back as one word.
-	out, err := exec.Command("sh", "-c", "printf %s "+shellQuote("o'brien/fix")).Output()
+	out, err := exec.Command("sh", "-c", "printf %s "+ShellQuote("o'brien/fix")).Output()
 	if err != nil || string(out) != "o'brien/fix" {
 		t.Errorf("sh read %q, %v; want o'brien/fix", out, err)
 	}

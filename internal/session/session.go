@@ -88,6 +88,15 @@ type Session struct {
 // its worktree for running commands next to the agent.
 func (s Session) ShellName() string { return s.TmuxName + "-shell" }
 
+// Address returns the name peers address s by: its branch in a worktree when
+// set, and its ID otherwise.
+func (s Session) Address() string {
+	if !s.MainCheckout && s.Branch != "" {
+		return s.Branch
+	}
+	return s.ID
+}
+
 // newID derives a readable, unique ID from a title and creation time.
 func newID(title string, now time.Time) string {
 	return fmt.Sprintf("%s-%x", Slug(title, "session"), now.UnixNano()&0xffffff)

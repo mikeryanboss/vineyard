@@ -81,14 +81,17 @@ auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed
 server runs, whether each session's agent runs, and the ends of the logs: what
 went wrong is usually there.
 
-Claude Code sessions can message each other. Vineyard names each Claude Code
-agent after its session's branch, so an agent sees its peers as, say,
+Sessions can message each other. Vineyard names each Claude Code agent after
+its session's branch, so Claude Code peers see each other as, say,
 `71/fewer-issue-numbers`, not after the worktree's directory. `vineyard
-sessions` prints the sessions as JSON: each one's branch, status, worktree,
-the grapes issues it works on, and the names of the Claude Code agents running
-in its worktree. An agent that finds a problem in issue 71's work asks
-`vineyard sessions | jq '.[] | select(.issues | index(71)) | .agents'` whom to
-tell.
+sessions` prints the sessions as JSON: each one's program, branch, status,
+worktree, the grapes issues it works on, and the names of the Claude Code
+agents running in its worktree. An agent that finds a problem in issue 71's
+work checks `vineyard sessions | jq '.[] | select(.issues | index(71))'`: two
+Claude Code sessions message each other with Claude Code's `SendMessage` using
+`agents`, while sessions across different harnesses (such as `agy` and
+`claude`) message each other with `vineyard send <session> <message>`, where
+`<session>` is the branch or session ID.
 
 ## Configuration
 

@@ -89,12 +89,15 @@ func (s Store) Replace(session Session) error {
 	return err
 }
 
-// Remove deletes a saved session.
+// Remove deletes a saved session and any queued peer messages for it.
 func (s Store) Remove(id string) error {
 	_, err := s.Update(func(saved []Session) ([]Session, error) {
 		return slices.DeleteFunc(saved, func(o Session) bool { return o.ID == id }), nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return NewInbox(filepath.Dir(s.path)).Discard(id)
 }
 
 // Arrange saves the sessions in the order of ids. It changes no session:

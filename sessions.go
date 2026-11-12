@@ -18,9 +18,10 @@ import (
 
 // listedSession is a session as `vineyard sessions` prints it.
 type listedSession struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Branch string `json:"branch"`
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Program string `json:"program"`
+	Branch  string `json:"branch"`
 	// Status is the one Vineyard last saved.
 	Status string `json:"status"`
 	// Issues are those the TUI links the session to.
@@ -81,6 +82,7 @@ func runSessions(stdout io.Writer) error {
 		listed = append(listed, listedSession{
 			ID:       s.ID,
 			Title:    s.Title,
+			Program:  session.ProgramName(s.Program),
 			Branch:   s.Branch,
 			Status:   string(s.Status),
 			Issues:   append([]int{}, s.Issues(paths)...),

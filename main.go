@@ -96,6 +96,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if len(rest) == 3 && rest[0] == "drain" {
+		// vineyard send starts a detached drainer this way when the recipient
+		// is busy; see startDrainerProcess.
+		return runDrainCommand(rest[1], rest[2], stderr)
+	}
+	if len(rest) > 0 && rest[0] == "send" {
+		if len(rest) != 3 {
+			fmt.Fprintf(stderr, "usage: vineyard send <session> <message>\n\n")
+			writeHelp(stderr)
+			return 2
+		}
+		if err := runSend(rest[1], rest[2], stdout); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	if len(rest) > 1 {
 		fmt.Fprintf(stderr, "%s does not accept arguments\n\n", rest[0])
 		writeHelp(stderr)
@@ -442,8 +459,9 @@ FLAGS:
   -i, --issue <id>          Open at grapes issue <id>: its session, or a new one for it
 
 COMMANDS:
+  sessions                  Print the sessions as JSON: their program, issues, worktrees, and Claude Code names
+  send <session> <message>  Send a peer message to another running session
   debug                     Print the server's and sessions' state, data paths, and log ends
-  sessions                  Print the sessions as JSON: their issues, worktrees, and Claude Code names
   version                   Print the version
   help                      Show this help
 

@@ -34,6 +34,9 @@ func TestRun_CommandsAndUsageErrors(t *testing.T) {
 		{args: []string{"-h"}, code: 0, inStdout: "USAGE"},
 		{args: []string{"bogus"}, code: 2, inStderr: "Unknown command: bogus"},
 		{args: []string{"version", "extra"}, code: 2, inStderr: "does not accept arguments"},
+		{args: []string{"send"}, code: 2, inStderr: "usage: vineyard send <session> <message>"},
+		{args: []string{"send", "only-target"}, code: 2, inStderr: "usage: vineyard send <session> <message>"},
+		{args: []string{"send", "a", "b", "c"}, code: 2, inStderr: "usage: vineyard send <session> <message>"},
 		{args: []string{"--nope"}, code: 2, inStderr: "flag provided but not defined"},
 		{args: []string{"--issue", "x"}, code: 2, inStderr: "invalid value"},
 	}
@@ -143,8 +146,8 @@ func TestRun_SessionsPrintsIssuesAndAgents(t *testing.T) {
 	writeIssue("11") // not yet committed
 	store := session.NewStore(config.Dir(repo))
 	for _, s := range []session.Session{
-		{ID: "fix-1a2b3c", Title: "fix", Branch: "7/fix", Issue: 7, BaseCommit: base, Status: session.StatusRunning},
-		{ID: "old-4d5e6f", Title: "old", Branch: "3/old", Issue: 3, BaseCommit: base, Status: session.StatusPaused},
+		{ID: "fix-1a2b3c", Title: "fix", Program: "claude --model sonnet", Branch: "7/fix", Issue: 7, BaseCommit: base, Status: session.StatusRunning},
+		{ID: "old-4d5e6f", Title: "old", Program: "agy --dangerously-skip-permissions", Branch: "3/old", Issue: 3, BaseCommit: base, Status: session.StatusPaused},
 	} {
 		if err := store.Add(s); err != nil {
 			t.Fatal(err)
@@ -180,8 +183,8 @@ func TestRun_SessionsPrintsIssuesAndAgents(t *testing.T) {
 		t.Fatalf("%v:\n%s", err, stdout.String())
 	}
 	want := []listedSession{
-		{ID: "fix-1a2b3c", Title: "fix", Branch: "7/fix", Status: "running", Issues: []int{7, 9, 11}, Worktree: worktree, Agents: []string{"7/fix"}},
-		{ID: "old-4d5e6f", Title: "old", Branch: "3/old", Status: "paused", Issues: []int{3}, Worktree: filepath.Join(repo, ".vineyard", "worktrees", "old-4d5e6f"), Agents: []string{}},
+		{ID: "fix-1a2b3c", Title: "fix", Program: "claude", Branch: "7/fix", Status: "running", Issues: []int{7, 9, 11}, Worktree: worktree, Agents: []string{"7/fix"}},
+		{ID: "old-4d5e6f", Title: "old", Program: "agy", Branch: "3/old", Status: "paused", Issues: []int{3}, Worktree: filepath.Join(repo, ".vineyard", "worktrees", "old-4d5e6f"), Agents: []string{}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("sessions = %+v\nwant %+v", got, want)
