@@ -67,6 +67,7 @@ main.go
 | Subagent rows, their status, opening a subagent | `internal/subagent/` (`transcript.go` reads the transcripts, `subagent.go` the screen) | `openSubagent` in `internal/tui/app.go`, Subagents in `architecture.md` |
 | A selected subagent's tabs | `refreshShown`, `refreshTranscript`, `shownIssues`, `renderAgentRecap` in `internal/tui/app.go` | `TreeDiff` in `internal/tui/backend.go`, Subagents in `architecture.md` |
 | Releases | `.github/workflows/auto-tag.yml`, automatic on merge | Releases in `development.md` |
+| Dev container (Docker / Podman) | `.devcontainer/devcontainer.json`, `.devcontainer/Dockerfile` | Dev Container in `development.md` |
 | Re-record the README demo | `doc/vhs/demo.tape` | README Demo in `development.md` |
 
 ## Repository Map
@@ -99,6 +100,7 @@ internal/tui/testutil/     golden-file helpers and fixtures
 .grapes/                   this repository's own issues
 doc/                       README demo GIF and its VHS tape
 scripts/drive              drives a development build in tmux, for debugging and screenshots
+.devcontainer/             hardened dev container for Docker and rootless Podman
 .github/workflows/         tag each program change, release with GoReleaser
 ```
 

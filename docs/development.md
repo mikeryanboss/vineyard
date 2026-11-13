@@ -11,6 +11,34 @@ go build .
 Some tests need `git` and `tmux`. The tmux tests use a throwaway socket and
 skip themselves when tmux is not installed.
 
+## Dev Container
+
+`.devcontainer/` builds a hardened Debian Trixie image with Go 1.25, Git 2.49+
+(`--relative-paths` worktrees stay portable between container and host), `tmux`,
+`gh`, `jq`, `rg`, `fd`, `grapes`, `vineyard`, `hunk`, `freeze`, Claude Code
+(`claude`), and Antigravity CLI (`agy`).
+
+The container runs as `vscode` (`UID 1000`, `CapEff=0`) with `--cap-drop=ALL`
+and `no-new-privileges:true` (dropping all Linux capabilities and blocking
+`sudo`/setuid escalation inside the container). It mounts only the repository
+workspace plus isolated named volumes for Go caches and agent/GitHub state
+(`~/.claude`, `~/.gemini`, `~/.config/gh`), and forwards `GH_TOKEN`,
+`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and
+`CONTEXT7_API_KEY` from the host environment when set.
+
+`.devcontainer/devcontainer.json` stays compatible with both Docker and rootless
+Podman:
+
+- **Docker:** works as-is (`devcontainer up --workspace-folder .`).
+- **Rootless Podman:** set `"dev.containers.dockerPath": "podman"` in your IDE
+  user settings, or pass `--docker-path podman` to every `devcontainer` CLI
+  command (`devcontainer up --docker-path podman --workspace-folder .`). The Dev
+  Containers CLI injects `--userns=keep-id` automatically for single-container
+  non-root configs. Ensure `/etc/subuid` and `/etc/subgid` contain a subordinate
+  range for your user, and pass `--userns=keep-id` (or set `userns = "keep-id"`
+  under `[containers]` in `~/.config/containers/containers.conf`) when invoking
+  `podman run` directly.
+
 ## Running a Development Build
 
 Vineyard keeps its data in the repository it runs in, so run development

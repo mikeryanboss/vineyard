@@ -1,0 +1,42 @@
+{
+	"name": "Vineyard",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"containerUser": "vscode",
+	"remoteUser": "vscode",
+	"runArgs": [
+		"--cap-drop=ALL",
+		"--security-opt=no-new-privileges:true"
+	],
+	"mounts": [
+		"source=vineyard-go-mod-cache,target=/go/pkg/mod,type=volume",
+		"source=vineyard-go-build-cache,target=/home/vscode/.cache/go-build,type=volume",
+		"source=vineyard-claude-config,target=/home/vscode/.claude,type=volume",
+		"source=vineyard-gemini-config,target=/home/vscode/.gemini,type=volume",
+		"source=vineyard-gh-config,target=/home/vscode/.config/gh,type=volume"
+	],
+	"containerEnv": {
+		"CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+	},
+	"remoteEnv": {
+		"PATH": "/home/vscode/.local/bin:/home/vscode/.gemini/antigravity-cli/bin:/home/vscode/.hunk/bin:${containerEnv:PATH}",
+		"GH_TOKEN": "${localEnv:GH_TOKEN}",
+		"GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}",
+		"ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+		"GEMINI_API_KEY": "${localEnv:GEMINI_API_KEY}",
+		"GOOGLE_API_KEY": "${localEnv:GOOGLE_API_KEY}",
+		"CONTEXT7_API_KEY": "${localEnv:CONTEXT7_API_KEY}"
+	},
+	"postCreateCommand": "go mod download",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.go"
+			],
+			"settings": {
+				"go.useLanguageServer": true
+			}
+		}
+	}
+}
