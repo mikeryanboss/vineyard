@@ -165,6 +165,11 @@ type outerTerm struct {
 
 func attachTestTerm(t *testing.T, s *Server, name string, showBar bool) *outerTerm {
 	t.Helper()
+	return attachTestTermEnv(t, s, name, showBar, []string{"TERM=xterm-256color"})
+}
+
+func attachTestTermEnv(t *testing.T, s *Server, name string, showBar bool, env []string) *outerTerm {
+	t.Helper()
 	term, err := s.terminal(name)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +213,7 @@ func attachTestTerm(t *testing.T, s *Server, name string, showBar bool) *outerTe
 	b := newBar(showBar, "Test", nil, []string{"ctrl+q"}, nil, true)
 	go func() {
 		defer close(exited)
-		o.done <- attach(s, term, b, tty, tty, []string{"TERM=xterm-256color"}, size{cols, rows}, nil, stop)
+		o.done <- attach(s, term, b, tty, tty, env, size{cols, rows}, nil, stop)
 	}()
 	t.Cleanup(func() {
 		close(stop)
@@ -226,10 +231,40 @@ func (o *outerTerm) screen() string {
 	return o.emu.String()
 }
 
+func (o *outerTerm) render() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.emu.Render()
+}
+
 func (o *outerTerm) hasMode(m ansi.Mode) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.modes[m]
+}
+
+func TestAttachKeepsColours(t *testing.T) {
+	s := New()
+	start(t, s, "a", `printf '\033[31mred\033[38;2;10;20;30mtrue\033[0m plain\n'; sleep 5`)
+	waitFor(t, func() (string, error) { return s.Capture("a") }, "plain")
+
+	o := attachTestTermEnv(t, s, "a", true, []string{"TERM=xterm-256color", "COLORTERM=truecolor"})
+	waitFor(t, func() (string, error) { return o.screen(), nil }, "plain")
+	got := o.render()
+	for _, want := range []string{"\x1b[31m", "38;2;10;20;30", "48;5;"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("attached render missing colour %q:\n%q", want, got)
+		}
+	}
+
+	noColor := attachTestTermEnv(t, s, "a", true, []string{"TERM=xterm-256color", "COLORTERM=truecolor", "NO_COLOR=1"})
+	waitFor(t, func() (string, error) { return noColor.screen(), nil }, "plain")
+	plain := noColor.render()
+	for _, unwanted := range []string{"\x1b[31m", "38;2;", "48;5;"} {
+		if strings.Contains(plain, unwanted) {
+			t.Errorf("NO_COLOR attached render kept colour %q:\n%q", unwanted, plain)
+		}
+	}
 }
 
 // On the primary screen, turning the mouse wheel scrolls the emulator's
