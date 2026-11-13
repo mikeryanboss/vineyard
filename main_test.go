@@ -290,9 +290,10 @@ func TestVineyards(t *testing.T) {
 		t.Error("a terminal runs on protocol 0's socket, where nothing listens")
 	}
 
-	serveFake(t, filepath.Join(dir, "vy-p7"), vterm.Protocol())
+	other := vterm.Protocol() + 1
+	serveFake(t, filepath.Join(dir, fmt.Sprintf("vy-p%d", other)), vterm.Protocol())
 	// Attaching gets as far as needing a terminal.
-	if err := v.Older(7).Attach("a", session.Attachment{}).Run(); err == nil || errors.Is(err, session.ErrOlderMultiplexer) {
+	if err := v.Older(other).Attach("a", session.Attachment{}).Run(); err == nil || errors.Is(err, session.ErrOlderMultiplexer) {
 		t.Errorf("attaching on a multiplexer that speaks this build's protocol: err = %v, want only that it needs a terminal", err)
 	}
 }

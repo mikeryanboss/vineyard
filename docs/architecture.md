@@ -474,10 +474,9 @@ them.
   of another protocol to `vineyards.Older`, which returns:
   - a client, when that server speaks this build's protocol;
   - `vterm.NewOlderClient`, when its calls match this build's
-    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 6 lack `Wheel`, which
-    `Client.Wheel` treats as unhandled, as `Client.Info` treats a missing
-    `List`). It makes every call, so the session shows its screen and status
-    and can be killed;
+    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 7 differ only in
+    attaching). It makes every call, so the session shows its screen and
+    status and can be killed;
   - otherwise `olderVineyard`, which asks only `Version` and `Exists`, through
     `Client.Holds`, and fails every other call but attaching with
     `session.ErrOlderMultiplexer`. The TUI keeps such a session's status and

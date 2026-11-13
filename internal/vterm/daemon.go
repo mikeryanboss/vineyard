@@ -28,8 +28,7 @@ const protocol = 7
 
 // sameCallsSince is the oldest protocol whose calls, all but attaching, match
 // this build's, so that a Vineyard uses an older server of it or later for all
-// but attaching (NewOlderClient). Protocols 1 to 6 lack Wheel, which
-// Client.Wheel treats as unhandled, as Client.Info treats a missing List.
+// but attaching (NewOlderClient). Protocols 1 to 7 differ only in attaching.
 // Raise it to protocol with any change to a call's arguments or results:
 // older servers then only say whether their terminals run.
 const sameCallsSince = 1
