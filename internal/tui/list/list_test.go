@@ -1,6 +1,7 @@
 package list_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -277,5 +278,54 @@ func TestList_ScrollsTallEntriesIntoView(t *testing.T) {
 	}
 	if view := testutil.StripANSI(m.View()); !strings.Contains(view, "Docs pass") {
 		t.Errorf("the selected session is scrolled out of view:\n%s", view)
+	}
+}
+
+func TestList_DragDelta(t *testing.T) {
+	m := newList(36, 20)
+	if got := m.DragDelta(2); got != 0 {
+		t.Fatalf("at start: DragDelta(2) = %d, want 0", got)
+	}
+	if got := m.DragDelta(5); got != 1 {
+		t.Fatalf("onto second entry: DragDelta(5) = %d, want 1", got)
+	}
+
+	// Across a 10-line expanded entry and a 3-line entry, swapping at the
+	// threshold must settle at the same pointer y without oscillating.
+	items := withSubagents()
+	m = list.New(common.NewTheme(true)).SetItems(items).SetSize(36, 25)
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 4}) // expand login-1 (height 10)
+	if got := m.DragDelta(11); got != 0 {
+		t.Fatalf("still inside expanded entry: DragDelta(11) = %d, want 0", got)
+	}
+	if got := m.DragDelta(12); got != 1 {
+		t.Fatalf("onto next entry below expanded: DragDelta(12) = %d, want 1", got)
+	}
+	items = slices.Clone(items)
+	items[0], items[1] = items[1], items[0]
+	m = m.SetItems(items) // login-1 is now index 1, tests-2 (height 3) is index 0
+	if got := m.DragDelta(12); got != 0 {
+		t.Fatalf("after swapping past tests-2: DragDelta(12) = %d, want 0", got)
+	}
+	// Now swap tests-2 above expanded login-1 (index 1, height 10) by dragging up.
+	items = slices.Clone(items)
+	items[0], items[1] = items[1], items[0] // login-1 back at 0 (height 10), tests-2 at 1
+	m = m.SetItems(items).Select("tests-2")
+	if got := m.DragDelta(8); got != 0 {
+		t.Fatalf("below midpoint of expanded entry: DragDelta(8) = %d, want 0", got)
+	}
+	if got := m.DragDelta(6); got != -1 {
+		t.Fatalf("above midpoint of expanded entry: DragDelta(6) = %d, want -1", got)
+	}
+	items = slices.Clone(items)
+	items[0], items[1] = items[1], items[0]
+	m = m.SetItems(items)
+	if got := m.DragDelta(6); got != 0 {
+		t.Fatalf("after swapping above expanded entry: DragDelta(6) = %d, want 0", got)
+	}
+
+	empty := list.New(common.NewTheme(true)).SetSize(16, 10).View()
+	if got := len(strings.Split(empty, "\n")); got != 10 {
+		t.Errorf("empty list at width 16 rendered %d lines, want 10:\n%s", got, empty)
 	}
 }

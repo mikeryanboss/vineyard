@@ -293,3 +293,31 @@ func TestSettings_PeerMessagesToggles(t *testing.T) {
 		t.Error("enter again should turn it on")
 	}
 }
+
+func TestSettings_EditListWidth(t *testing.T) {
+	m, _ := press(newSettings(twoProfiles(), nil), "l", "j", "j", "j", "j", "j", "j", "j", "j", "enter")
+	for range len("auto") {
+		m, _ = m.Update(testutil.Key("backspace"))
+	}
+	m = typeText(m, "24")
+	m, _ = press(m, "enter")
+	if m.Config().ListWidth != 24 || !strings.Contains(testutil.StripANSI(m.View()), "24") {
+		t.Fatalf("list width = %d, view:\n%s", m.Config().ListWidth, testutil.StripANSI(m.View()))
+	}
+
+	m, _ = press(m, "enter", "backspace", "backspace")
+	m = typeText(m, "10")
+	m, _ = press(m, "enter")
+	if !strings.Contains(testutil.StripANSI(m.View()), "at least 16") {
+		t.Fatalf("invalid width did not report minimum:\n%s", testutil.StripANSI(m.View()))
+	}
+	m, _ = press(m, "esc")
+	if m.Config().ListWidth != 24 {
+		t.Fatalf("esc should preserve 24, got %d", m.Config().ListWidth)
+	}
+
+	m, _ = press(m, "enter", "backspace", "backspace", "enter")
+	if m.Config().ListWidth != 0 || !strings.Contains(testutil.StripANSI(m.View()), "auto") {
+		t.Errorf("cleared width = %d, want 0 (auto):\n%s", m.Config().ListWidth, testutil.StripANSI(m.View()))
+	}
+}
