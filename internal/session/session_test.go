@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -411,6 +412,138 @@ func TestResume_ClaudeContinuesItsConversation(t *testing.T) {
 		if got := term.programs[s.TmuxName]; got != tt.want {
 			t.Errorf("%s: started %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestResume_AgyContinuesItsConversation(t *testing.T) {
+	m, term := newTestManager(t)
+	gemini := t.TempDir()
+	t.Setenv("ANTIGRAVITY_GEMINI_DIR", gemini)
+	agyDir := filepath.Join(gemini, "antigravity-cli")
+	convDir := filepath.Join(agyDir, "conversations")
+	if err := os.MkdirAll(convDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	program := "agy --dangerously-skip-permissions"
+	s, err := m.Start(m.New(NewOptions{Title: "target", Program: program, BranchPrefix: "test/", WorktreeDir: worktrees(m)}), 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sibling, err := m.Start(m.New(NewOptions{Title: "sibling", Program: program, BranchPrefix: "test/", WorktreeDir: worktrees(m)}), 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	appendHistory := func(display, workspace, conversationID string) {
+		t.Helper()
+		entry := map[string]any{
+			"display":   display,
+			"timestamp": 1794606231280,
+			"workspace": workspace,
+		}
+		if conversationID != "" {
+			entry["conversationId"] = conversationID
+		}
+		line, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.OpenFile(filepath.Join(agyDir, "history.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.Write(append(line, '\n')); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resumeStopped := func(sess Session) Session {
+		t.Helper()
+		delete(term.live, sess.TmuxName)
+		resumed, err := m.Resume(restore(t, m, sess)[0], 80, 24)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resumed
+	}
+
+	// 1. No history.jsonl yet -> launches afresh.
+	resumed := resumeStopped(s)
+	if got := term.programs[s.TmuxName]; got != program {
+		t.Errorf("no history: started %q, want %q", got, program)
+	}
+
+	// 2. Conversations in parent <repo> and sibling worktree, plus commands
+	// without conversationId in this worktree, must be ignored.
+	writeFile(t, convDir, "parent-id.db", "")
+	writeFile(t, convDir, "sibling-id.db", "")
+	appendHistory("in parent", m.Repo.Root, "parent-id")
+	appendHistory("in sibling", sibling.WorktreePath, "sibling-id")
+	appendHistory("/help", s.WorktreePath, "")
+	resumed = resumeStopped(s)
+	if got := term.programs[s.TmuxName]; got != program {
+		t.Errorf("parent/sibling only: started %q, want %q", got, program)
+	}
+
+	// 3. Resumes latest conversation with a .db on disk for exact WorktreePath,
+	// even if the session stopped before a status poll recorded s.Conversation,
+	// and across large prompts (>64 KB) and pause -> resume cycles.
+	const latestID = "312243e4-4e39-47dc-8350-e9dc121fbcf5"
+	writeFile(t, convDir, "older-id.db", "")
+	writeFile(t, convDir, latestID+".db", "")
+	appendHistory(strings.Repeat("x", 70*1024), s.WorktreePath, "older-id")
+	appendHistory("latest prompt", s.WorktreePath, latestID)
+	appendHistory("another sibling prompt", sibling.WorktreePath, "sibling-id")
+	appendHistory("/status", s.WorktreePath, "")
+
+	resumed = resumeStopped(s)
+	wantLatest := program + " --conversation '" + latestID + "'"
+	if got := term.programs[s.TmuxName]; got != wantLatest {
+		t.Errorf("stopped with history: started %q, want %q", got, wantLatest)
+	}
+	if resumed.Conversation != latestID {
+		t.Errorf("resumed.Conversation = %q, want %q", resumed.Conversation, latestID)
+	}
+
+	paused, err := m.Pause(resumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedFromPause, err := m.Resume(restore(t, m, paused)[0], 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := term.programs[s.TmuxName]; got != wantLatest {
+		t.Errorf("paused -> resumed: started %q, want %q", got, wantLatest)
+	}
+	if resumedFromPause.Conversation != latestID {
+		t.Errorf("resumedFromPause.Conversation = %q, want %q", resumedFromPause.Conversation, latestID)
+	}
+
+	// 4. Falls back to launchCommand when the latest conversation's .db file
+	// does not exist on disk (never passing --continue or -c, nor reusing
+	// older or parent/sibling .db files).
+	appendHistory("missing db", s.WorktreePath, "missing-db")
+	resumed = resumeStopped(s)
+	if got := term.programs[s.TmuxName]; got != program {
+		t.Errorf("missing .db: started %q, want %q", got, program)
+	}
+
+	// 5. Saved s.Conversation acts as fallback when history.jsonl has no entry.
+	if err := os.Remove(filepath.Join(agyDir, "history.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	s.Conversation = "older-id"
+	resumed = resumeStopped(s)
+	if got, want := term.programs[s.TmuxName], program+" --conversation 'older-id'"; got != want {
+		t.Errorf("saved fallback with .db: started %q, want %q", got, want)
+	}
+	s.Conversation = "missing-db"
+	resumed = resumeStopped(s)
+	if got := term.programs[s.TmuxName]; got != program {
+		t.Errorf("saved fallback without .db: started %q, want %q", got, program)
 	}
 }
 

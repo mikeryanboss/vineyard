@@ -52,6 +52,9 @@ type Backend interface {
 	// Subagents reads what Claude Code's transcripts say about the subagents
 	// of s's conversation.
 	Subagents(s session.Session) (subagent.Conversation, error)
+	// Conversation reads the ID of the conversation s is in, for agents
+	// whose conversations Vineyard resumes without subagent transcripts.
+	Conversation(s session.Session) (string, error)
 	// SubagentEvents reads the condensed transcript of s's subagent id.
 	SubagentEvents(s session.Session, id string) ([]subagent.Event, error)
 	// Worktree returns the root of the git worktree holding dir, or "" when
@@ -225,6 +228,13 @@ func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error)
 		return subagent.Conversation{}, err
 	}
 	return b.Transcripts.Load(recap.Dir(dir, s.WorktreePath), created.Add(time.Second))
+}
+
+func (b LiveBackend) Conversation(s session.Session) (string, error) {
+	if session.ProgramName(s.Program) != "agy" {
+		return "", nil
+	}
+	return session.AgyConversation(s.WorktreePath)
 }
 
 func (b LiveBackend) SubagentEvents(s session.Session, id string) ([]subagent.Event, error) {

@@ -46,7 +46,13 @@ see Multiplexers per Session):
   the leading Vineyard saves the ID of the conversation the subagent rows
   are read from (Subagents below). Without a saved ID, or once its
   transcript is gone, the plain program starts: `claude --resume` exits at
-  once for a conversation it cannot find.
+  once for a conversation it cannot find. Antigravity CLI (`agy`) restarts
+  with `--conversation <id>` while `<gemini-dir>/antigravity-cli/conversations/<id>.db`
+  (`$ANTIGRAVITY_GEMINI_DIR`, default `~/.gemini`) is on disk, resolving `<id>`
+  from the latest entry in `history.jsonl` whose `workspace` matches
+  `WorktreePath` exactly and has a non-empty `conversationId` (and also saving
+  it in `Conversation` on leader status polls) rather than `agy --continue`,
+  which falls back to parent and child directories.
 - `Kill` stops everything and removes the worktree. The checked-out branch is
   deleted only when it has no commits beyond its base. A detached HEAD has no
   branch, so `Kill` deletes none, not even the one saved in the session. When

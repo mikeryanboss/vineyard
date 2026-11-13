@@ -51,7 +51,7 @@ Run `vineyard` inside a git repository.
 | `T` | Start a new terminal session, the `terminal` profile, and attach to it |
 | `s` | Commit all changes and push the branch |
 | `c` | Check out: commit, stop the agent, remove the worktree, keep the branch |
-| `r` | Resume a checked-out or stopped session; Claude Code continues its conversation |
+| `r` | Resume a checked-out or stopped session; Claude Code and Antigravity CLI continue their conversation |
 | `D` | Kill the session; a branch with commits is kept |
 | `a` | Toggle auto-yes, which accepts the agent's permission prompts |
 | `R` | Rename the session; its branch and worktree keep their names |
