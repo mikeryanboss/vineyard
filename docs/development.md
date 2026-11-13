@@ -24,7 +24,11 @@ and `no-new-privileges:true` (dropping all Linux capabilities and blocking
 workspace plus isolated named volumes for Go caches and agent/GitHub state
 (`~/.claude`, `~/.gemini`, `~/.config/gh`), and forwards `GH_TOKEN`,
 `GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and
-`CONTEXT7_API_KEY` from the host environment when set.
+`CONTEXT7_API_KEY` from the host environment when set. Inside the container, Git
+rewrites `git@github.com:` remotes to `https://github.com/` and authenticates
+through `gh auth git-credential`, so a single `gh auth login` (or `GH_TOKEN`)
+covers both `git push` and `gh` without exposing host SSH keys or altering
+`.git/config`.
 
 `.devcontainer/devcontainer.json` stays compatible with both Docker and rootless
 Podman:

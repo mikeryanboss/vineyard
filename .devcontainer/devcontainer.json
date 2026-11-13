@@ -29,6 +29,7 @@
 		"CONTEXT7_API_KEY": "${localEnv:CONTEXT7_API_KEY}"
 	},
 	"postCreateCommand": "go mod download",
+	"postStartCommand": "git config --global --replace-all url.https://github.com/.insteadOf git@github.com: && git config --global --add url.https://github.com/.insteadOf ssh://git@github.com/ && (gh auth setup-git --hostname github.com 2>/dev/null || true)",
 	"customizations": {
 		"vscode": {
 			"extensions": [

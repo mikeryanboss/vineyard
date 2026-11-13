@@ -59,6 +59,14 @@ RUN GOPATH=/tmp/go-install GOCACHE=/tmp/go-cache GOBIN=/usr/local/bin \
     && mkdir -p /go/pkg/mod \
     && chown -R vscode:vscode /go
 
+# Route GitHub SSH remotes over HTTPS via `gh` inside the container without touching .git/config.
+RUN git config --system --add url."https://github.com/".insteadOf "git@github.com:" \
+    && git config --system --add url."https://github.com/".insteadOf "ssh://git@github.com/" \
+    && git config --system --add credential."https://github.com".helper "" \
+    && git config --system --add credential."https://github.com".helper "!/usr/bin/gh auth git-credential" \
+    && git config --system --add credential."https://gist.github.com".helper "" \
+    && git config --system --add credential."https://gist.github.com".helper "!/usr/bin/gh auth git-credential"
+
 USER vscode
 ENV HOME=/home/vscode
 ENV PATH="/home/vscode/.local/bin:/home/vscode/.gemini/antigravity-cli/bin:/home/vscode/.hunk/bin:/usr/local/go/bin:/go/bin:/usr/local/bin:/usr/bin:/bin"
