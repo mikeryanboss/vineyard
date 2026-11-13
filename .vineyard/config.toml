@@ -3,7 +3,10 @@ branch_prefix = 'mboss/'
 auto_yes = false
 worktree_dir = '.vineyard/worktrees'
 diff_command = 'hunk diff {base} --watch'
+multiplexer = 'vineyard'
+status_bar = true
+peer_messages = true
 
 [[profiles]]
-name = 'claude'
-program = 'claude'
+name = 'agy'
+program = 'agy --dangerously-skip-permissions'
