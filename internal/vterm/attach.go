@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/charmbracelet/colorprofile"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
@@ -114,7 +115,7 @@ func attach(s *Server, t *terminal, b *bar, in, out *os.File, env []string, init
 	b.sample(s)
 	w := newWriter(out)
 	defer close(w.frames)
-	scr := newScreen(env)
+	scr := newScreen(out, env)
 	t.mu.Lock()
 	scr.open(t, b)
 	t.mu.Unlock()
@@ -390,9 +391,11 @@ type screen struct {
 	scroll, history int
 }
 
-func newScreen(env []string) *screen {
+func newScreen(tty *os.File, env []string) *screen {
 	out := new(bytes.Buffer)
-	return &screen{out: out, renderer: uv.NewTerminalRenderer(out, env)}
+	r := uv.NewTerminalRenderer(out, env)
+	r.SetColorProfile(colorprofile.Detect(tty, env))
+	return &screen{out: out, renderer: r}
 }
 
 // take returns what was rendered since the last take.
