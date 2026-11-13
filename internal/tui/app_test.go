@@ -177,6 +177,11 @@ func (f *fakeBackend) Subagents(s session.Session) (subagent.Conversation, error
 	defer f.mu.Unlock()
 	return f.conversation, nil
 }
+func (f *fakeBackend) Conversation(s session.Session) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.conversation.ID, nil
+}
 func (f *fakeBackend) SubagentEvents(s session.Session, id string) ([]subagent.Event, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -647,6 +652,40 @@ func TestApp_LeaderSavesTheConversationToResume(t *testing.T) {
 	}
 	if want := []string{"first", "cleared"}; !slices.Equal(got, want) {
 		t.Errorf("saved conversations %q, want each new one once: %q", got, want)
+	}
+}
+
+func TestApp_StatusPollSavesAgyConversation(t *testing.T) {
+	agy := session.Session{
+		ID:      "agy-1",
+		Title:   "Agy session",
+		Program: "agy --dangerously-skip-permissions",
+		Status:  session.StatusRunning,
+	}
+	m, backend := newTestModel(t, []session.Session{agy})
+	backend.screen = agentScreen
+	backend.conversation = running("subagent row")
+	backend.conversation.ID = "agy-conv-1"
+	before := len(backend.saved)
+
+	backend.follower = true
+	m = send(m, statusTickMsg{})
+	if len(backend.saved) != before || m.sessions[0].Conversation != "" {
+		t.Fatalf("a follower must leave saving the agy conversation to the leader (saved %d -> %d, conv %q)",
+			before, len(backend.saved), m.sessions[0].Conversation)
+	}
+
+	backend.follower = false
+	m = send(m, statusTickMsg{})
+	m = send(m, statusTickMsg{})
+	if m.sessions[0].Conversation != "agy-conv-1" {
+		t.Errorf("Conversation = %q, want %q", m.sessions[0].Conversation, "agy-conv-1")
+	}
+	if len(backend.saved) != before+1 {
+		t.Errorf("saved %d times, want 1", len(backend.saved)-before)
+	}
+	if view := screen(m); contains(view, "▸") || contains(view, "subagent row") {
+		t.Errorf("agy session must not show Claude subagent rows:\n%s", view)
 	}
 }
 

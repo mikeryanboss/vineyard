@@ -77,8 +77,8 @@ type Session struct {
 	// with no worktree or branch of its own. Check out and push refuse it,
 	// and killing it only stops its program.
 	MainCheckout bool `json:"main_checkout,omitempty"`
-	// Conversation is the ID of the Claude Code conversation the agent was
-	// last seen in, which Resume continues.
+	// Conversation is the ID of the conversation the agent was last seen in,
+	// which Resume continues.
 	Conversation string `json:"conversation,omitempty"`
 	// CreatedAt is when the session was created.
 	CreatedAt time.Time `json:"created_at"`

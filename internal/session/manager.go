@@ -1,8 +1,12 @@
 package session
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -273,8 +277,8 @@ func (m *Manager) Pause(s Session) (Session, error) {
 
 // Resume recreates a paused session's worktree from its branch, if needed,
 // and relaunches its program. It also restarts stopped sessions, whose
-// worktree, and any uncommitted work in it, is still on disk. Claude Code
-// continues the conversation the agent was last seen in.
+// worktree, and any uncommitted work in it, is still on disk. Claude Code and
+// Antigravity CLI continue the conversation the agent was last seen in.
 func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 	if s.Multiplexer == config.MultiplexerVineyard && s.Protocol != m.Protocol {
 		// The agent restarts on this Vineyard's multiplexer, unless it
@@ -301,12 +305,15 @@ func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 		}
 	}
 	if !terminal.Exists(s.TmuxName) {
-		program, err := resumeCommand(s)
+		program, conversation, err := resumeCommand(s)
 		if err != nil {
 			return s, err
 		}
 		if err := terminal.Start(s.TmuxName, s.WorktreePath, program, width, height); err != nil {
 			return s, err
+		}
+		if conversation != "" {
+			s.Conversation = conversation
 		}
 	}
 	s.Status = StatusRunning
@@ -332,25 +339,117 @@ func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// resumeCommand is the command that relaunches s's program. For Claude Code
-// it resumes s.Conversation while that conversation's transcript is on disk:
-// `claude --resume` exits at once when it finds none, as after Claude Code
-// cleaned up old transcripts, and the session could never restart.
-func resumeCommand(s Session) (string, error) {
-	if ProgramName(s.Program) != "claude" || s.Conversation == "" {
-		return launchCommand(s), nil
+// resumeCommand is the command that relaunches s's program, and the
+// conversation ID it resumes. Claude Code and Antigravity CLI resume their
+// conversation while its file is on disk: `claude --resume` exits at once
+// when it finds none, as after Claude Code cleaned up old transcripts, and
+// `agy --continue` falls back to parent and child directories, which would
+// cross main-checkout and worktree sessions.
+func resumeCommand(s Session) (program, conversation string, err error) {
+	switch ProgramName(s.Program) {
+	case "claude":
+		if s.Conversation == "" {
+			return launchCommand(s), "", nil
+		}
+		projects, err := recap.ProjectsDir()
+		if err != nil {
+			return "", "", err
+		}
+		transcript := filepath.Join(recap.Dir(projects, s.WorktreePath), s.Conversation+".jsonl")
+		if _, err := os.Stat(transcript); errors.Is(err, fs.ErrNotExist) {
+			return launchCommand(s), "", nil
+		} else if err != nil {
+			return "", "", err
+		}
+		return s.Program + " --resume " + s.Conversation, s.Conversation, nil
+	case "agy":
+		dir, err := antigravityDir()
+		if err != nil {
+			return "", "", err
+		}
+		id, err := agyConversation(dir, s.WorktreePath)
+		if err != nil {
+			return "", "", err
+		}
+		if id == "" {
+			id = s.Conversation
+		}
+		if id == "" {
+			return launchCommand(s), "", nil
+		}
+		db := filepath.Join(dir, "conversations", id+".db")
+		if _, err := os.Stat(db); errors.Is(err, fs.ErrNotExist) {
+			return launchCommand(s), "", nil
+		} else if err != nil {
+			return "", "", err
+		}
+		return s.Program + " --conversation " + ShellQuote(id), id, nil
+	default:
+		return launchCommand(s), "", nil
 	}
-	projects, err := recap.ProjectsDir()
+}
+
+// antigravityDir returns where Antigravity CLI keeps its history and
+// conversations.
+func antigravityDir() (string, error) {
+	if dir := os.Getenv("ANTIGRAVITY_GEMINI_DIR"); dir != "" {
+		return filepath.Join(dir, "antigravity-cli"), nil
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	transcript := filepath.Join(recap.Dir(projects, s.WorktreePath), s.Conversation+".jsonl")
-	if _, err := os.Stat(transcript); errors.Is(err, fs.ErrNotExist) {
-		return launchCommand(s), nil
-	} else if err != nil {
+	return filepath.Join(home, ".gemini", "antigravity-cli"), nil
+}
+
+// AgyConversation returns the ID of the latest Antigravity CLI conversation
+// recorded in history.jsonl for worktree, or "" when there is none.
+func AgyConversation(worktree string) (string, error) {
+	dir, err := antigravityDir()
+	if err != nil {
 		return "", err
 	}
-	return s.Program + " --resume " + s.Conversation, nil
+	return agyConversation(dir, worktree)
+}
+
+func agyConversation(dir, worktree string) (string, error) {
+	path := filepath.Join(dir, "history.jsonl")
+	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	var id string
+	for n := 1; ; n++ {
+		raw, readErr := r.ReadBytes('\n')
+		if readErr != nil && readErr != io.EOF {
+			return "", fmt.Errorf("%s: %w", path, readErr)
+		}
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) > 0 && bytes.Contains(trimmed, []byte(`"conversationId"`)) {
+			var entry struct {
+				Workspace      string `json:"workspace"`
+				ConversationID string `json:"conversationId"`
+			}
+			if err := json.Unmarshal(trimmed, &entry); err != nil {
+				if readErr == io.EOF {
+					break // a line still being written at EOF
+				}
+				return "", fmt.Errorf("%s:%d: %w", path, n, err)
+			}
+			if entry.Workspace == worktree && entry.ConversationID != "" {
+				id = entry.ConversationID
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+	}
+	return id, nil
 }
 
 // KillResult reports what Kill left behind.

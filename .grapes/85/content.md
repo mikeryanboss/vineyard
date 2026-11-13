@@ -18,12 +18,12 @@ Record `s.Conversation` during leader status polling via `Backend.Conversation` 
 - `docs/architecture.md` and `README.md`: document `agy` conversation resume behavior.
 
 ## Acceptance Criteria
-- [ ] `ANTIGRAVITY_GEMINI_DIR` overrides `~/.gemini` when resolving `<gemini-dir>/antigravity-cli/`.
-- [ ] Scanning `history.jsonl` matches `workspace == s.WorktreePath` exactly, skips lines without a non-empty `conversationId`, handles large prompt lines (>64 KB), and ignores conversations from parent `<repo>` and sibling worktrees.
-- [ ] `Manager.Resume` for `ProgramName(s.Program) == "agy"` relaunches with `s.Program + " --conversation " + ShellQuote(id)` when `<gemini-dir>/antigravity-cli/conversations/<id>.db` exists on disk, even if `s.Conversation` was not yet populated before stopping, and records the resumed ID on `s.Conversation`.
-- [ ] `Manager.Resume` falls back to `launchCommand(s)` when no matching conversation or `.db` file exists on disk, and never uses `agy --continue` or `-c`.
-- [ ] Leader status polling in `internal/tui/app.go` records `s.Conversation` for `agy` sessions via `Backend.Conversation` without rendering Claude subagents.
-- [ ] Unit tests in `internal/session/session_test.go` and `internal/tui/app_test.go` cover these behaviors, and `docs/architecture.md` and `README.md` are updated.
+- [x] `ANTIGRAVITY_GEMINI_DIR` overrides `~/.gemini` when resolving `<gemini-dir>/antigravity-cli/`.
+- [x] Scanning `history.jsonl` matches `workspace == s.WorktreePath` exactly, skips lines without a non-empty `conversationId`, handles large prompt lines (>64 KB), and ignores conversations from parent `<repo>` and sibling worktrees.
+- [x] `Manager.Resume` for `ProgramName(s.Program) == "agy"` relaunches with `s.Program + " --conversation " + ShellQuote(id)` when `<gemini-dir>/antigravity-cli/conversations/<id>.db` exists on disk, even if `s.Conversation` was not yet populated before stopping, and records the resumed ID on `s.Conversation`.
+- [x] `Manager.Resume` falls back to `launchCommand(s)` when no matching conversation or `.db` file exists on disk, and never uses `agy --continue` or `-c`.
+- [x] Leader status polling in `internal/tui/app.go` records `s.Conversation` for `agy` sessions via `Backend.Conversation` without rendering Claude subagents.
+- [x] Unit tests in `internal/session/session_test.go` and `internal/tui/app_test.go` cover these behaviors, and `docs/architecture.md` and `README.md` are updated.
 
 ## Verify
 Run from `/var/home/mboss/dev/vineyard/.vineyard/worktrees/agy-resume-c4dd5e`:

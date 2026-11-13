@@ -822,9 +822,14 @@ func (m Model) statusCmd() tea.Cmd {
 					permission: session.AwaitingPermission(s.Program, screen),
 					trust:      session.AwaitingTrust(screen),
 				}
-				if isClaude(s) {
+				switch session.ProgramName(s.Program) {
+				case "claude":
 					results[i].subagents, _ = subagent.Parse(screen)
 					results[i].conversation, results[i].conversationErr = backend.Subagents(s)
+				case "agy":
+					if lead {
+						results[i].conversation.ID, results[i].conversationErr = backend.Conversation(s)
+					}
 				}
 			}()
 		}
@@ -1861,7 +1866,11 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 		}
 		m.seeSubagents(s.ID, r.subagents)
 		if r.conversationErr != nil {
-			cmds = append(cmds, m.setError(fmt.Errorf("reading %s's subagents: %w", s.Title, r.conversationErr)))
+			what := "conversation"
+			if isClaude(s) {
+				what = "subagents"
+			}
+			cmds = append(cmds, m.setError(fmt.Errorf("reading %s's %s: %w", s.Title, what, r.conversationErr)))
 		}
 		m.conversations[s.ID] = r.conversation
 		previous, seen := m.hashes[s.ID]
