@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -303,6 +304,7 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 		WorktreeDir:      "../worktrees",
 		Templates:        []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},
 		Multiplexer:      MultiplexerTmux,
+		ListWidth:        28,
 		Keys:             Keys{"list": {"kill": {"x"}, "auto_yes": {}}},
 	}
 	if err := Save(home, want); err != nil {
@@ -333,5 +335,36 @@ func TestMultiplexerFor(t *testing.T) {
 	}
 	if _, err := Load(writeConfig(t, "multiplexer = 'screen'")); err == nil {
 		t.Error("an unknown multiplexer was accepted")
+	}
+}
+
+func TestLoad_ListWidth(t *testing.T) {
+	home := t.TempDir()
+	if err := Save(home, Defaults()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "list_width") {
+		t.Errorf("Save of Defaults wrote list_width:\n%s", raw)
+	}
+	cfg, err := Load(home)
+	if err != nil || cfg.ListWidth != 0 {
+		t.Fatalf("Load of defaults = %+v, %v; want ListWidth 0", cfg, err)
+	}
+
+	for _, w := range []int{MinListWidth, 48} {
+		cfg, err := Load(writeConfig(t, fmt.Sprintf("list_width = %d", w)))
+		if err != nil || cfg.ListWidth != w {
+			t.Errorf("list_width = %d gave %d, %v", w, cfg.ListWidth, err)
+		}
+	}
+
+	for _, bad := range []string{"list_width = -1", "list_width = 10"} {
+		if _, err := Load(writeConfig(t, bad)); err == nil || !strings.Contains(err.Error(), "list_width") {
+			t.Errorf("%q gave %v, want a list_width error", bad, err)
+		}
 	}
 }

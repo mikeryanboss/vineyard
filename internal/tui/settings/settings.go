@@ -8,6 +8,7 @@ package settings
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -52,6 +53,7 @@ const (
 	idMultiplexer
 	idStatusBar
 	idPeerMessages
+	idListWidth
 	idProfile
 	idAddProfile
 )
@@ -163,6 +165,7 @@ func (m Model) fields() []field {
 			{id: idMultiplexer, label: "Multiplexer", kind: fieldEnum, options: []string{config.MultiplexerVineyard, config.MultiplexerTmux}},
 			{id: idStatusBar, label: "Status bar while attached", kind: fieldEnum, options: []string{"on", "off"}},
 			{id: idPeerMessages, label: "Peer messages", kind: fieldEnum, options: []string{"on", "off"}},
+			{id: idListWidth, label: "Session list width", kind: fieldText},
 		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
@@ -207,6 +210,11 @@ func (m Model) value(f field) string {
 			return "on"
 		}
 		return "off"
+	case idListWidth:
+		if m.cfg.ListWidth == 0 {
+			return "auto"
+		}
+		return strconv.Itoa(m.cfg.ListWidth)
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
 	}
@@ -231,6 +239,12 @@ func (m *Model) setValue(f field, v string) {
 		m.cfg.StatusBar = v == "on"
 	case idPeerMessages:
 		m.cfg.PeerMessages = v == "on"
+	case idListWidth:
+		if v == "" || v == "auto" || v == "0" {
+			m.cfg.ListWidth = 0
+		} else if n, err := strconv.Atoi(v); err == nil {
+			m.cfg.ListWidth = n
+		}
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}
@@ -477,6 +491,12 @@ func (m Model) updateEditing(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if f.id == idWorktreeDir && value == "" {
 		m.setMessage("Worktrees need a directory.", true)
 		return m, nil
+	}
+	if f.id == idListWidth && value != "" && value != "auto" && value != "0" {
+		if n, err := strconv.Atoi(value); err != nil || n < config.MinListWidth {
+			m.setMessage(fmt.Sprintf("Session list width must be auto or at least %d.", config.MinListWidth), true)
+			return m, nil
+		}
 	}
 	m.setValue(f, value)
 	m.setMessage("", false)

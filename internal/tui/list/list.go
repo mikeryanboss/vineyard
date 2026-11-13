@@ -247,6 +247,9 @@ func (m Model) move(delta int, wrap bool) Model {
 	return m.clamp()
 }
 
+// Offset returns the index of the first visible entry.
+func (m Model) Offset() int { return m.offset }
+
 // room is the number of lines the entries may fill.
 func (m Model) room() int { return m.height - headerHeight }
 
@@ -343,6 +346,44 @@ func (m Model) LineAt(y int) Line {
 	return LineSession
 }
 
+// DragDelta returns -1 or 1 when a dragged session at m.selected should step
+// up or down to follow pointer line y, counted from the list's top, or 0 to
+// stay where it is.
+func (m Model) DragDelta(y int) int {
+	if m.selected < 0 || m.selected >= len(m.items) {
+		return 0
+	}
+	top := headerHeight
+	for i := m.offset; i < m.selected; i++ {
+		top += m.entryHeight(m.items[i])
+	}
+	h := m.entryHeight(m.items[m.selected])
+	if m.selected > 0 {
+		if m.selected <= m.offset {
+			if y < headerHeight {
+				return -1
+			}
+		} else {
+			prevH := m.entryHeight(m.items[m.selected-1])
+			prevTop := top - prevH
+			if y < prevTop+(prevH+1)/2 {
+				return -1
+			}
+		}
+	}
+	if m.selected+1 < len(m.items) {
+		nextH := m.entryHeight(m.items[m.selected+1])
+		down := max(top+h, top+(nextH+1)/2)
+		if top+h >= m.height {
+			down = m.height - 1
+		}
+		if y >= down {
+			return 1
+		}
+	}
+	return 0
+}
+
 // click selects the row on line y, counted from the list's top. A subagent
 // row selects the subagent, any other line of an entry its session; the line
 // counting a session's subagents also shows or hides their rows.
@@ -367,17 +408,23 @@ func (m Model) View() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
 	}
+	fit := func(s string) string {
+		if ansi.StringWidth(s) > m.width {
+			return ansi.Truncate(s, m.width, "…")
+		}
+		return s
+	}
 	title := m.theme.StyleTitle.Render("Sessions")
 	if len(m.items) > 0 {
 		title += m.theme.StyleFaint.Render(fmt.Sprintf(" %d", len(m.items)))
 	}
-	lines := []string{" " + title, ""}
+	lines := []string{fit(" " + title), ""}
 
 	if len(m.items) == 0 {
 		lines = append(lines,
-			m.theme.StyleSubtitle.Render("  No sessions yet."),
+			fit(m.theme.StyleSubtitle.Render("  No sessions yet.")),
 			"",
-			"  "+m.theme.FormatKeyHint("n", "start one"),
+			fit("  "+m.theme.FormatKeyHint("n", "start one")),
 		)
 	}
 	for i := m.offset; i < len(m.items) && len(lines) < m.height; i++ {

@@ -1,6 +1,6 @@
 title = 'Move sessions and resize the session column by mouse drag'
-status = 'in_progress'
+status = 'done'
 priority = 'medium'
 labels = ['feature', 'tui', 'mouse', 'config']
 created = 2026-11-13T22:45:00Z
-updated = 2026-11-13T22:45:00Z
+updated = 2026-11-13T22:55:00Z

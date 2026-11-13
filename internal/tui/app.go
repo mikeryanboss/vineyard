@@ -63,6 +63,7 @@ const (
 	statusBarHeight = 1
 	minWidth        = 60
 	minHeight       = 12
+	minPaneWidth    = 24
 )
 
 // seenScreen is a session's screen fingerprint and when a status check first
@@ -218,6 +219,7 @@ type (
 	configSavedMsg struct {
 		config config.Config
 		err    error
+		quiet  bool
 	}
 	savedMsg       struct{ err error }
 	clearStatusMsg struct{ seq int }
@@ -311,6 +313,15 @@ type Model struct {
 	// reload replaces the order.
 	moving    string
 	moveStart []string
+	// dragging reports that moving was started with the mouse; dragCandidate is
+	// the session a press landed on before vertical motion starts a drag.
+	dragging      bool
+	dragCandidate string
+	dragStartY    int
+	// resizing reports that the user is dragging the border between the list and
+	// the pane; resizeCfgStart is Config.ListWidth when the drag began.
+	resizing       bool
+	resizeCfgStart int
 
 	list    list.Model
 	preview preview.Model
@@ -500,6 +511,12 @@ func (m Model) layout() (listWidth, paneWidth, bodyHeight int) {
 		return 0, m.width, bodyHeight
 	}
 	listWidth = max(26, min(44, m.width*3/10))
+	if m.opts.Config.ListWidth > 0 {
+		listWidth = m.opts.Config.ListWidth
+	}
+	if m.width >= minWidth {
+		listWidth = max(config.MinListWidth, min(listWidth, m.width-minPaneWidth))
+	}
 	paneWidth = m.width - listWidth
 	return listWidth, paneWidth, bodyHeight
 }
@@ -551,12 +568,22 @@ func (m *Model) setFocus(f focus) {
 	}
 }
 
-// setZoom zooms the pane in or out, re-rendering what depends on its width.
-func (m *Model) setZoom(zoomed bool) {
-	m.zoomed = zoomed
+// resizeLayout applies changed pane and list dimensions and re-renders views
+// that wrap or fit to their width.
+func (m *Model) resizeLayout() {
 	m.applySizes()
 	m.refreshIssue()
 	m.refreshRecap()
+	m.refreshTranscript()
+}
+
+// setZoom zooms the pane in or out, re-rendering what depends on its width.
+func (m *Model) setZoom(zoomed bool) {
+	m.zoomed = zoomed
+	if zoomed {
+		m.resizing = false
+	}
+	m.resizeLayout()
 }
 
 // setStatus shows a message and schedules its removal.
@@ -996,10 +1023,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
-	case tea.MouseClickMsg:
-		return m.handleMouse(msg)
-	case tea.MouseWheelMsg:
-		return m.handleMouse(msg)
+	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+		return m.handleMouse(msg.(tea.MouseMsg))
 
 	case previewTickMsg:
 		next := tick(previewInterval, func(time.Time) tea.Msg { return previewTickMsg{} })
@@ -1324,8 +1349,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, m.setError(fmt.Errorf("saving config: %w", msg.err))
 		}
+		if msg.quiet {
+			return m, nil
+		}
 		m.opts.Config = msg.config
 		m.configOpen = false
+		m.resizeLayout()
 		return m, m.setStatus("Saved "+m.opts.ConfigPath+". New sessions use the new settings.", false)
 
 	case savedMsg:
@@ -2023,6 +2052,7 @@ func (m Model) runConfirmed(msg common.ConfirmedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.dragCandidate = ""
 	switch {
 	case key.Matches(msg, common.Keys.Global.Quit):
 		return m, tea.Quit
@@ -2031,6 +2061,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// from an attached agent or shell. On the list it only cancels a
 		// move.
 		m.cancelMove()
+		m.cancelResize()
 		m.dialog = nil
 		m.configOpen = false
 		m.issuesOpen = false
@@ -2040,6 +2071,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.moving != "" {
 		return m.moveKey(msg)
+	}
+	if m.resizing {
+		if key.Matches(msg, common.Keys.Move.Cancel) {
+			m.cancelResize()
+		}
+		return m, nil
 	}
 	if m.dialog != nil {
 		var cmd tea.Cmd
@@ -2196,17 +2233,24 @@ func (m Model) moveKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Down):
 		m.moveBy(1)
 	case key.Matches(msg, keys.Done):
-		order := m.order()
-		changed := !slices.Equal(order, m.moveStart)
-		m.moving, m.moveStart = "", nil
-		m.list = m.list.SetMoving(false)
-		if changed {
-			return m, m.writeCmd(func(b Backend) error { return b.Arrange(order) })
-		}
+		return m, m.finishMove()
 	case key.Matches(msg, keys.Cancel):
 		m.cancelMove()
 	}
 	return m, nil
+}
+
+// finishMove ends an active session move and saves the new order if changed.
+func (m *Model) finishMove() tea.Cmd {
+	order := m.order()
+	changed := !slices.Equal(order, m.moveStart)
+	m.moving, m.moveStart = "", nil
+	m.dragging, m.dragCandidate = false, ""
+	m.list = m.list.SetMoving(false)
+	if changed {
+		return m.writeCmd(func(b Backend) error { return b.Arrange(order) })
+	}
+	return nil
 }
 
 // moveBy moves the session being moved one place down, or up for -1. It
@@ -2230,8 +2274,78 @@ func (m *Model) cancelMove() {
 	}
 	m.sessions = session.Arrange(m.sessions, m.moveStart)
 	m.moving, m.moveStart = "", nil
+	m.dragging, m.dragCandidate = false, ""
 	m.list = m.list.SetMoving(false)
 	m.syncList()
+}
+
+// dragSession starts or advances a mouse drag on a session row.
+func (m *Model) dragSession(mouseY int) tea.Cmd {
+	var cmd tea.Cmd
+	if !m.dragging {
+		if m.dragCandidate == "" || mouseY == m.dragStartY {
+			return nil
+		}
+		i := m.find(m.dragCandidate)
+		if i < 0 || m.busy[m.dragCandidate] || m.sessions[i].Status == session.StatusLoading {
+			m.dragCandidate = ""
+			return nil
+		}
+		m.dragging = true
+		m.moving = m.dragCandidate
+		m.moveStart = m.order()
+		m.lastClick = clickAt{}
+		m.list = m.list.Select(m.moving).SetMoving(true)
+		cmd = m.refreshShown()
+	}
+	for {
+		beforeIdx := m.find(m.moving)
+		beforeOff := m.list.Offset()
+		delta := m.list.DragDelta(mouseY - headerHeight)
+		if delta == 0 {
+			break
+		}
+		m.moveBy(delta)
+		if m.find(m.moving) == beforeIdx || m.list.Offset() != beforeOff {
+			break
+		}
+	}
+	return cmd
+}
+
+// dragResize updates the session column width to follow pointer column mouseX.
+func (m *Model) dragResize(mouseX int) {
+	if m.width < minWidth || m.zoomed {
+		return
+	}
+	want := max(config.MinListWidth, min(mouseX, m.width-minPaneWidth))
+	if want == m.opts.Config.ListWidth {
+		return
+	}
+	m.opts.Config.ListWidth = want
+	m.resizeLayout()
+}
+
+// finishResize ends a border drag and persists list_width if changed and valid.
+func (m *Model) finishResize() tea.Cmd {
+	m.resizing = false
+	if m.opts.ConfigErr != nil || m.opts.Config.ListWidth == m.resizeCfgStart {
+		return nil
+	}
+	backend, cfg := m.backend, m.opts.Config
+	return func() tea.Msg {
+		return configSavedMsg{config: cfg, err: backend.SaveConfig(cfg), quiet: true}
+	}
+}
+
+// cancelResize restores the list width from before the current border drag.
+func (m *Model) cancelResize() {
+	if !m.resizing {
+		return
+	}
+	m.resizing = false
+	m.opts.Config.ListWidth = m.resizeCfgStart
+	m.resizeLayout()
 }
 
 // order returns the sessions' IDs in the order the list shows them.
@@ -2348,14 +2462,56 @@ func (m Model) attachment(s session.Session, shell bool) session.Attachment {
 	return how
 }
 
-// handleMouse handles clicks and the wheel. A double click on the list or
-// pane does what enter does there.
+// handleMouse handles clicks, drags, and the wheel. A double click on the
+// list or pane does what enter does there.
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if m.moving != "" {
+	if m.moving != "" && !m.dragging {
 		return m, nil // a move ends by its keys
 	}
 	mouse := msg.Mouse()
+	switch msg.(type) {
+	case tea.MouseReleaseMsg:
+		m.dragCandidate = ""
+		if m.dragging {
+			return m, m.finishMove()
+		}
+		if m.resizing {
+			return m, m.finishResize()
+		}
+		if m.issuesOpen && m.dialog == nil {
+			var cmd tea.Cmd
+			m.grapes, cmd = m.grapes.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	case tea.MouseMotionMsg:
+		if m.dragging || m.dragCandidate != "" {
+			return m, m.dragSession(mouse.Y)
+		}
+		if m.resizing {
+			m.dragResize(mouse.X)
+			return m, nil
+		}
+		if m.issuesOpen && m.dialog == nil {
+			var cmd tea.Cmd
+			m.grapes, cmd = m.grapes.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	_, click := msg.(tea.MouseClickMsg)
+	var cleanup tea.Cmd
+	if click {
+		m.dragCandidate = ""
+		if m.dragging {
+			cleanup = m.finishMove()
+		}
+		if m.resizing {
+			cleanup = tea.Batch(cleanup, m.finishResize())
+		}
+	}
+	leftPress := mouse.Button == tea.MouseLeft || mouse.Button == tea.MouseNone
 	var first clickAt // the first click of a double click
 	double := false
 	switch {
@@ -2370,7 +2526,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch {
 	case m.width < minWidth || m.height < minHeight:
-		return m, nil
+		return m, cleanup
 	case m.dialog != nil:
 		area := headerHeight + bodyHeight
 		if m.issuesOpen {
@@ -2378,51 +2534,67 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		left, top := centerOffset(m.dialog.View(), m.width, area)
 		m.dialog, cmd = m.dialog.Update(moved(msg, -left, -top))
-		return m, cmd
+		return m, tea.Batch(cleanup, cmd)
 	case m.issuesOpen:
 		m.grapes, cmd = m.grapes.Update(msg)
-		return m, cmd
+		return m, tea.Batch(cleanup, cmd)
 	case mouse.Y < headerHeight || mouse.Y >= headerHeight+bodyHeight:
-		return m, nil // the header or the status bar
+		return m, cleanup // the header or the status bar
 	case m.configOpen && m.settings.PickerActive():
 		left, top := centerOffset(m.settings.PickerView(), m.width, headerHeight+bodyHeight)
 		m.settings, cmd = m.settings.Update(moved(msg, -left, -top))
-		return m, cmd
+		return m, tea.Batch(cleanup, cmd)
 	case m.configOpen:
 		m.settings, cmd = m.settings.Update(moved(msg, 0, -headerHeight))
-		return m, cmd
+		return m, tea.Batch(cleanup, cmd)
+	case !m.zoomed && mouse.X == listWidth:
+		m.lastClick = clickAt{}
+		if click && leftPress {
+			m.resizing = true
+			m.resizeCfgStart = m.opts.Config.ListWidth
+		}
+		return m, cleanup
 	case mouse.X < listWidth && double:
 		// The first click selected the row.
 		switch m.list.LineAt(mouse.Y - headerHeight) {
 		case list.LineSession:
-			return m.open()
+			next, openCmd := m.open()
+			return next, tea.Batch(cleanup, openCmd)
 		case list.LineSubagent:
-			return m.attach() // open it on any tab
+			next, attachCmd := m.attach() // open it on any tab
+			return next, tea.Batch(cleanup, attachCmd)
 		}
-		return m, nil // the first click expanded or collapsed the subagents
+		return m, cleanup // the first click expanded or collapsed the subagents
 	case mouse.X < listWidth:
 		if click {
 			m.setFocus(focusList)
 		}
 		m.list, _ = m.list.Update(moved(msg, 0, -headerHeight))
-		return m, m.refreshShown()
+		if click && leftPress && m.list.LineAt(mouse.Y-headerHeight) == list.LineSession {
+			if s, ok := m.selected(); ok && !m.busy[s.ID] && s.Status != session.StatusLoading {
+				m.dragCandidate, m.dragStartY = s.ID, mouse.Y
+			}
+		}
+		return m, tea.Batch(cleanup, m.refreshShown())
 	}
 
 	// The pane: its border, then the tab bar, then the content.
 	x, y := mouse.X-listWidth-1, mouse.Y-headerHeight-1
 	if t, ok := m.tabAt(x); click && ok && y == 0 {
 		if double {
-			return m.enter() // the first click showed the tab
+			next, enterCmd := m.enter() // the first click showed the tab
+			return next, tea.Batch(cleanup, enterCmd)
 		}
 		m.setZoom(false)
-		return m, m.showTab(t)
+		return m, tea.Batch(cleanup, m.showTab(t))
 	}
 	content := moved(msg, -listWidth-1, -headerHeight-2)
 	switch {
 	case double && first.acted:
-		return m, nil // the first click folded a file or jumped to one
+		return m, cleanup // the first click folded a file or jumped to one
 	case double:
-		return m.enter()
+		next, enterCmd := m.enter()
+		return next, tea.Batch(cleanup, enterCmd)
 	case click:
 		m.setFocus(focusPane)
 		m.lastClick.acted = m.tab == tabDiff && m.diff.Clickable(content.Mouse().Y)
@@ -2443,7 +2615,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.preview, cmd = m.preview.Update(content)
 		}
 	}
-	return m, cmd
+	return m, tea.Batch(cleanup, cmd)
 }
 
 // clickAt is where and when a click landed.
@@ -2663,6 +2835,8 @@ func (m Model) renderPane() string {
 	style := t.StylePane
 	if m.focus == focusPane {
 		style = t.StylePaneFocused
+	} else if m.resizing {
+		style = style.BorderLeftForeground(t.ColorAccent)
 	}
 	return style.Width(paneWidth).Height(bodyHeight).Render(tabBar + "\n" + content)
 }

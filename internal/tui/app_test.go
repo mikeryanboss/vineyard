@@ -1852,3 +1852,166 @@ func TestApp_AgentOnAnOlderMultiplexerKeepsRunning(t *testing.T) {
 		t.Errorf("the preview does not say why it is blank:\n%s", view)
 	}
 }
+
+func TestApp_DragSessionMovesAndSavesOnRelease(t *testing.T) {
+	c := clock(t)
+	m, backend := newTestModel(t, testutil.Sessions())
+	start := order(m.sessions)
+
+	// Press and drag login-1 down onto Docs pass; it moves live without saving.
+	press := find(t, m, "Fix login redirect", 0)
+	press.Button = tea.MouseLeft
+	docs := find(t, m, "Docs pass", 0)
+	m = send(m, press)
+	// Horizontal jitter on the same line must not start a move.
+	m = send(m, tea.MouseMotionMsg{X: press.X + 2, Y: press.Y, Button: tea.MouseLeft})
+	if m.moving != "" {
+		t.Fatalf("motion on start row started a move: moving = %q", m.moving)
+	}
+	m = send(m, tea.MouseMotionMsg{X: press.X, Y: docs.Y, Button: tea.MouseLeft})
+	want := []string{"tests-2", "docs-3", "login-1", "cache-4", "new-5"}
+	if got := order(m.sessions); !slices.Equal(got, want) || !m.dragging || !contains(screen(m), "↕") {
+		t.Fatalf("during drag: order = %q, dragging = %v\n%s", got, m.dragging, screen(m))
+	}
+	if len(backend.saved) != 0 {
+		t.Fatal("a drag in progress must not save yet")
+	}
+
+	// Dragging onto Starting up (StatusLoading) stops before it; release saves.
+	starting := find(t, m, "Starting up", 0)
+	m = send(m, tea.MouseMotionMsg{X: press.X, Y: starting.Y, Button: tea.MouseLeft})
+	wantFinal := []string{"tests-2", "docs-3", "cache-4", "login-1", "new-5"}
+	if got := order(m.sessions); !slices.Equal(got, wantFinal) {
+		t.Fatalf("drag onto loading session: order = %q, want %q", got, wantFinal)
+	}
+	m = send(m, tea.MouseReleaseMsg{X: 0, Y: 0, Button: tea.MouseLeft}) // even outside the list
+	if m.moving != "" || m.dragging {
+		t.Fatalf("after release: moving = %q, dragging = %v", m.moving, m.dragging)
+	}
+	if got := order(backend.file); !slices.Equal(got, wantFinal) {
+		t.Errorf("saved %q, want %q", got, wantFinal)
+	}
+
+	// esc mid-drag cancels and restores order without saving.
+	saves := len(backend.saved)
+	m = send(m, tea.MouseClickMsg{X: docs.X, Y: find(t, m, "Docs pass", 0).Y, Button: tea.MouseLeft})
+	m = send(m, tea.MouseMotionMsg{X: docs.X, Y: find(t, m, "Fix login redirect", 0).Y, Button: tea.MouseLeft})
+	m = keys(m, "esc")
+	m = send(m, tea.MouseReleaseMsg{Button: tea.MouseLeft})
+	if m.moving != "" || !slices.Equal(order(m.sessions), wantFinal) || len(backend.saved) != saves {
+		t.Errorf("cancelled drag left moving %q, order %q, saves %d", m.moving, order(m.sessions), len(backend.saved))
+	}
+
+	// Click + release on the same row still permits a double click without saving.
+	*c = c.Add(time.Second)
+	click1 := find(t, m, "Fix login redirect", 0)
+	click1.Button = tea.MouseLeft
+	m = send(m, click1)
+	m = send(m, tea.MouseReleaseMsg{X: click1.X, Y: click1.Y, Button: tea.MouseLeft})
+	*c = c.Add(100 * time.Millisecond)
+	m = send(m, click1)
+	m = send(m, tea.MouseReleaseMsg{X: click1.X, Y: click1.Y, Button: tea.MouseLeft})
+	if backend.attaches != 1 || len(backend.saved) != saves {
+		t.Errorf("press/release double-click attached %d, saves %d (want 1, %d)", backend.attaches, len(backend.saved), saves)
+	}
+
+	// Starting, busy, and subagent rows do not start a drag.
+	m.sessions = session.Arrange(m.sessions, start)
+	m.syncList()
+	m = send(m, polled(false, screenStatus{id: "login-1", hash: 1, subagents: listing(1), conversation: running("one")}))
+	countPos := find(t, m, "1 subagent", 0)
+	countPos.Button = tea.MouseLeft
+	m = send(m, countPos)
+	m = send(m, tea.MouseMotionMsg{X: countPos.X, Y: countPos.Y + 4, Button: tea.MouseLeft})
+	if m.moving != "" {
+		t.Errorf("count line started a drag: moving = %q", m.moving)
+	}
+	subPos := find(t, m, "└ ◑ one", 0)
+	subPos.Button = tea.MouseLeft
+	m = send(m, subPos)
+	m = send(m, tea.MouseMotionMsg{X: subPos.X, Y: subPos.Y + 5, Button: tea.MouseLeft})
+	if m.moving != "" {
+		t.Errorf("subagent row started a drag: moving = %q", m.moving)
+	}
+
+	m.busy["tests-2"] = true
+	busyPos := find(t, m, "Add unit tests", 0)
+	busyPos.Button = tea.MouseLeft
+	m = send(m, busyPos)
+	m = send(m, tea.MouseMotionMsg{X: busyPos.X, Y: busyPos.Y + 4, Button: tea.MouseLeft})
+	if m.moving != "" {
+		t.Errorf("busy session started a drag: moving = %q", m.moving)
+	}
+
+	loadingPos := find(t, m, "Starting up", 0)
+	loadingPos.Button = tea.MouseLeft
+	m = send(m, loadingPos)
+	m = send(m, tea.MouseMotionMsg{X: loadingPos.X, Y: loadingPos.Y - 4, Button: tea.MouseLeft})
+	if m.moving != "" {
+		t.Errorf("loading session started a drag: moving = %q", m.moving)
+	}
+}
+
+func TestApp_DragBorderResizesListAndSavesConfig(t *testing.T) {
+	c := clock(t)
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = send(m, previewTickMsg{})
+	borderX, _, _ := m.layout()
+
+	// Double-clicking the border must not attach.
+	for range 2 {
+		*c = c.Add(100 * time.Millisecond)
+		m = send(m, tea.MouseClickMsg{X: borderX, Y: headerHeight + 3, Button: tea.MouseLeft})
+		m = send(m, tea.MouseReleaseMsg{X: borderX, Y: headerHeight + 3, Button: tea.MouseLeft})
+	}
+	if backend.attaches != 0 || m.focus != focusList {
+		t.Fatalf("double-clicking border attached %d, focus %d", backend.attaches, m.focus)
+	}
+
+	// Drag left to 20: resizes live, resizes agent on capture, and saves on release.
+	m = send(m, tea.MouseClickMsg{X: borderX, Y: headerHeight + 3, Button: tea.MouseLeft})
+	if !m.resizing {
+		t.Fatal("press on border did not start resize")
+	}
+	m = send(m, tea.MouseMotionMsg{X: 20, Y: headerHeight + 3, Button: tea.MouseLeft})
+	lw, pw, _ := m.layout()
+	if lw != 20 || pw != m.width-20 {
+		t.Fatalf("after drag to 20: layout = (%d, %d), want (20, %d)", lw, pw, m.width-20)
+	}
+	m = send(m, previewTickMsg{})
+	if got := m.sizes["login-1"][0]; got != (m.width-20)-2 {
+		t.Errorf("agent width after resize = %d, want %d", got, (m.width-20)-2)
+	}
+	m = send(m, tea.MouseReleaseMsg{X: 20, Y: 0, Button: tea.MouseLeft})
+	if m.resizing || m.status != "" {
+		t.Fatalf("after release: resizing = %v, status = %q", m.resizing, m.status)
+	}
+	if len(backend.configs) != 1 || backend.configs[0].ListWidth != 20 {
+		t.Fatalf("saved configs = %+v, want one with ListWidth 20", backend.configs)
+	}
+
+	// Clamp to [MinListWidth, width - minPaneWidth] and cancel with esc.
+	m = send(m, tea.MouseClickMsg{X: 20, Y: headerHeight + 3, Button: tea.MouseLeft})
+	m = send(m, tea.MouseMotionMsg{X: 2, Y: headerHeight + 3, Button: tea.MouseLeft})
+	if got, _, _ := m.layout(); got != config.MinListWidth {
+		t.Errorf("dragged to 2: listWidth = %d, want %d", got, config.MinListWidth)
+	}
+	m = send(m, tea.MouseMotionMsg{X: m.width - 2, Y: headerHeight + 3, Button: tea.MouseLeft})
+	if got, _, _ := m.layout(); got != m.width-minPaneWidth {
+		t.Errorf("dragged to width-2: listWidth = %d, want %d", got, m.width-minPaneWidth)
+	}
+	m = keys(m, "esc")
+	m = send(m, tea.MouseReleaseMsg{Button: tea.MouseLeft})
+	if got, _, _ := m.layout(); m.resizing || got != 20 || len(backend.configs) != 1 {
+		t.Errorf("cancelled resize left resizing=%v, listWidth=%d, configs=%d", m.resizing, got, len(backend.configs))
+	}
+
+	// With ConfigErr set, resizing works for the session without calling SaveConfig.
+	m.opts.ConfigErr = errors.New("bad config")
+	m = send(m, tea.MouseClickMsg{X: 20, Y: headerHeight + 3, Button: tea.MouseLeft})
+	m = send(m, tea.MouseMotionMsg{X: 30, Y: headerHeight + 3, Button: tea.MouseLeft})
+	m = send(m, tea.MouseReleaseMsg{X: 30, Y: headerHeight + 3, Button: tea.MouseLeft})
+	if got, _, _ := m.layout(); got != 30 || len(backend.configs) != 1 {
+		t.Errorf("with ConfigErr: listWidth = %d, configs = %d; want 30 and no save", got, len(backend.configs))
+	}
+}

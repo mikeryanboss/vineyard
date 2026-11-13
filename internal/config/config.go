@@ -70,10 +70,16 @@ type Config struct {
 	StatusBar bool `toml:"status_bar"`
 	// PeerMessages lets sessions send each other messages with vineyard send.
 	PeerMessages bool `toml:"peer_messages"`
+	// ListWidth is the width of the session list in columns, or 0 to size it
+	// with the window.
+	ListWidth int `toml:"list_width,omitempty"`
 	// Keys replace the default keys of the actions they name
 	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
 	Keys Keys `toml:"keys,omitempty"`
 }
+
+// MinListWidth is the narrowest session list column allowed, in cells.
+const MinListWidth = 16
 
 // MultiplexerFor returns the multiplexer that runs sessions of profile p.
 func (c Config) MultiplexerFor(p Profile) string {
@@ -287,6 +293,9 @@ func Load(dir string) (Config, error) {
 		if m != MultiplexerVineyard && m != MultiplexerTmux {
 			return Defaults(), fmt.Errorf("%s: multiplexer %q: want %q or %q", Path(dir), m, MultiplexerVineyard, MultiplexerTmux)
 		}
+	}
+	if cfg.ListWidth < 0 || (cfg.ListWidth > 0 && cfg.ListWidth < MinListWidth) {
+		return Defaults(), fmt.Errorf("%s: list_width %d: want 0 or at least %d", Path(dir), cfg.ListWidth, MinListWidth)
 	}
 	if _, err := cfg.ResolvedKeys(); err != nil {
 		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)

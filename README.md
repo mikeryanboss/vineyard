@@ -73,7 +73,9 @@ subagent it opens the subagent's view, and on a tab it opens the tab, as
 `enter` does there. The wheel moves the selection in the list, stopping at its
 ends, and scrolls the pane. Scrolling the preview forwards mouse wheel events to
 an agent that draws fullscreen with mouse tracking, such as Claude Code, and
-otherwise shows the multiplexer's scrollback.
+otherwise shows the multiplexer's scrollback. Drag a session up or down to
+reorder the list, and drag the pane's left border to resize the session column
+(saved as `list_width` in `.vineyard/config.toml`).
 
 Flags: `-p <command>` runs a different agent in new sessions, `-y` turns on
 auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed
@@ -107,6 +109,7 @@ diff_command = "hunk diff {base} --watch"  # run by enter on the Diff tab
 multiplexer = "vineyard"              # runs new sessions; or "tmux"
 status_bar = true                     # bar on attached terminals; ctrl+k toggles it
 peer_messages = true                  # let sessions message each other with vineyard send
+list_width = 30                       # session column width; omit to size with the window
 
 disabled_profiles = ["terminal"]     # built-in profiles not to offer
 

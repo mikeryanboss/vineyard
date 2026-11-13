@@ -668,16 +668,21 @@ key/mouse/tick
   -> root updates sessions, saves, refreshes views
 ```
 
-`handleMouse` routes clicks and the wheel by where they land. A dialog or the
-config screen's picker gets them relative to its box, which `centerOffset`
-places where `overlayCenter` draws it; the config screen, the list, and the
-pane's content get them relative to their own top-left corner; the header and
-the status bar get none. Each child maps a position to what its `View` draws:
-the list's entry heights, the tab labels (`tabLabels`), the diff's
-`fileStarts`, a dialog's content lines. Mouse release and motion events are
-not handled, and reach grapes like any other message the root leaves alone.
-While a session is moved, `handleMouse` ignores the mouse: only the move's
-keys end the move.
+`handleMouse` routes clicks, drags, and the wheel by where they land. A dialog
+or the config screen's picker gets them relative to its box, which
+`centerOffset` places where `overlayCenter` draws it; the config screen, the
+list, and the pane's content get them relative to their own top-left corner;
+the header and the status bar get none. Each child maps a position to what its
+`View` draws: the list's entry heights, the tab labels (`tabLabels`), the
+diff's `fileStarts`, a dialog's content lines. Pressing on a session row and
+moving vertically drags it (`dragSession`, `list.DragDelta`, `moveBy`) and
+saves the order with `Backend.Arrange` on release; pressing on the pane's left
+border (`x == listWidth`) and moving horizontally resizes `Config.ListWidth`
+within `[config.MinListWidth, width-minPaneWidth]` and saves `Config` via
+`Backend.SaveConfig` on release when `ConfigErr == nil`. Other motion and
+release events reach grapes when the issues screen is open without a dialog.
+While a session is moved from the keyboard, `handleMouse` ignores the mouse:
+only the move's keys end it.
 
 Bubble Tea reports single clicks only. `doubleClick` pairs a click on the list
 or pane with the one before it when both land within a column on the same line
