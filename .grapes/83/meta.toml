@@ -1,6 +1,6 @@
 title = 'Scroll fullscreen mouse-aware terminals in the preview'
-status = 'in_progress'
+status = 'done'
 priority = 'high'
 labels = ['tui', 'vterm', 'tmux', 'mouse']
 created = 2026-11-13T16:05:00Z
-updated = 2026-11-13T16:07:00Z
+updated = 2026-11-13T16:25:00Z

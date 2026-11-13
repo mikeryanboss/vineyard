@@ -41,9 +41,11 @@ type ConfirmedMsg struct {
 // DialogCancelledMsg reports that a dialog was dismissed.
 type DialogCancelledMsg struct{}
 
-// ScrollbackRequestMsg asks for the selected session's scrollback, because
-// the user started scrolling the preview.
-type ScrollbackRequestMsg struct{}
+// ScrollbackRequestMsg asks to scroll a live preview or shell pane by N wheel
+// notches at 0-based cell (X, Y)—up when N > 0, down when N < 0.
+type ScrollbackRequestMsg struct {
+	X, Y, N int
+}
 
 // LeavePaneMsg returns focus from the preview or diff pane to the list.
 type LeavePaneMsg struct{}

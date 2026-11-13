@@ -339,8 +339,22 @@ func TestAttachThroughTheServer(t *testing.T) {
 	}
 }
 
-// A client of an older server never starts one, and refuses a server whose
-// calls differ from this build's, as one of protocol 0 would.
+// fakeOlderServer speaks protocol 6, before Wheel was added.
+type fakeOlderServer struct{}
+
+func (fakeOlderServer) Version(_ struct{}, reply *VersionReply) error {
+	*reply = VersionReply{Protocol: 6, PID: 4343}
+	return nil
+}
+
+func (fakeOlderServer) Capture(name string, reply *string) error {
+	*reply = "older:" + name
+	return nil
+}
+
+// A client of an older server never starts one, refuses a server whose calls
+// differ from this build's (protocol 0), and treats a missing Wheel call on
+// protocols 1 to 6 as unhandled while keeping other calls working.
 func TestOlderClient(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "s")
 	if err := NewOlderClient(socket).Start("a", t.TempDir(), "", 50, 12); err == nil {
@@ -351,6 +365,32 @@ func TestOlderClient(t *testing.T) {
 	}
 	if SameCalls(0) || !SameCalls(1) || !SameCalls(protocol) || SameCalls(protocol+1) {
 		t.Error("SameCalls does not cover exactly protocols 1 to this build's")
+	}
+
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	calls := rpc.NewServer()
+	calls.RegisterName("Terminals", fakeOlderServer{})
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Read(make([]byte, 1))
+			go calls.ServeConn(conn)
+		}
+	}()
+	older := NewOlderClient(socket)
+	defer older.Close()
+	if ok, err := older.Wheel("a", 3, 2, 1); err != nil || ok {
+		t.Errorf("Wheel on protocol 6 server = %v, %v; want false, nil", ok, err)
+	}
+	if screen, err := older.Capture("a"); err != nil || screen != "older:a" {
+		t.Errorf("Capture after unhandled Wheel = %q, %v; want older:a", screen, err)
 	}
 }
 

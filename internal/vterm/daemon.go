@@ -24,11 +24,12 @@ import (
 // in vineyards.go), so that servers of several protocols run side by side.
 // Never change Version or Exists: Client.Info and Client.Holds ask servers of
 // every protocol through them.
-const protocol = 6
+const protocol = 7
 
 // sameCallsSince is the oldest protocol whose calls, all but attaching, match
 // this build's, so that a Vineyard uses an older server of it or later for all
-// but attaching (NewOlderClient). Protocols 1 to 6 differ only in attaching.
+// but attaching (NewOlderClient). Protocols 1 to 6 lack Wheel, which
+// Client.Wheel treats as unhandled, as Client.Info treats a missing List.
 // Raise it to protocol with any change to a call's arguments or results:
 // older servers then only say whether their terminals run.
 const sameCallsSince = 1
@@ -384,6 +385,11 @@ type KeysArgs struct {
 
 type PasteArgs struct{ Name, Text string }
 
+type WheelArgs struct {
+	Name    string
+	X, Y, N int
+}
+
 func (s *Service) Version(_ struct{}, reply *VersionReply) error {
 	*reply = VersionReply{Protocol: protocol, PID: os.Getpid()}
 	return nil
@@ -436,6 +442,11 @@ func (s *Service) SendKeys(args KeysArgs, _ *struct{}) error {
 
 func (s *Service) Paste(args PasteArgs, _ *struct{}) error {
 	return s.d.terminals.Paste(args.Name, args.Text)
+}
+
+func (s *Service) Wheel(args WheelArgs, reply *bool) (err error) {
+	*reply, err = s.d.terminals.Wheel(args.Name, args.X, args.Y, args.N)
+	return err
 }
 
 func (s *Service) Kill(name string, _ *struct{}) error {

@@ -294,6 +294,22 @@ func (t *terminal) hasMouse() bool {
 	return false
 }
 
+// encodeMouse formats ev (1-based x, y) for t's active mouse encoding, or ""
+// when t cannot represent it. Hold t.mu.
+func (t *terminal) encodeMouse(ev mouseEvent) string {
+	if t.modes[ansi.ModeMouseExtSgr] {
+		return ansi.MouseSgr(byte(ev.button), ev.x-1, ev.y-1, ev.release)
+	}
+	if (t.modes[ansi.ModeMouseX10] && ev.release) || ev.x > 223 || ev.y > 223 {
+		return ""
+	}
+	b := byte(ev.button)
+	if ev.release {
+		b = (b &^ 3) | 3
+	}
+	return ansi.MouseX10(b, ev.x-1, ev.y-1)
+}
+
 // mouseEvent is one SGR or legacy X10 mouse report from the user's terminal,
 // with 1-based cell coordinates x and y.
 type mouseEvent struct {
@@ -470,17 +486,7 @@ func (s *screen) handleMouse(t *terminal, ev mouseEvent) (string, bool) {
 	if !t.hasMouse() || ev.y > t.emu.Height() {
 		return "", false
 	}
-	if t.modes[ansi.ModeMouseExtSgr] {
-		return ansi.MouseSgr(byte(ev.button), ev.x-1, ev.y-1, ev.release), false
-	}
-	if (t.modes[ansi.ModeMouseX10] && ev.release) || ev.x > 223 || ev.y > 223 {
-		return "", false
-	}
-	b := byte(ev.button)
-	if ev.release {
-		b = (b &^ 3) | 3
-	}
-	return ansi.MouseX10(b, ev.x-1, ev.y-1), false
+	return t.encodeMouse(ev), false
 }
 
 // draw renders the changes since the last frame, and the cursor: t's screen

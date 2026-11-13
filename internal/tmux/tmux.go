@@ -183,6 +183,54 @@ func (c *Client) Paste(name, text string) error {
 	return err
 }
 
+// Wheel turns the mouse wheel n notches at 0-based cell (x, y)—up when n > 0,
+// down when n < 0—if the session's active pane is on the alternate screen with
+// mouse tracking enabled, and reports whether the pane took the wheel.
+func (c *Client) Wheel(name string, x, y, n int) (bool, error) {
+	out, err := c.command("display-message", "-p", "-t", exact(name)+":",
+		"#{alternate_on} #{mouse_any_flag} #{mouse_sgr_flag} #{pane_width} #{pane_height}")
+	if err != nil {
+		return false, err
+	}
+	var alt, mouse, sgr, width, height int
+	if _, err := fmt.Sscanf(strings.TrimSpace(out), "%d %d %d %d %d", &alt, &mouse, &sgr, &width, &height); err != nil {
+		return false, fmt.Errorf("pane mouse state %q: %w", strings.TrimSpace(out), err)
+	}
+	if alt != 1 || mouse != 1 {
+		return false, nil
+	}
+	if n == 0 {
+		return true, nil
+	}
+	x = min(max(0, x), max(0, width-1))
+	y = min(max(0, y), max(0, height-1))
+	button := 64
+	if n < 0 {
+		button, n = 65, -n
+	}
+	n = min(n, 100)
+	var one []byte
+	switch {
+	case sgr == 1:
+		one = fmt.Appendf(nil, "\x1b[<%d;%d;%dM", button, x+1, y+1)
+	case x < 223 && y < 223:
+		one = []byte{0x1b, '[', 'M', byte(32 + button), byte(33 + x), byte(33 + y)}
+	default:
+		return false, nil
+	}
+	args := make([]string, 0, 4+len(one)*n)
+	args = append(args, "send-keys", "-H", "-t", exact(name)+":")
+	for range n {
+		for _, b := range one {
+			args = append(args, fmt.Sprintf("%02x", b))
+		}
+	}
+	if _, err := c.command(args...); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // Kill ends the session and every process in it. A missing session is not an error.
 func (c *Client) Kill(name string) error {
 	_, err := c.command("kill-session", "-t", exact(name))

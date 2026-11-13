@@ -71,23 +71,23 @@ Changes (planned):
 - `README.md`, `docs/architecture.md`: update preview scroll and protocol 7 docs.
 
 ## Acceptance Criteria
-- [ ] Turning the mouse wheel up or down over the preview (or terminal tab) of
+- [x] Turning the mouse wheel up or down over the preview (or terminal tab) of
       an alternate-screen terminal with mouse tracking enabled forwards wheel
       events at the pointer's cell and updates the live screen in both
       directions, on both `vineyard` and `tmux` multiplexers.
-- [ ] Pressing `k`/`j`, `ctrl+u`/`ctrl+d`, or `g`/`G` in a focused live preview
+- [x] Pressing `k`/`j`, `ctrl+u`/`ctrl+d`, or `g`/`G` in a focused live preview
       of an alternate-screen mouse-enabled terminal scrolls up and down without
       typing characters into the program.
-- [ ] Primary-screen terminals (`!IsAltScreen()`, `alternate_on=0`) never
+- [x] Primary-screen terminals (`!IsAltScreen()`, `alternate_on=0`) never
       receive wheel sequences from the preview: wheel-up enters local scrollback
       via `CaptureHistory`, and wheel-down while live at the bottom does nothing
       without showing `"No scrollback…"`.
-- [ ] Alternate-screen terminals without mouse tracking keep the preview live
+- [x] Alternate-screen terminals without mouse tracking keep the preview live
       and show a `"No scrollback…"` status message on scroll-up.
-- [ ] `protocol` in `internal/vterm/daemon.go` is `7` with `sameCallsSince = 1`,
+- [x] `protocol` in `internal/vterm/daemon.go` is `7` with `sameCallsSince = 1`,
       and `(*vterm.Client).Wheel` against an older server lacking
       `Terminals.Wheel` returns `(false, nil)` without breaking other calls.
-- [ ] `README.md` and `docs/architecture.md` reflect the new preview scroll
+- [x] `README.md` and `docs/architecture.md` reflect the new preview scroll
       behaviour and protocol `7`.
 
 ## Verify

@@ -474,9 +474,10 @@ them.
   of another protocol to `vineyards.Older`, which returns:
   - a client, when that server speaks this build's protocol;
   - `vterm.NewOlderClient`, when its calls match this build's
-    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 6 differ only in
-    attaching). It makes every call, so the session shows its screen and
-    status and can be killed;
+    (`sameCallsSince` in `daemon.go`, 1: protocols 1 to 6 lack `Wheel`, which
+    `Client.Wheel` treats as unhandled, as `Client.Info` treats a missing
+    `List`). It makes every call, so the session shows its screen and status
+    and can be killed;
   - otherwise `olderVineyard`, which asks only `Version` and `Exists`, through
     `Client.Holds`, and fails every other call but attaching with
     `session.ErrOlderMultiplexer`. The TUI keeps such a session's status and
@@ -686,10 +687,11 @@ on a diff file's header or summary line (`clickAt.acted`, from
 `lastClick`, so the click that closes a dialog never pairs with a click on the
 screen beneath.
 
-The preview's scroll mode shows tmux's scrollback. A program on the alternate
-screen, such as Claude Code with `"tui": "fullscreen"`, has none; when the
-history is no longer than the screen, the preview stays live and the status
-bar says so.
+Scrolling the preview first tries `Wheel`: when the terminal is on the alternate
+screen with mouse tracking enabled, as Claude Code is, wheel notches go to its
+program and the preview stays live. Otherwise a scroll up shows the
+multiplexer's scrollback; when the history holds no more than the screen, the
+preview stays live and the status bar says so.
 
 The root model owns sessions, side effects, focus, and layout. Child views own
 rendering and local navigation; they import `tui/common` and plain data types

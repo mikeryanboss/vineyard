@@ -6,3 +6,12 @@
 
 ### 2026-11-13T16:06
 [STARTED] Implementing `Wheel` across `internal/vterm` (protocol 7), `internal/tmux`, `internal/tui/backend.go`, `internal/tui/preview`, and `internal/tui/app.go`, plus tests and docs.
+
+### 2026-11-13T16:24
+[DECISION] Kept `sameCallsSince = 1` when bumping `protocol` to `7` by treating `"can't find method"` from `Terminals.Wheel` in `(*vterm.Client).Wheel` as unhandled (`false, nil`), matching `Client.Info`'s handling of missing `Terminals.List`, so sessions running on older protocol 1–6 servers continue working across an upgrade. In `(*vterm.Server).Wheel`, wait up to one 60 Hz frame (`frame`) on `t.watch()` after writing wheel sequences so the TUI's immediate `Capture` sees the scrolled frame without waiting for the next 150 ms preview tick.
+
+### 2026-11-13T16:24
+[VERIFY] PASS. From `/workspaces/vineyard/.vineyard/worktrees/scroll-96e22b`: `gofmt -l .` printed nothing; `go vet ./...` passed; `go test -count=1 ./...` passed across all packages; `go test -race -count=1 ./internal/vterm/...` passed. Manual run with `scripts/drive` on `.grapes/83/tmp/demo` (`claude --model haiku`, protocol 7): generated `[line 01]..[line 45]`, sent 6 SGR wheel-up ticks (`\x1b[<64;70;12M`) over the preview pane without attaching and confirmed the live preview scrolled up to `[line 19]..[line 41]` with Claude Code's sticky prompt header and `Jump to bottom (ctrl+End) ↓` indicator; sent 6 SGR wheel-down ticks (`\x1b[<65;70;12M`) to scroll back down; focused the pane (`l`), pressed `g` to reach `Claude Code v2.1.323` and `● [line 01]` at the top, and pressed `G` + `Escape` to return to the bottom. Screenshots: `.grapes/83/tmp/preview-bottom.png`, `.grapes/83/tmp/preview-scrolled.png` (published on `pr-evidence` at `62ffa2b72f28f60f7d42ef0048309360d4df9f40`).
+
+### 2026-11-13T16:24
+[DONE] Updated `internal/vterm` (`attach.go`, `vterm.go`, `daemon.go`, `client.go`, protocol 7), `vineyards.go`, `internal/tmux/tmux.go`, `internal/tui/backend.go`, `internal/tui/common/messages.go`, `internal/tui/preview/preview.go`, `internal/tui/app.go`, tests, `README.md`, and `docs/architecture.md`.

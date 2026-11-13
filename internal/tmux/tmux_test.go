@@ -75,6 +75,49 @@ func TestCapture_MissingSessionReportsErrNoSession(t *testing.T) {
 	}
 }
 
+func TestWheel_ChecksAltScreenAndSendsHexMouse(t *testing.T) {
+	for _, state := range []string{"0 1 1 80 24\n", "1 0 1 80 24\n"} {
+		var calls int
+		c := NewWithRunner("test", func(args ...string) ([]byte, []byte, error) {
+			calls++
+			return []byte(state), nil, nil
+		})
+		if ok, err := c.Wheel("s1", 9, 4, 1); err != nil || ok || calls != 1 {
+			t.Errorf("state %q: ok=%v err=%v calls=%d; want false, nil, 1", state, ok, err, calls)
+		}
+	}
+
+	var sent []string
+	c := NewWithRunner("test", func(args ...string) ([]byte, []byte, error) {
+		if args[0] == "display-message" {
+			return []byte("1 1 1 80 24\n"), nil, nil
+		}
+		sent = args
+		return nil, nil, nil
+	})
+	if ok, err := c.Wheel("s1", 9, 4, 1); err != nil || !ok {
+		t.Fatalf("SGR Wheel = %v, %v; want true, nil", ok, err)
+	}
+	// \x1b[<64;10;5M in hex.
+	if got, want := strings.Join(sent, " "), "send-keys -H -t =s1: 1b 5b 3c 36 34 3b 31 30 3b 35 4d"; got != want {
+		t.Errorf("SGR send-keys = %q, want %q", got, want)
+	}
+
+	c = NewWithRunner("test", func(args ...string) ([]byte, []byte, error) {
+		if args[0] == "display-message" {
+			return []byte("1 1 0 150 24\n"), nil, nil
+		}
+		sent = args
+		return nil, nil, nil
+	})
+	if ok, err := c.Wheel("s1", 100, 5, -1); err != nil || !ok {
+		t.Fatalf("X10 Wheel = %v, %v; want true, nil", ok, err)
+	}
+	if got, want := strings.Join(sent, " "), "send-keys -H -t =s1: 1b 5b 4d 61 85 26"; got != want {
+		t.Errorf("X10 send-keys = %q, want %q", got, want)
+	}
+}
+
 func TestAttachCommand_DropsTMUXAndRestoresWindowSizing(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-1000/default,1,0")
 	cmd := New("test").AttachCommand("s1", session.Attachment{Detach: []string{"ctrl+q"}})
@@ -168,6 +211,24 @@ func TestLiveSession(t *testing.T) {
 	if !strings.Contains(string(keys), "if-shell -F") || !strings.Contains(string(keys), "detach-client") {
 		t.Errorf("the detach and status bar keys are not bound:\n%s", keys)
 	}
+
+	if ok, err := c.Wheel("live", 5, 2, 1); err != nil || ok {
+		t.Errorf("Wheel on primary-screen sh = %v, %v; want false, nil", ok, err)
+	}
+	if err := c.Start("alt", t.TempDir(), `stty -icanon -echo; printf '\033[?1049h\033[H\033[?1000h\033[?1006halt-ready\n'; cat -v`, 40, 8); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		s, err := c.Capture("alt")
+		return err == nil && strings.Contains(s, "alt-ready")
+	})
+	if ok, err := c.Wheel("alt", 5, 2, 1); err != nil || !ok {
+		t.Fatalf("Wheel on alt-screen pane = %v, %v; want true, nil", ok, err)
+	}
+	waitFor(t, func() bool {
+		s, err := c.Capture("alt")
+		return err == nil && strings.Contains(s, "^[[<64;6;3M")
+	})
 
 	if err := c.Kill("live"); err != nil {
 		t.Fatal(err)

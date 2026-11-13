@@ -162,6 +162,9 @@ func (o olderVineyard) Resize(name string, _, _ int) error      { return o.fail(
 func (o olderVineyard) SendEnter(name string) error             { return o.fail(name) }
 func (o olderVineyard) SendKeys(name string, _ ...string) error { return o.fail(name) }
 func (o olderVineyard) Paste(name, _ string) error              { return o.fail(name) }
+func (o olderVineyard) Wheel(name string, _, _, _ int) (bool, error) {
+	return false, o.fail(name)
+}
 
 // Attach attaches through the server's own executable, which speaks its
 // protocol.

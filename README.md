@@ -71,9 +71,9 @@ session's subagents and `▾ N subagents` to hide them. A double click acts:
 on a session, the preview, or the diff's code it does what `enter` does, on a
 subagent it opens the subagent's view, and on a tab it opens the tab, as
 `enter` does there. The wheel moves the selection in the list, stopping at its
-ends, and scrolls the pane. Scrolling back in the preview reads tmux's
-scrollback, which an agent drawing fullscreen, such as Claude Code with
-`"tui": "fullscreen"`, does not have; attach to scroll it.
+ends, and scrolls the pane. Scrolling the preview forwards mouse wheel events to
+an agent that draws fullscreen with mouse tracking, such as Claude Code, and
+otherwise shows the multiplexer's scrollback.
 
 Flags: `-p <command>` runs a different agent in new sessions, `-y` turns on
 auto-yes for them, and `-i <id>` opens on grapes issue `<id>` as if you pressed

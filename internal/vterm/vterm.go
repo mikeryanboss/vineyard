@@ -318,6 +318,54 @@ func (s *Server) Paste(name, text string) error {
 	return nil
 }
 
+// Wheel turns the mouse wheel n notches at 0-based cell (x, y)—up when n > 0,
+// down when n < 0—if the named terminal is on the alternate screen and its
+// program enabled mouse tracking. It reports whether the terminal took the
+// wheel.
+func (s *Server) Wheel(name string, x, y, n int) (bool, error) {
+	t, err := s.terminal(name)
+	if err != nil {
+		return false, err
+	}
+	t.mu.Lock()
+	if !t.emu.IsAltScreen() || !t.hasMouse() {
+		t.mu.Unlock()
+		return false, nil
+	}
+	if n == 0 {
+		t.mu.Unlock()
+		return true, nil
+	}
+	x = min(max(0, x), max(0, t.emu.Width()-1))
+	y = min(max(0, y), max(0, t.emu.Height()-1))
+	button := 64
+	if n < 0 {
+		button, n = 65, -n
+	}
+	n = min(n, 100)
+	one := t.encodeMouse(mouseEvent{button: button, x: x + 1, y: y + 1})
+	if one == "" {
+		t.mu.Unlock()
+		return false, nil
+	}
+	in := t.emu.InputPipe()
+	t.mu.Unlock()
+
+	changed, unwatch := t.watch()
+	defer unwatch()
+	if _, err := io.WriteString(in, strings.Repeat(one, n)); err != nil {
+		return false, err
+	}
+	timer := time.NewTimer(frame)
+	defer timer.Stop()
+	select {
+	case <-changed:
+	case <-t.exited:
+	case <-timer.C:
+	}
+	return true, nil
+}
+
 // Kill hangs up the terminal, ending its program and the program's children.
 // A missing terminal is not an error.
 func (s *Server) Kill(name string) error {

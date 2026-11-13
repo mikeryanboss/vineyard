@@ -35,15 +35,17 @@ type Backend interface {
 	Resize(s session.Session, width, height int) error
 	SendEnter(s session.Session) error
 	Paste(s session.Session, text string) error
+	Wheel(s session.Session, x, y, n int) (bool, error)
 	// AttachCommand and ShellAttachCommand hand the user's terminal to the
 	// session's agent or shell, as how says.
 	AttachCommand(s session.Session, how session.Attachment) tea.ExecCommand
 	ShellAttachCommand(s session.Session, how session.Attachment) tea.ExecCommand
-	// CaptureShell, CaptureShellHistory, and ResizeShell are Capture,
-	// CaptureHistory, and Resize for the session's shell.
+	// CaptureShell, CaptureShellHistory, ResizeShell, and WheelShell are
+	// Capture, CaptureHistory, Resize, and Wheel for the session's shell.
 	CaptureShell(s session.Session) (string, error)
 	CaptureShellHistory(s session.Session, lines int) (string, error)
 	ResizeShell(s session.Session, width, height int) error
+	WheelShell(s session.Session, x, y, n int) (bool, error)
 	// OpenSubagent makes s show the view of the subagent at position in
 	// Claude Code's list, which must still hold total subagents.
 	OpenSubagent(s session.Session, position, total int) error
@@ -105,6 +107,10 @@ type Terminal interface {
 	// SendKeys presses keys named as tmux names them, such as Down.
 	SendKeys(name string, keys ...string) error
 	Paste(name, text string) error
+	// Wheel turns the mouse wheel n notches at 0-based cell (x, y)—up when
+	// n > 0, down when n < 0—if the named terminal is on the alternate screen
+	// with mouse tracking enabled, and reports whether it took the wheel.
+	Wheel(name string, x, y, n int) (bool, error)
 	// Attach hands the user's terminal to the named terminal until the user
 	// presses one of how's detach keys.
 	Attach(name string, how session.Attachment) tea.ExecCommand
@@ -172,6 +178,10 @@ func (b LiveBackend) Paste(s session.Session, text string) error {
 	return b.terminal(s).Paste(s.TmuxName, text)
 }
 
+func (b LiveBackend) Wheel(s session.Session, x, y, n int) (bool, error) {
+	return b.terminal(s).Wheel(s.TmuxName, x, y, n)
+}
+
 func (b LiveBackend) AttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
 	return b.terminal(s).Attach(s.TmuxName, how)
 }
@@ -190,6 +200,10 @@ func (b LiveBackend) CaptureShellHistory(s session.Session, lines int) (string, 
 
 func (b LiveBackend) ResizeShell(s session.Session, width, height int) error {
 	return b.terminal(s).Resize(s.ShellName(), width, height)
+}
+
+func (b LiveBackend) WheelShell(s session.Session, x, y, n int) (bool, error) {
+	return b.terminal(s).Wheel(s.ShellName(), x, y, n)
 }
 
 func (b LiveBackend) OpenSubagent(s session.Session, position, total int) error {
@@ -331,6 +345,7 @@ func (u unavailable) Resize(string, int, int) error                     { return
 func (u unavailable) SendEnter(string) error                            { return u.err() }
 func (u unavailable) SendKeys(string, ...string) error                  { return u.err() }
 func (u unavailable) Paste(string, string) error                        { return u.err() }
+func (u unavailable) Wheel(string, int, int, int) (bool, error)         { return false, u.err() }
 func (u unavailable) Attach(string, session.Attachment) tea.ExecCommand { return failing{u.err()} }
 
 // failing is a command that fails with err without running anything.

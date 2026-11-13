@@ -62,6 +62,10 @@ type fakeBackend struct {
 	shellAttaches int
 	// attached is how the last attach, to an agent or a shell, attached.
 	attached session.Attachment
+	// fullscreen makes Wheel and WheelShell accept scroll notches and record
+	// them in wheels while updating screen or shellScreen.
+	fullscreen bool
+	wheels     [][3]int
 	// polls counts status checks.
 	polls int
 }
@@ -115,6 +119,16 @@ func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error {
 }
 func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, f.captureErr }
 func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
+func (f *fakeBackend) Wheel(s session.Session, x, y, n int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.fullscreen {
+		return false, nil
+	}
+	f.wheels = append(f.wheels, [3]int{x, y, n})
+	f.screen = fmt.Sprintf("agent wheel n=%d at %d,%d", n, x, y)
+	return true, nil
+}
 func (f *fakeBackend) AttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
 	f.attaches++
 	f.attached = how
@@ -141,6 +155,16 @@ func (f *fakeBackend) CaptureShellHistory(s session.Session, n int) (string, err
 	return f.shellScreen, nil
 }
 func (f *fakeBackend) ResizeShell(s session.Session, w, h int) error { return nil }
+func (f *fakeBackend) WheelShell(s session.Session, x, y, n int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.fullscreen {
+		return false, nil
+	}
+	f.wheels = append(f.wheels, [3]int{x, y, n})
+	f.shellScreen = fmt.Sprintf("shell wheel n=%d at %d,%d", n, x, y)
+	return true, nil
+}
 
 func (f *fakeBackend) OpenSubagent(s session.Session, position, total int) error {
 	f.mu.Lock()
@@ -1576,14 +1600,53 @@ func TestApp_ClicksOnTheHeaderAndStatusBarDoNothing(t *testing.T) {
 	}
 }
 
-// An agent drawing on the alternate screen, as Claude Code does with
-// "tui": "fullscreen", has no scrollback; the fake returns only the screen.
+// An agent drawing on the alternate screen without mouse tracking has no
+// scrollback and takes no wheel events; scrolling up reports so, while
+// scrolling down at the live bottom stays quiet.
 func TestApp_PreviewWithoutScrollbackStaysLive(t *testing.T) {
 	m, _ := newTestModel(t, testutil.Sessions())
 	m = send(m, previewTickMsg{}) // capture the screen
-	m = keys(m, "l", "k")
+	m = keys(m, "l", "j")
+	if m.preview.Scrolling() || m.status != "" {
+		t.Fatalf("scrolling down at live bottom: scrolling %v, status %q", m.preview.Scrolling(), m.status)
+	}
+	m = keys(m, "k")
 	if m.preview.Scrolling() || !contains(m.status, "No scrollback") {
 		t.Errorf("scrolling %v, status %q; want the live preview and a message", m.preview.Scrolling(), m.status)
+	}
+}
+
+// A fullscreen mouse-aware agent such as Claude Code receives wheel notches
+// in both directions from the mouse wheel and focused-pane scroll keys while
+// the preview stays live and refreshes immediately.
+func TestApp_PreviewScrollsFullscreenAgentLive(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	backend.fullscreen = true
+	backend.screen = "initial screen"
+	m = send(m, previewTickMsg{})
+
+	listWidth, _, _ := m.layout()
+	px, py := listWidth+1+8, headerHeight+2+4
+	m = send(m, tea.MouseWheelMsg{Button: tea.MouseWheelUp, X: px, Y: py})
+	if m.preview.Scrolling() || m.status != "" {
+		t.Fatalf("after wheel up: scrolling %v, status %q; want live preview without status", m.preview.Scrolling(), m.status)
+	}
+	if !contains(screen(m), "agent wheel n=1 at 8,4") {
+		t.Fatalf("preview did not refresh after wheel up:\n%s", screen(m))
+	}
+
+	m = send(m, tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: px, Y: py})
+	if !contains(screen(m), "agent wheel n=-1 at 8,4") {
+		t.Fatalf("preview did not refresh after wheel down:\n%s", screen(m))
+	}
+
+	m = keys(m, "l", "ctrl+u")
+	if !contains(screen(m), "agent wheel n=5") {
+		t.Errorf("focused pane ctrl+u did not forward wheel up:\n%s", screen(m))
+	}
+	m = keys(m, "ctrl+d")
+	if !contains(screen(m), "agent wheel n=-5") {
+		t.Errorf("focused pane ctrl+d did not forward wheel down:\n%s", screen(m))
 	}
 }
 
