@@ -111,8 +111,20 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return common.SwitchTabMsg{Back: back} }
 	}
 	if !m.scrolling {
-		if key.Matches(keyMsg, keys.Up, keys.HalfUp, keys.Top) {
-			return m, func() tea.Msg { return common.ScrollbackRequestMsg{} }
+		x, y := m.width/2, min(1, max(0, m.height-1))
+		switch {
+		case key.Matches(keyMsg, keys.Up):
+			return m, scrollRequest(x, y, 1)
+		case key.Matches(keyMsg, keys.Down):
+			return m, scrollRequest(x, y, -1)
+		case key.Matches(keyMsg, keys.HalfUp):
+			return m, scrollRequest(x, y, 5)
+		case key.Matches(keyMsg, keys.HalfDown):
+			return m, scrollRequest(x, y, -5)
+		case key.Matches(keyMsg, keys.Top):
+			return m, scrollRequest(x, y, 20)
+		case key.Matches(keyMsg, keys.Bottom):
+			return m, scrollRequest(x, y, -20)
 		}
 		return m, nil
 	}
@@ -136,13 +148,19 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+func scrollRequest(x, y, n int) tea.Cmd {
+	return func() tea.Msg { return common.ScrollbackRequestMsg{X: x, Y: y, N: n} }
+}
+
 func (m Model) wheel(msg tea.MouseWheelMsg) (Model, tea.Cmd) {
 	switch {
 	case msg.Button == tea.MouseWheelUp && !m.scrolling:
-		return m, func() tea.Msg { return common.ScrollbackRequestMsg{} }
+		return m, scrollRequest(msg.X, msg.Y, 1)
+	case msg.Button == tea.MouseWheelDown && !m.scrolling:
+		return m, scrollRequest(msg.X, msg.Y, -1)
 	case msg.Button == tea.MouseWheelUp:
 		m.viewport.ScrollUp(3)
-	case msg.Button == tea.MouseWheelDown && m.scrolling:
+	case msg.Button == tea.MouseWheelDown:
 		m.viewport.ScrollDown(3)
 		if m.viewport.AtBottom() {
 			m.scrolling = false

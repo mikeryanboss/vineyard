@@ -59,8 +59,20 @@ func TestPreview_ColourDoesNotBleed(t *testing.T) {
 func TestPreview_ScrollUpRequestsScrollback(t *testing.T) {
 	m := newPreview().SetScreen("live")
 	_, cmd := m.Update(testutil.Key("k"))
-	if _, ok := msgOf(cmd).(common.ScrollbackRequestMsg); !ok {
-		t.Fatal("scrolling up on the live screen should request scrollback")
+	if req, ok := msgOf(cmd).(common.ScrollbackRequestMsg); !ok || req.N <= 0 {
+		t.Fatalf("k on the live screen = %#v, want ScrollbackRequestMsg with N > 0", msgOf(cmd))
+	}
+	_, cmd = m.Update(testutil.Key("j"))
+	if req, ok := msgOf(cmd).(common.ScrollbackRequestMsg); !ok || req.N >= 0 {
+		t.Fatalf("j on the live screen = %#v, want ScrollbackRequestMsg with N < 0", msgOf(cmd))
+	}
+	_, cmd = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp, X: 7, Y: 3})
+	if req, ok := msgOf(cmd).(common.ScrollbackRequestMsg); !ok || req != (common.ScrollbackRequestMsg{X: 7, Y: 3, N: 1}) {
+		t.Fatalf("wheel up = %#v, want {X:7 Y:3 N:1}", msgOf(cmd))
+	}
+	_, cmd = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: 7, Y: 3})
+	if req, ok := msgOf(cmd).(common.ScrollbackRequestMsg); !ok || req != (common.ScrollbackRequestMsg{X: 7, Y: 3, N: -1}) {
+		t.Fatalf("wheel down = %#v, want {X:7 Y:3 N:-1}", msgOf(cmd))
 	}
 }
 

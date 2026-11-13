@@ -204,10 +204,12 @@ type (
 		err error
 	}
 	scrollbackMsg struct {
-		id      string
-		history string
-		err     error
-		shell   bool
+		id       string
+		history  string
+		scrolled bool
+		down     bool
+		err      error
+		shell    bool
 	}
 	promptSentMsg struct {
 		id  string
@@ -1279,12 +1281,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id != m.shownID {
 			return m, nil
 		}
+		if msg.scrolled {
+			if msg.shell {
+				if !m.previewInFlight && m.tab == tabTerminal && !m.terminal.Scrolling() {
+					cmd := m.shellCmd()
+					m.previewInFlight = cmd != nil
+					return m, cmd
+				}
+				return m, nil
+			}
+			s, ok := m.selected()
+			if !m.previewInFlight && ok && s.ID == msg.id && s.Status.Active() && !m.busy[s.ID] && !m.preview.Scrolling() {
+				m.previewInFlight = true
+				return m, m.captureCmd(s)
+			}
+			return m, nil
+		}
+		if msg.down {
+			return m, nil
+		}
 		if msg.shell {
 			m.terminal = m.terminal.SetScrollback(msg.history)
 			return m, nil
 		}
 		if m.preview = m.preview.SetScrollback(msg.history); !m.preview.Scrolling() {
-			return m, m.setStatus("No scrollback: tmux keeps none for an agent that draws fullscreen. Attach to scroll in the agent.", false)
+			return m, m.setStatus("No scrollback: this terminal has none above the screen and does not take the mouse wheel. Attach to scroll in the agent.", false)
 		}
 		return m, nil
 
@@ -1415,6 +1436,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, func() tea.Msg {
+				scrolled, err := backend.WheelShell(s, msg.X, msg.Y, msg.N)
+				if err != nil || scrolled || msg.N <= 0 {
+					return scrollbackMsg{id: s.ID, scrolled: scrolled, down: msg.N <= 0, err: err, shell: true}
+				}
 				history, err := backend.CaptureShellHistory(s, scrollbackLines)
 				return scrollbackMsg{id: s.ID, history: history, err: err, shell: true}
 			}
@@ -1423,6 +1448,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, func() tea.Msg {
+			scrolled, err := backend.Wheel(s, msg.X, msg.Y, msg.N)
+			if err != nil || scrolled || msg.N <= 0 {
+				return scrollbackMsg{id: s.ID, scrolled: scrolled, down: msg.N <= 0, err: err}
+			}
 			history, err := backend.CaptureHistory(s, scrollbackLines)
 			return scrollbackMsg{id: s.ID, history: history, err: err}
 		}

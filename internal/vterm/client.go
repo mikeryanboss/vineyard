@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -295,6 +296,19 @@ func (c *Client) SendKeys(name string, keys ...string) error {
 // asked for those.
 func (c *Client) Paste(name, text string) error {
 	return c.callTerminal(name, "Paste", PasteArgs{Name: name, Text: text}, &struct{}{})
+}
+
+// Wheel turns the mouse wheel n notches at 0-based cell (x, y)—up when n > 0,
+// down when n < 0—if the named terminal is on the alternate screen with mouse
+// tracking enabled, and reports whether the terminal took the wheel. Older
+// servers before protocol 7 lack Wheel and report false.
+func (c *Client) Wheel(name string, x, y, n int) (bool, error) {
+	var ok bool
+	err := c.callTerminal(name, "Wheel", WheelArgs{Name: name, X: x, Y: y, N: n}, &ok)
+	if err != nil && strings.Contains(err.Error(), "can't find method") {
+		return false, nil
+	}
+	return ok, err
 }
 
 // Kill hangs up the terminal, ending its program and the program's children.

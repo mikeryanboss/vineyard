@@ -686,10 +686,11 @@ on a diff file's header or summary line (`clickAt.acted`, from
 `lastClick`, so the click that closes a dialog never pairs with a click on the
 screen beneath.
 
-The preview's scroll mode shows tmux's scrollback. A program on the alternate
-screen, such as Claude Code with `"tui": "fullscreen"`, has none; when the
-history is no longer than the screen, the preview stays live and the status
-bar says so.
+Scrolling the preview first tries `Wheel`: when the terminal is on the alternate
+screen with mouse tracking enabled, as Claude Code is, wheel notches go to its
+program and the preview stays live. Otherwise a scroll up shows the
+multiplexer's scrollback; when the history holds no more than the screen, the
+preview stays live and the status bar says so.
 
 The root model owns sessions, side effects, focus, and layout. Child views own
 rendering and local navigation; they import `tui/common` and plain data types

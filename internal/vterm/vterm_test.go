@@ -470,3 +470,31 @@ func TestAttachStalledViewer(t *testing.T) {
 		t.Fatal("attachment to a viewer that stopped reading never ended")
 	}
 }
+
+// Wheel forwards wheel notches only when the terminal is on the alternate
+// screen with mouse tracking enabled, as fullscreen Claude Code is.
+func TestWheelForwardsOnlyOnMouseAwareAltScreen(t *testing.T) {
+	s := New()
+	start(t, s, "primary", `printf '\033[?1000h\033[?1006hprimary-ready\n'; stty -echo; cat -v`)
+	waitFor(t, func() (string, error) { return s.Capture("primary") }, "primary-ready")
+	if ok, err := s.Wheel("primary", 4, 2, 1); err != nil || ok {
+		t.Fatalf("Wheel on primary screen = %v, %v; want false, nil", ok, err)
+	}
+
+	start(t, s, "nomouse", `printf '\033[?1049h\033[Hnomouse-ready\n'; stty -echo; cat -v`)
+	waitFor(t, func() (string, error) { return s.Capture("nomouse") }, "nomouse-ready")
+	if ok, err := s.Wheel("nomouse", 4, 2, 1); err != nil || ok {
+		t.Fatalf("Wheel without mouse tracking = %v, %v; want false, nil", ok, err)
+	}
+
+	start(t, s, "sgr", `stty -icanon -echo; printf '\033[?1049h\033[H\033[?1002h\033[?1006hsgr-ready\n'; cat -v`)
+	waitFor(t, func() (string, error) { return s.Capture("sgr") }, "sgr-ready")
+	if ok, err := s.Wheel("sgr", 4, 2, 2); err != nil || !ok {
+		t.Fatalf("Wheel up on SGR alt screen = %v, %v; want true, nil", ok, err)
+	}
+	waitFor(t, func() (string, error) { return s.Capture("sgr") }, "^[[<64;5;3M^[[<64;5;3M")
+	if ok, err := s.Wheel("sgr", 4, 2, -1); err != nil || !ok {
+		t.Fatalf("Wheel down on SGR alt screen = %v, %v; want true, nil", ok, err)
+	}
+	waitFor(t, func() (string, error) { return s.Capture("sgr") }, "^[[<65;5;3M")
+}

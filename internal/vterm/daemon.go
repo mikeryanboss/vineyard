@@ -384,6 +384,11 @@ type KeysArgs struct {
 
 type PasteArgs struct{ Name, Text string }
 
+type WheelArgs struct {
+	Name    string
+	X, Y, N int
+}
+
 func (s *Service) Version(_ struct{}, reply *VersionReply) error {
 	*reply = VersionReply{Protocol: protocol, PID: os.Getpid()}
 	return nil
@@ -436,6 +441,11 @@ func (s *Service) SendKeys(args KeysArgs, _ *struct{}) error {
 
 func (s *Service) Paste(args PasteArgs, _ *struct{}) error {
 	return s.d.terminals.Paste(args.Name, args.Text)
+}
+
+func (s *Service) Wheel(args WheelArgs, reply *bool) (err error) {
+	*reply, err = s.d.terminals.Wheel(args.Name, args.X, args.Y, args.N)
+	return err
 }
 
 func (s *Service) Kill(name string, _ *struct{}) error {
