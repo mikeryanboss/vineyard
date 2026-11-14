@@ -321,3 +321,30 @@ func TestSettings_EditListWidth(t *testing.T) {
 		t.Errorf("cleared width = %d, want 0 (auto):\n%s", m.Config().ListWidth, testutil.StripANSI(m.View()))
 	}
 }
+
+func TestSettings_SessionListCategory(t *testing.T) {
+	cfg := twoProfiles()
+	cfg.List = config.DefaultList()
+	m, _ := press(newSettings(cfg, nil), "j", "j", "l") // Session list -> Issue numbers
+	m, _ = press(m, "enter")                            // after -> before
+	m, _ = press(m, "j", "enter")                       // Issue picker: after -> before
+	m, _ = press(m, "j", "enter")                       // Subagents: on -> off
+	m, _ = press(m, "j", "enter")                       // Branch line: on -> off
+	m, _ = press(m, "j", "enter")                       // Diff stats: on -> off
+	m, cmd := press(m, "j", "enter", "ctrl+s")          // Auto-yes tag: on -> off
+	saved, ok := msgOf(cmd).(common.SaveConfigMsg)
+	if !ok {
+		t.Fatalf("ctrl+s produced %T, want SaveConfigMsg", msgOf(cmd))
+	}
+	want := config.ListConfig{
+		Issues:      config.IssuesBefore,
+		IssuePicker: config.IssuesBefore,
+		Subagents:   false,
+		Branch:      false,
+		DiffStats:   false,
+		AutoTag:     false,
+	}
+	if saved.Config.List != want {
+		t.Errorf("saved list = %+v, want %+v", saved.Config.List, want)
+	}
+}

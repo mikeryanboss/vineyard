@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/subagent"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
@@ -327,5 +328,89 @@ func TestList_DragDelta(t *testing.T) {
 	empty := list.New(common.NewTheme(true)).SetSize(16, 10).View()
 	if got := len(strings.Split(empty, "\n")); got != 10 {
 		t.Errorf("empty list at width 16 rendered %d lines, want 10:\n%s", got, empty)
+	}
+}
+
+func TestList_IssuePlacementAndClipping(t *testing.T) {
+	items := sampleItems()[:1]
+	items[0].Issues = []int{12}
+	titleRow := func(m list.Model) string {
+		return strings.Split(testutil.StripANSI(m.View()), "\n")[2]
+	}
+
+	m := list.New(common.NewTheme(true)).SetItems(items).SetSize(36, 10)
+	if row := titleRow(m); !strings.Contains(row, "Fix login redirect #12") {
+		t.Errorf("default placement = %q, want title before #12", row)
+	}
+
+	// Widths include 4 border/icon/margin cells; "Fix login redirect" is 18 wide.
+	for _, tc := range []struct {
+		width int
+		want  string
+	}{
+		{4 + 22, "Fix login redirect #12"},
+		{4 + 21, "Fix login redirect #…"},
+		{4 + 19, "Fix login redirect…"},
+		{4 + 18, "Fix login redirect"},
+		{4 + 17, "Fix login redire…"},
+	} {
+		row := titleRow(m.SetSize(tc.width, 10))
+		if !strings.Contains(row, tc.want) {
+			t.Errorf("width %d: row = %q, want %q", tc.width, row, tc.want)
+		}
+	}
+
+	opts := list.DefaultOptions()
+	opts.Issues = config.IssuesBefore
+	if row := titleRow(m.SetOptions(opts)); !strings.Contains(row, "#12 Fix login redirect") {
+		t.Errorf("before placement = %q, want #12 before title", row)
+	}
+
+	opts.Issues = config.IssuesOff
+	if row := titleRow(m.SetOptions(opts)); strings.Contains(row, "#12") || !strings.Contains(row, "Fix login redirect") {
+		t.Errorf("off placement = %q, want title without #12", row)
+	}
+}
+
+func TestList_DisplayOptions(t *testing.T) {
+	m := expanded(t, 20)
+	m, _ = m.Update(testutil.Key("j")) // select subagent a1
+	if selectedSub(m) != "a1" {
+		t.Fatalf("selected subagent = %q, want a1", selectedSub(m))
+	}
+
+	// Turning subagents off hides rows and clears subagent selection.
+	opts := list.DefaultOptions()
+	opts.Subagents = false
+	m = m.SetOptions(opts)
+	view := testutil.StripANSI(m.View())
+	if strings.Contains(view, "subagent") || strings.Contains(view, "parser tests") || selectedSub(m) != "" || m.Expandable() {
+		t.Errorf("subagents off still shows or selects subagents:\n%s", view)
+	}
+
+	// Turning branch off compacts rows, moves diff stats onto the title line,
+	// and keeps subagent click coordinates aligned.
+	opts = list.DefaultOptions()
+	opts.Branch = false
+	m = list.New(common.NewTheme(true)).SetOptions(opts).SetItems(withSubagents()).SetSize(36, 20)
+	view = testutil.StripANSI(m.View())
+	if strings.Contains(view, common.IconBranch) {
+		t.Errorf("branch off still shows branch line:\n%s", view)
+	}
+	if !strings.Contains(view, "Docs pass") || !strings.Contains(view, "+20 -2") {
+		t.Errorf("branch off should keep diff stats on the title line:\n%s", view)
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 1}) // count line without branch line
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: 2 + 2}) // first subagent row without branch line
+	if sub := selectedSub(m); sub != "a1" {
+		t.Errorf("click with branch off selected subagent %q, want a1", sub)
+	}
+
+	// Turning diff stats and auto tag off hides both.
+	opts.DiffStats = false
+	opts.AutoTag = false
+	view = testutil.StripANSI(m.SetOptions(opts).View())
+	if strings.Contains(view, "+10 -1") || strings.Contains(view, " auto ") {
+		t.Errorf("diff stats and auto tag off still show them:\n%s", view)
 	}
 }

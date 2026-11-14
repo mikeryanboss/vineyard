@@ -48,8 +48,9 @@ type fakeBackend struct {
 	openErr    error
 	// conversation is what every Claude session's transcripts say, and
 	// events each subagent's transcript, by ID.
-	conversation subagent.Conversation
-	events       map[string][]subagent.Event
+	conversation  subagent.Conversation
+	subagentPolls int
+	events        map[string][]subagent.Event
 	// trees maps a directory to the worktree holding it, and treeDiffs a
 	// worktree to its diff.
 	trees, treeDiffs map[string]string
@@ -177,6 +178,7 @@ func (f *fakeBackend) OpenSubagent(s session.Session, position, total int) error
 func (f *fakeBackend) Subagents(s session.Session) (subagent.Conversation, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.subagentPolls++
 	return f.conversation, nil
 }
 func (f *fakeBackend) Conversation(s session.Session) (string, error) {
@@ -323,7 +325,7 @@ func newTestModel(t *testing.T, sessions []session.Session) (Model, *fakeBackend
 	tick = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { return nil }
 	backend := &fakeBackend{screen: "✻ Thinking…\n\n> fix the redirect", diff: sampleDiff, file: slices.Clone(sessions)}
 	m := NewModel(backend, sessions, Options{
-		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/", WorktreeDir: ".vineyard/worktrees", Multiplexer: config.MultiplexerVineyard},
+		Config:     config.Config{DefaultProgram: "claude", BranchPrefix: "test/", WorktreeDir: ".vineyard/worktrees", Multiplexer: config.MultiplexerVineyard, List: config.DefaultList()},
 		RepoName:   "shop",
 		RepoRoot:   "/src/shop",
 		Version:    "0.1.0",
@@ -2065,5 +2067,41 @@ func TestApp_SelectionDiffSkipsUnselectedStatsAndRendersOnDiffTab(t *testing.T) 
 	view := ansi.Strip(m.View().Content)
 	if !strings.Contains(view, "auth.go") || !strings.Contains(view, "var timeout = 60") {
 		t.Errorf("diff tab missing rendered diff after becoming visible:\n%s", view)
+	}
+}
+
+func TestApp_SubagentsDisabledSkipsPollingAndAppliesLive(t *testing.T) {
+	sessions := []session.Session{{ID: "s1", Title: "Fix login", Program: "claude", Branch: "test/fix", Status: session.StatusRunning, AutoYes: true}}
+	m, backend := newTestModel(t, sessions)
+	backend.conversation = subagent.Conversation{
+		ID:     "conv-42",
+		Agents: []subagent.Agent{{ID: "a1", Type: "Explore", Description: "search auth", Status: subagent.Running}},
+	}
+	m = send(m, statusTickMsg{})
+	if backend.subagentPolls == 0 || !strings.Contains(screen(m), "1 subagent running") {
+		t.Fatalf("with subagents enabled, expected poll and count line:\n%s", screen(m))
+	}
+	m = keys(m, "l", "j") // expand and select subagent a1
+	if m.shownAgent != "a1" {
+		t.Fatalf("shownAgent = %q, want a1", m.shownAgent)
+	}
+
+	// Open config, turn off subagents, branch line, and auto tag, and save.
+	m = keys(m, "C", "j", "j", "l", "j", "j", "enter", "j", "enter", "j", "j", "enter")
+	m = send(m, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	view := screen(m)
+	if m.shownAgent != "" || strings.Contains(view, "subagent") || strings.Contains(view, common.IconBranch) || strings.Contains(view, " auto") {
+		t.Fatalf("saved list settings did not apply immediately (shownAgent=%q):\n%s", m.shownAgent, view)
+	}
+
+	// Subsequent status polls skip Subagents() while still recording Conversation ID when leading.
+	pollsBefore := backend.subagentPolls
+	backend.conversation.ID = "conv-99"
+	m = send(m, statusTickMsg{})
+	if backend.subagentPolls != pollsBefore {
+		t.Errorf("Subagents() polled %d times with subagents disabled, want %d", backend.subagentPolls, pollsBefore)
+	}
+	if got := m.sessions[0].Conversation; got != "conv-99" {
+		t.Errorf("Conversation = %q, want conv-99 recorded via Conversation()", got)
 	}
 }

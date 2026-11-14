@@ -31,12 +31,14 @@ func TestLoad_MissingFileGivesDefaults(t *testing.T) {
 }
 
 func TestLoad_PartialFileKeepsOtherDefaults(t *testing.T) {
-	cfg, err := Load(writeConfig(t, `auto_yes = true`))
+	cfg, err := Load(writeConfig(t, "auto_yes = true\n[list]\nsubagents = false\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.AutoYes || cfg.DefaultProgram != "claude" || !cfg.StatusBar || !cfg.PeerMessages {
-		t.Errorf("cfg = %+v, want auto_yes plus default program, status bar, and peer messages", cfg)
+	wantList := DefaultList()
+	wantList.Subagents = false
+	if !cfg.AutoYes || cfg.DefaultProgram != "claude" || !cfg.StatusBar || !cfg.PeerMessages || cfg.List != wantList {
+		t.Errorf("cfg = %+v, want auto_yes, defaults, and list %+v", cfg, wantList)
 	}
 }
 
@@ -305,6 +307,7 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 		Templates:        []Template{{Name: "fix", Text: "Fix #{{.ID}}.\n\nThen stop.\n"}},
 		Multiplexer:      MultiplexerTmux,
 		ListWidth:        28,
+		List:             ListConfig{Issues: IssuesBefore, IssuePicker: IssuesBefore, Subagents: false, Branch: true, DiffStats: false, AutoTag: true},
 		Keys:             Keys{"list": {"kill": {"x"}, "auto_yes": {}}},
 	}
 	if err := Save(home, want); err != nil {
@@ -365,6 +368,27 @@ func TestLoad_ListWidth(t *testing.T) {
 	for _, bad := range []string{"list_width = -1", "list_width = 10"} {
 		if _, err := Load(writeConfig(t, bad)); err == nil || !strings.Contains(err.Error(), "list_width") {
 			t.Errorf("%q gave %v, want a list_width error", bad, err)
+		}
+	}
+}
+
+func TestLoad_ListOptions(t *testing.T) {
+	for _, valid := range []string{IssuesAfter, IssuesBefore, IssuesOff, ""} {
+		cfg, err := Load(writeConfig(t, fmt.Sprintf("[list]\nissues = %q\n", valid)))
+		want := valid
+		if want == "" {
+			want = IssuesAfter
+		}
+		if err != nil || cfg.List.Issues != want {
+			t.Errorf("list.issues = %q gave %q, %v; want %q", valid, cfg.List.Issues, err, want)
+		}
+	}
+	if _, err := Load(writeConfig(t, "[list]\nissues = 'left'\n")); err == nil || !strings.Contains(err.Error(), "list.issues") {
+		t.Errorf("invalid list.issues gave %v, want a list.issues error", err)
+	}
+	for _, bad := range []string{"[list]\nissue_picker = 'off'\n", "[list]\nissue_picker = 'sideways'\n"} {
+		if _, err := Load(writeConfig(t, bad)); err == nil || !strings.Contains(err.Error(), "list.issue_picker") {
+			t.Errorf("%q gave %v, want a list.issue_picker error", bad, err)
 		}
 	}
 }

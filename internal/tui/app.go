@@ -497,18 +497,25 @@ func (m *Model) remove(id string) {
 
 // syncList rebuilds the list entries from the sessions.
 func (m *Model) syncList() {
+	lc := m.opts.Config.List
 	items := make([]list.Item, len(m.sessions))
 	for i, s := range m.sessions {
 		if m.busy[s.ID] {
 			s.Status = session.StatusLoading
 		}
 		items[i] = list.Item{Session: s, Stat: m.stats[s.ID], Issues: m.mainIssues(m.issuesOf(s))}
-		if s.Status.Active() {
+		if lc.Subagents && s.Status.Active() {
 			items[i].Subagents = m.conversations[s.ID].Kept()
 			items[i].Shown = m.shownSubagent(s.ID)
 		}
 	}
-	m.list = m.list.SetItems(items)
+	m.list = m.list.SetOptions(list.Options{
+		Issues:    lc.Issues,
+		Subagents: lc.Subagents,
+		Branch:    lc.Branch,
+		DiffStats: lc.DiffStats,
+		AutoTag:   lc.AutoTag,
+	}).SetItems(items)
 }
 
 // layout returns the list width, pane width, and body height. A zoomed pane
@@ -829,6 +836,7 @@ func (m *Model) shellCmd() tea.Cmd {
 
 func (m Model) statusCmd() tea.Cmd {
 	backend := m.backend
+	subagents := m.opts.Config.List.Subagents
 	var active []session.Session
 	for _, s := range m.sessions {
 		if s.Status.Active() && !m.busy[s.ID] {
@@ -874,13 +882,17 @@ func (m Model) statusCmd() tea.Cmd {
 					} else {
 						st.permission = session.AwaitingPermission(s.Program, screen)
 						st.trust = session.AwaitingTrust(screen)
-						if session.ProgramName(s.Program) == "claude" {
+						if subagents && session.ProgramName(s.Program) == "claude" {
 							st.subagents, _ = subagent.Parse(screen)
 						}
 					}
 					switch session.ProgramName(s.Program) {
 					case "claude":
-						st.conversation, st.conversationErr = backend.Subagents(s)
+						if subagents {
+							st.conversation, st.conversationErr = backend.Subagents(s)
+						} else if lead {
+							st.conversation.ID, st.conversationErr = backend.Conversation(s)
+						}
 					case "agy":
 						if lead {
 							st.conversation.ID, st.conversationErr = backend.Conversation(s)
@@ -1439,10 +1451,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.quiet {
 			return m, nil
 		}
+		if !m.opts.Config.List.Subagents && msg.config.List.Subagents {
+			clear(m.hashes)
+		}
 		m.opts.Config = msg.config
 		m.configOpen = false
+		m.syncList()
 		m.resizeLayout()
-		return m, m.setStatus("Saved "+m.opts.ConfigPath+". New sessions use the new settings.", false)
+		return m, tea.Batch(m.refreshShown(), m.setStatus("Saved "+m.opts.ConfigPath+". New sessions use the new settings.", false))
 
 	case savedMsg:
 		m.pendingWrites--
@@ -1949,7 +1965,15 @@ func (m Model) showIssues(s session.Session, ok bool) (tea.Model, tea.Cmd) {
 	choices := make([]dialog.Choice, len(ids))
 	for i, id := range ids {
 		issue, _ := m.grapes.Issue(id)
-		choices[i] = dialog.Choice{Label: fmt.Sprintf("#%d %s", id, issue.Title), Msg: openIssueMsg{id: id}}
+		label := fmt.Sprintf("#%d", id)
+		if issue.Title != "" {
+			if m.opts.Config.List.IssuePicker == config.IssuesBefore {
+				label = fmt.Sprintf("#%d %s", id, issue.Title)
+			} else {
+				label = fmt.Sprintf("%s #%d", issue.Title, id)
+			}
+		}
+		choices[i] = dialog.Choice{Label: label, Msg: openIssueMsg{id: id}}
 	}
 	m.dialog = dialog.NewPick(m.theme, "Issues of "+s.Title, choices, min(70, m.width-4), m.height-statusBarHeight)
 	return m, nil
@@ -2001,10 +2025,12 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 			changed = append(changed, s)
 			continue
 		}
-		m.seeSubagents(s.ID, r.subagents)
+		if m.opts.Config.List.Subagents {
+			m.seeSubagents(s.ID, r.subagents)
+		}
 		if r.conversationErr != nil {
 			what := "conversation"
-			if isClaude(s) {
+			if isClaude(s) && m.opts.Config.List.Subagents {
 				what = "subagents"
 			}
 			cmds = append(cmds, m.setError(fmt.Errorf("reading %s's %s: %w", s.Title, what, r.conversationErr)))

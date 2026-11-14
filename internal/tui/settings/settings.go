@@ -54,6 +54,12 @@ const (
 	idStatusBar
 	idPeerMessages
 	idListWidth
+	idListIssues
+	idListIssuePicker
+	idListSubagents
+	idListBranch
+	idListDiffStats
+	idListAutoTag
 	idProfile
 	idAddProfile
 )
@@ -66,7 +72,7 @@ type field struct {
 	profile int      // for fieldProfile: index into cfg.Profiles
 }
 
-var categories = []string{"General", "Profiles"}
+var categories = []string{"General", "Profiles", "Session list"}
 
 // profileMultiplexers are the multiplexers m cycles a profile through: the
 // configured default (""), then each one.
@@ -155,7 +161,8 @@ func (m Model) offered() []string {
 
 // fields lists the rows of the selected category.
 func (m Model) fields() []field {
-	if categories[m.catIdx] == "General" {
+	switch categories[m.catIdx] {
+	case "General":
 		return []field{
 			{id: idDefaultAgent, label: "Default agent", kind: fieldEnum, options: m.offered()},
 			{id: idBranchPrefix, label: "Branch prefix", kind: fieldText},
@@ -166,6 +173,15 @@ func (m Model) fields() []field {
 			{id: idStatusBar, label: "Status bar while attached", kind: fieldEnum, options: []string{"on", "off"}},
 			{id: idPeerMessages, label: "Peer messages", kind: fieldEnum, options: []string{"on", "off"}},
 			{id: idListWidth, label: "Session list width", kind: fieldText},
+		}
+	case "Session list":
+		return []field{
+			{id: idListIssues, label: "Issue numbers", kind: fieldEnum, options: []string{config.IssuesAfter, config.IssuesBefore, config.IssuesOff}},
+			{id: idListIssuePicker, label: "Issue picker", kind: fieldEnum, options: []string{config.IssuesAfter, config.IssuesBefore}},
+			{id: idListSubagents, label: "Subagents", kind: fieldEnum, options: []string{"on", "off"}},
+			{id: idListBranch, label: "Branch line", kind: fieldEnum, options: []string{"on", "off"}},
+			{id: idListDiffStats, label: "Diff stats", kind: fieldEnum, options: []string{"on", "off"}},
+			{id: idListAutoTag, label: "Auto-yes tag", kind: fieldEnum, options: []string{"on", "off"}},
 		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
@@ -215,6 +231,36 @@ func (m Model) value(f field) string {
 			return "auto"
 		}
 		return strconv.Itoa(m.cfg.ListWidth)
+	case idListIssues:
+		if m.cfg.List.Issues == "" {
+			return config.IssuesAfter
+		}
+		return m.cfg.List.Issues
+	case idListIssuePicker:
+		if m.cfg.List.IssuePicker == "" {
+			return config.IssuesAfter
+		}
+		return m.cfg.List.IssuePicker
+	case idListSubagents:
+		if m.cfg.List.Subagents {
+			return "on"
+		}
+		return "off"
+	case idListBranch:
+		if m.cfg.List.Branch {
+			return "on"
+		}
+		return "off"
+	case idListDiffStats:
+		if m.cfg.List.DiffStats {
+			return "on"
+		}
+		return "off"
+	case idListAutoTag:
+		if m.cfg.List.AutoTag {
+			return "on"
+		}
+		return "off"
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
 	}
@@ -245,6 +291,18 @@ func (m *Model) setValue(f field, v string) {
 		} else if n, err := strconv.Atoi(v); err == nil {
 			m.cfg.ListWidth = n
 		}
+	case idListIssues:
+		m.cfg.List.Issues = v
+	case idListIssuePicker:
+		m.cfg.List.IssuePicker = v
+	case idListSubagents:
+		m.cfg.List.Subagents = v == "on"
+	case idListBranch:
+		m.cfg.List.Branch = v == "on"
+	case idListDiffStats:
+		m.cfg.List.DiffStats = v == "on"
+	case idListAutoTag:
+		m.cfg.List.AutoTag = v == "on"
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}

@@ -1,0 +1,6 @@
+title = 'Place issue numbers after titles and configure session list items'
+status = 'done'
+priority = 'medium'
+labels = ['feature', 'tui', 'config']
+created = 2026-11-14T18:11:00Z
+updated = 2026-11-14T18:14:00Z

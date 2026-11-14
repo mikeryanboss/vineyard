@@ -495,11 +495,11 @@ func TestIssues_SubIssuesHideUnderTheirParent(t *testing.T) {
 	m = keys(m, "tab", "tab")
 
 	view := screen(m)
-	if row := lineWith(view, "planner"); !strings.Contains(row, "#7 planner") || strings.Contains(row, "#8") {
-		t.Errorf("the planner's row should show #7 alone: %q", row)
+	if row := lineWith(view, "planner"); !strings.Contains(row, "planner #7") || strings.Contains(row, "#8") {
+		t.Errorf("the planner's row should show planner #7 alone: %q", row)
 	}
-	if row := lineWith(view, "worker"); !strings.Contains(row, "#8 worker") {
-		t.Errorf("the worker's row should show its sub-issue #8: %q", row)
+	if row := lineWith(view, "worker"); !strings.Contains(row, "worker #8") {
+		t.Errorf("the worker's row should show worker #8: %q", row)
 	}
 	if !strings.Contains(view, "Issue #7 ") || strings.Count(view, "Created ") != 1 {
 		t.Errorf("the issue tab should show #7 alone, its sub-issue listed in it:\n%s", view)
@@ -523,11 +523,42 @@ func TestIssues_ManyIssuesShowTwoAndACount(t *testing.T) {
 	m = update(m, diffMsg{stats: map[string]git.Stat{"a": {Paths: paths}}})
 
 	view := screen(m)
-	if !strings.Contains(view, "#11 #12 +3 planner") {
-		t.Errorf("the row should show #11 #12 +3:\n%s", view)
+	if !strings.Contains(view, "planner #11 #12 +3") {
+		t.Errorf("the row should show planner #11 #12 +3:\n%s", view)
 	}
 	if !strings.Contains(view, "Issues #11 #12 +3") {
 		t.Errorf("the tab label should show #11 #12 +3:\n%s", view)
+	}
+}
+
+func TestIssues_ConfiguredListAndPickerOrder(t *testing.T) {
+	m := grapesModel(t, []session.Session{{ID: "a", Title: "planner", Status: session.StatusReady, Issue: 7}})
+	m = update(m, diffMsg{stats: map[string]git.Stat{"a": {Paths: []string{".grapes/8/meta.toml"}}}})
+
+	// Default: issue picker puts the number after the title.
+	m = keys(m, "i")
+	if view := screen(m); !strings.Contains(view, "Embed grapes #7") || !strings.Contains(view, "Pick a session #8") {
+		t.Errorf("default picker should put numbers after titles:\n%s", view)
+	}
+	m = keys(m, "esc")
+
+	// Configured "before" for both list and picker, then "off" for the list.
+	m.opts.Config.List.Issues = config.IssuesBefore
+	m.opts.Config.List.IssuePicker = config.IssuesBefore
+	m.syncList()
+	if row := lineWith(screen(m), "planner"); !strings.Contains(row, "#7 #8 planner") {
+		t.Errorf("before row = %q, want #7 #8 planner", row)
+	}
+	m = keys(m, "i")
+	if view := screen(m); !strings.Contains(view, "#7 Embed grapes") || !strings.Contains(view, "#8 Pick a session") {
+		t.Errorf("before picker should put numbers before titles:\n%s", view)
+	}
+	m = keys(m, "esc")
+
+	m.opts.Config.List.Issues = config.IssuesOff
+	m.syncList()
+	if row := lineWith(screen(m), "planner"); strings.Contains(row, "#7") || strings.Contains(row, "#8") {
+		t.Errorf("off row = %q, want no issue numbers", row)
 	}
 }
 

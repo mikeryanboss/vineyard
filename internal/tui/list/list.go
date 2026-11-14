@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/subagent"
@@ -35,6 +36,33 @@ type Item struct {
 	Shown string
 }
 
+// Options controls what each session entry shows in the list.
+type Options struct {
+	// Issues places a session's issue numbers: config.IssuesAfter,
+	// config.IssuesBefore, or config.IssuesOff. Empty means IssuesAfter.
+	Issues string
+	// Subagents shows the line counting a session's subagents and their rows.
+	Subagents bool
+	// Branch shows a session's branch line beneath its title.
+	Branch bool
+	// DiffStats shows a session's +N -M line counts.
+	DiffStats bool
+	// AutoTag shows "auto" on sessions with auto-yes enabled.
+	AutoTag bool
+}
+
+// DefaultOptions returns the options New uses: issue numbers after titles and
+// every element shown.
+func DefaultOptions() Options {
+	return Options{
+		Issues:    config.IssuesAfter,
+		Subagents: true,
+		Branch:    true,
+		DiffStats: true,
+		AutoTag:   true,
+	}
+}
+
 // Model is the session list.
 type Model struct {
 	items    []Item
@@ -44,6 +72,7 @@ type Model struct {
 	height   int
 	focused  bool
 	theme    common.Theme
+	opts     Options
 	// sub is the ID of the selected subagent of the selected entry, or "" for
 	// its session. A subagent that is no longer shown selects its session.
 	sub string
@@ -56,7 +85,16 @@ type Model struct {
 
 // New returns an empty list.
 func New(theme common.Theme) Model {
-	return Model{theme: theme, focused: true, expanded: map[string]bool{}}
+	return Model{theme: theme, focused: true, opts: DefaultOptions(), expanded: map[string]bool{}}
+}
+
+// SetOptions replaces the display options.
+func (m Model) SetOptions(opts Options) Model {
+	m.opts = opts
+	if m.row() < 0 {
+		m.sub = ""
+	}
+	return m.clamp()
 }
 
 // SetItems replaces the entries, keeping the selection on the same session,
@@ -122,7 +160,7 @@ func (m Model) setExpanded(id string, expanded bool) Model {
 // are hidden.
 func (m Model) Expandable() bool {
 	item, ok := m.Selected()
-	return ok && len(item.Subagents) > 0 && !m.expanded[item.Session.ID]
+	return ok && len(m.subagentsOf(item)) > 0 && !m.expanded[item.Session.ID]
 }
 
 // Collapsible reports whether the selected session shows subagent rows.
@@ -188,12 +226,29 @@ func (m Model) row() int {
 	return -1
 }
 
+// subagentsOf returns item's subagents when subagents are shown.
+func (m Model) subagentsOf(item Item) []subagent.Agent {
+	if !m.opts.Subagents {
+		return nil
+	}
+	return item.Subagents
+}
+
 // rows is the number of subagent rows item shows: none while collapsed.
 func (m Model) rows(item Item) int {
 	if m.expanded[item.Session.ID] {
-		return len(item.Subagents)
+		return len(m.subagentsOf(item))
 	}
 	return 0
+}
+
+// sessionLines is the number of lines a session's own header occupies: its
+// title line, plus its branch line when shown.
+func (m Model) sessionLines() int {
+	if m.opts.Branch {
+		return 2
+	}
+	return 1
 }
 
 // selectRow selects row of the selected entry: a subagent, counted from 0,
@@ -205,11 +260,12 @@ func (m *Model) selectRow(row int) {
 	}
 }
 
-// entryHeight is the number of lines item occupies: its title and branch
-// lines, the line counting its subagents and their rows, and a blank line.
+// entryHeight is the number of lines item occupies: its title and optional
+// branch lines, the line counting its subagents and their rows, and a blank
+// line.
 func (m Model) entryHeight(item Item) int {
-	height := 3 + m.rows(item)
-	if len(item.Subagents) > 0 {
+	height := m.sessionLines() + 1 + m.rows(item)
+	if len(m.subagentsOf(item)) > 0 {
 		height++ // the line counting them
 	}
 	return height
@@ -334,12 +390,14 @@ const (
 // LineAt returns what line y, counted from the list's top, shows.
 func (m Model) LineAt(y int) Line {
 	i, line, ok := m.at(y)
+	countLine := m.sessionLines()
+	subStart := countLine + 1
 	switch {
 	case !ok:
 		return LineNone
-	case line == 2 && len(m.items[i].Subagents) > 0:
+	case line == countLine && len(m.subagentsOf(m.items[i])) > 0:
 		return LineCount
-	case line >= 3 && line-3 < m.rows(m.items[i]):
+	case line >= subStart && line-subStart < m.rows(m.items[i]):
 		return LineSubagent
 	}
 	return LineSession
@@ -397,7 +455,7 @@ func (m Model) click(y int) Model {
 	case LineCount:
 		return m.setExpanded(id, !m.expanded[id])
 	case LineSubagent:
-		m.selectRow(line - 3)
+		m.selectRow(line - (m.sessionLines() + 1))
 	}
 	return m.clamp()
 }
@@ -453,56 +511,106 @@ func (m Model) renderItem(item Item, sub int) []string {
 		titleStyle = t.StyleSubtitle
 	}
 	tag := ""
-	if s.AutoYes {
+	if m.opts.AutoTag && s.AutoYes {
 		tag = style(t.StyleFaint).Render(" auto")
 	}
-	issues := ""
-	ids, more := common.ClipIssues(item.Issues)
-	for _, id := range ids {
-		issues += style(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render(fmt.Sprintf("#%d", id)) + style(lipgloss.NewStyle()).Render(" ")
-	}
-	if more > 0 {
-		issues += style(t.StyleFaint).Render(fmt.Sprintf("+%d", more)) + style(lipgloss.NewStyle()).Render(" ")
-	}
-	titleWidth := m.width - 4 - ansi.StringWidth(tag) - ansi.StringWidth(issues)
-	titleText := style(titleStyle).Render(ansi.Truncate(s.Title, max(0, titleWidth), "…"))
-	titleMarker := marker
-	if selected && m.moving {
-		titleMarker = style(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render("↕")
-	}
-	titleLine := titleMarker + icon + style(lipgloss.NewStyle()).Render(" ") + issues + titleText + tag
-
 	stat := ""
-	if !item.Stat.IsZero() {
+	if m.opts.DiffStats && !item.Stat.IsZero() {
 		stat = style(lipgloss.NewStyle().Foreground(t.ColorAddFg)).Render(fmt.Sprintf("+%d", item.Stat.Added)) +
 			style(lipgloss.NewStyle()).Render(" ") +
 			style(lipgloss.NewStyle().Foreground(t.ColorDelFg)).Render(fmt.Sprintf("-%d", item.Stat.Removed))
 	}
-	branch := s.Branch
-	if branch == "" {
-		branch = string(s.Status) + "…"
+	avail := m.width - 4 - ansi.StringWidth(tag)
+	if !m.opts.Branch && stat != "" {
+		avail -= ansi.StringWidth(stat) + 1
 	}
-	branchWidth := m.width - 5 - ansi.StringWidth(stat) - 1
-	branchText := style(t.StyleFaint).Render(common.IconBranch + " " + ansi.Truncate(branch, max(0, branchWidth-2), "…"))
-	branchLine := marker + style(lipgloss.NewStyle()).Render("  ") + branchText
+	avail = max(0, avail)
 
-	lines := []string{
-		pad(titleLine, m.width, style(lipgloss.NewStyle())),
-		padBetween(branchLine, stat, m.width, style(lipgloss.NewStyle())),
+	var body string
+	switch m.opts.Issues {
+	case config.IssuesOff:
+		body = style(titleStyle).Render(ansi.Truncate(s.Title, avail, "…"))
+	case config.IssuesBefore:
+		issues := m.renderIssues(item.Issues, selected, false)
+		titleWidth := max(0, avail-ansi.StringWidth(issues))
+		body = issues + style(titleStyle).Render(ansi.Truncate(s.Title, titleWidth, "…"))
+	default:
+		titleWidth := ansi.StringWidth(s.Title)
+		switch {
+		case titleWidth > avail:
+			body = style(titleStyle).Render(ansi.Truncate(s.Title, avail, "…"))
+		case titleWidth == avail || len(item.Issues) == 0:
+			body = style(titleStyle).Render(s.Title)
+		default:
+			issues := m.renderIssues(item.Issues, selected, true)
+			if rem := avail - titleWidth; ansi.StringWidth(issues) > rem {
+				issues = ansi.Truncate(issues, rem, style(t.StyleFaint).Render("…"))
+			}
+			body = style(titleStyle).Render(s.Title) + issues
+		}
 	}
-	if len(item.Subagents) > 0 {
+
+	titleMarker := marker
+	if selected && m.moving {
+		titleMarker = style(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render("↕")
+	}
+	titleLine := titleMarker + icon + style(lipgloss.NewStyle()).Render(" ") + body + tag
+
+	var lines []string
+	if m.opts.Branch {
+		branch := s.Branch
+		if branch == "" {
+			branch = string(s.Status) + "…"
+		}
+		branchWidth := m.width - 5 - ansi.StringWidth(stat) - 1
+		branchText := style(t.StyleFaint).Render(common.IconBranch + " " + ansi.Truncate(branch, max(0, branchWidth-2), "…"))
+		branchLine := marker + style(lipgloss.NewStyle()).Render("  ") + branchText
+		lines = []string{
+			pad(titleLine, m.width, style(lipgloss.NewStyle())),
+			padBetween(branchLine, stat, m.width, style(lipgloss.NewStyle())),
+		}
+	} else {
+		lines = []string{
+			padBetween(titleLine, stat, m.width, style(lipgloss.NewStyle())),
+		}
+	}
+	if subs := m.subagentsOf(item); len(subs) > 0 {
 		toggle := "▸ "
 		if m.expanded[s.ID] {
 			toggle = "▾ "
 		}
 		countLine := marker + style(lipgloss.NewStyle()).Render("  ") +
-			style(t.StyleFaint).Render(ansi.Truncate(toggle+count(item.Subagents), max(0, m.width-4), "…"))
+			style(t.StyleFaint).Render(ansi.Truncate(toggle+count(subs), max(0, m.width-4), "…"))
 		lines = append(lines, pad(countLine, m.width, style(lipgloss.NewStyle())))
 	}
 	for i := range m.rows(item) {
 		lines = append(lines, m.renderSubagent(item, i, i == sub))
 	}
 	return append(lines, "")
+}
+
+// renderIssues renders ids for a session's title line, separated from the
+// title by a space on the left when after is true and on the right otherwise.
+func (m Model) renderIssues(ids []int, selected, after bool) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	t := m.theme
+	style := m.rowStyle(selected)
+	clipped, more := common.ClipIssues(ids)
+	var parts []string
+	for _, id := range clipped {
+		parts = append(parts, style(lipgloss.NewStyle().Foreground(t.ColorAccent)).Render(fmt.Sprintf("#%d", id)))
+	}
+	if more > 0 {
+		parts = append(parts, style(t.StyleFaint).Render(fmt.Sprintf("+%d", more)))
+	}
+	space := style(lipgloss.NewStyle()).Render(" ")
+	joined := strings.Join(parts, space)
+	if after {
+		return space + joined
+	}
+	return joined + space
 }
 
 // count describes subagents by status: "3 subagents: 2 running, 1 done", or
