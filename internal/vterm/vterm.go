@@ -8,6 +8,7 @@ package vterm
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"maps"
 	"os"
@@ -88,6 +89,10 @@ type terminal struct {
 	modes map[ansi.Mode]bool
 	// watchers each receive a value when the screen may have changed.
 	watchers map[chan struct{}]bool
+	// rendered caches t.emu.Render() and its FNV-64a hash until Write or Resize.
+	rendered   string
+	renderHash uint64
+	renderedOK bool
 }
 
 // Start runs program in dir on a new terminal of the given size, with the
@@ -161,6 +166,7 @@ func (t *terminal) mirror() {
 		if n > 0 {
 			t.mu.Lock()
 			t.emu.Write(buf[:n])
+			t.renderedOK = false
 			for w := range t.watchers {
 				select {
 				case w <- struct{}{}:
@@ -220,6 +226,18 @@ func (s *Server) Created(name string) (time.Time, error) {
 	return t.created, nil
 }
 
+// render returns the rendered visible screen and its FNV-64a hash. Callers
+// must hold t.mu.
+func (t *terminal) render() (string, uint64) {
+	if !t.renderedOK {
+		screen := t.emu.Render()
+		h := fnv.New64a()
+		_, _ = h.Write([]byte(screen))
+		t.rendered, t.renderHash, t.renderedOK = screen, h.Sum64(), true
+	}
+	return t.rendered, t.renderHash
+}
+
 // Capture returns the visible screen, with colours as ANSI escape sequences.
 func (s *Server) Capture(name string) (string, error) {
 	t, err := s.terminal(name)
@@ -228,7 +246,8 @@ func (s *Server) Capture(name string) (string, error) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.emu.Render(), nil
+	rendered, _ := t.render()
+	return rendered, nil
 }
 
 // CaptureHistory returns up to lines of scrollback above the visible screen,
@@ -250,7 +269,8 @@ func (s *Server) CaptureHistory(name string, lines int) (string, error) {
 			}
 		}
 	}
-	b.WriteString(t.emu.Render())
+	rendered, _ := t.render()
+	b.WriteString(rendered)
 	return b.String(), nil
 }
 
@@ -273,6 +293,7 @@ func (t *terminal) resize(width, height int) error {
 		return nil
 	}
 	t.emu.Resize(width, height)
+	t.renderedOK = false
 	return pty.Setsize(t.pty, &pty.Winsize{Cols: uint16(width), Rows: uint16(height)})
 }
 

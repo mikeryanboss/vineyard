@@ -83,3 +83,121 @@ func TestLoad_NoTranscript(t *testing.T) {
 		t.Errorf("a directory without transcripts should be no recap, not an error; got %+v, %v", r, err)
 	}
 }
+
+func TestReader_IncrementalPartialAndDelete(t *testing.T) {
+	projects := t.TempDir()
+	cwd := "/home/u/repo"
+	dir := Dir(projects, cwd)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewReader()
+	convPath := filepath.Join(dir, "conv1.jsonl")
+	appendRaw := func(s string) {
+		t.Helper()
+		f, err := os.OpenFile(convPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	line1 := `{"type":"ai-title","aiTitle":"Initial","sessionId":"conv1"}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":"step one"},"origin":{"kind":"human"},"timestamp":"2026-10-09T07:00:00.000Z"}` + "\n"
+	appendRaw(line1)
+
+	got1, err := r.Load(projects, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got1.Found || got1.Title != "Initial" || len(got1.Entries) != 1 || got1.Entries[0].Text != "step one" {
+		t.Fatalf("first Load = %+v", got1)
+	}
+	savedOffset := r.files[convPath].offset
+
+	// Unchanged poll reuses cached state without re-reading.
+	gotSame, err := r.Load(projects, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotSame.Equal(got1) {
+		t.Fatalf("unchanged Load differed: %+v vs %+v", gotSame, got1)
+	}
+
+	// Partial JSON at EOF does not fail or advance offset; completing it delivers the new entry.
+	appendRaw(`{"type":"system","subtype":"away_summary","content":"Partial recap`)
+	gotPartial, err := r.Load(projects, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotPartial.Equal(got1) || r.files[convPath].offset != savedOffset {
+		t.Fatalf("partial EOF Load = %+v (offset %d vs %d)", gotPartial, r.files[convPath].offset, savedOffset)
+	}
+
+	appendRaw(`. (disable recaps in /config)","timestamp":"2026-10-09T08:00:00.000Z"}` + "\n")
+	got2, err := r.Load(projects, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got2.Entries) != 2 || !got2.Entries[1].Recap || got2.Entries[1].Text != "Partial recap." {
+		t.Fatalf("completed append Load = %+v", got2)
+	}
+	if got2.Equal(got1) {
+		t.Error("Equal reported true after new entry was added")
+	}
+
+	// Same instant across locations compares equal.
+	utc := time.Date(2026, 10, 9, 7, 0, 0, 0, time.UTC)
+	fixed := utc.In(time.FixedZone("UTC+2", 2*3600))
+	a := Recap{Found: true, Title: "T", Entries: []Entry{{Time: utc, Text: "hi"}}}
+	b := Recap{Found: true, Title: "T", Entries: []Entry{{Time: fixed, Text: "hi"}}}
+	if !a.Equal(b) {
+		t.Error("Recap.Equal should treat equivalent instants as equal")
+	}
+
+	// Removing the transcript clears cache entry and Found becomes false.
+	if err := os.Remove(convPath); err != nil {
+		t.Fatal(err)
+	}
+	gotDeleted, err := r.Load(projects, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDeleted.Found || len(gotDeleted.Entries) != 0 || len(r.files) != 0 {
+		t.Fatalf("after delete: %+v, cached files=%d", gotDeleted, len(r.files))
+	}
+}
+
+func BenchmarkReader_IdleLoad(b *testing.B) {
+	projects := b.TempDir()
+	cwd := "/home/u/repo"
+	dir := Dir(projects, cwd)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	toolLine := `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"` + strings.Repeat("x", 200) + `"}]},"timestamp":"2026-10-09T07:01:00.000Z"}` + "\n"
+	var content strings.Builder
+	content.WriteString(`{"type":"ai-title","aiTitle":"Big","sessionId":"big"}` + "\n")
+	content.WriteString(`{"type":"user","message":{"role":"user","content":"start"},"origin":{"kind":"human"},"timestamp":"2026-10-09T07:00:00.000Z"}` + "\n")
+	for range 10000 { // ~3 MiB transcript
+		content.WriteString(toolLine)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "big.jsonl"), []byte(content.String()), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	r := NewReader()
+	if _, err := r.Load(projects, cwd); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		rec, err := r.Load(projects, cwd)
+		if err != nil || !rec.Found {
+			b.Fatalf("Load = %+v, %v", rec, err)
+		}
+	}
+}

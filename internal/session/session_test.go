@@ -1102,3 +1102,158 @@ func TestAgentsOnMultiplexersTheirRecordsDoNotName(t *testing.T) {
 		t.Error("check out left the agent running on the multiplexer its record does not name")
 	}
 }
+
+func TestAgyReader_IncrementalAndResets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.jsonl")
+	r := NewAgyReader()
+
+	appendRaw := func(s string) {
+		t.Helper()
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Missing history.jsonl is not an error.
+	if got, err := r.conversation(dir, "/wt/a"); err != nil || got != "" {
+		t.Fatalf("missing file = %q, %v; want \"\", nil", got, err)
+	}
+
+	// Appending >64 KiB lines across multiple workspaces works incrementally.
+	longDisplay := strings.Repeat("x", 70*1024)
+	lineA1 := fmt.Sprintf(`{"display":%q,"workspace":"/wt/a","conversationId":"c-a1"}`+"\n", longDisplay)
+	lineB1 := `{"display":"hi","workspace":"/wt/b","conversationId":"c-b1"}` + "\n"
+	appendRaw(lineA1 + lineB1)
+
+	if got, err := r.conversation(dir, "/wt/a"); err != nil || got != "c-a1" {
+		t.Fatalf("first read a = %q, %v; want c-a1", got, err)
+	}
+	savedOffset := r.offset
+	if savedOffset != int64(len(lineA1)+len(lineB1)) {
+		t.Fatalf("offset = %d, want %d", savedOffset, len(lineA1)+len(lineB1))
+	}
+
+	// Unchanged poll hits cache without changing offset.
+	if got, err := r.conversation(dir, "/wt/b"); err != nil || got != "c-b1" {
+		t.Fatalf("cached b = %q, %v; want c-b1", got, err)
+	}
+	if r.offset != savedOffset {
+		t.Fatalf("offset changed on unchanged poll: %d -> %d", savedOffset, r.offset)
+	}
+
+	// Partial JSON at EOF does not error or advance offset; completing it succeeds.
+	partial := `{"workspace":"/wt/a","conversationId":`
+	appendRaw(partial)
+	if got, err := r.conversation(dir, "/wt/a"); err != nil || got != "c-a1" {
+		t.Fatalf("partial EOF a = %q, %v; want c-a1", got, err)
+	}
+	if r.offset != savedOffset {
+		t.Fatalf("offset advanced across partial EOF line: %d -> %d", savedOffset, r.offset)
+	}
+	appendRaw(`"c-a2"}` + "\n")
+	if got, err := r.conversation(dir, "/wt/a"); err != nil || got != "c-a2" {
+		t.Fatalf("completed line a = %q, %v; want c-a2", got, err)
+	}
+
+	// Concurrent reads across workspaces stay race-free and consistent.
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := range 8 {
+		wt, want := "/wt/a", "c-a2"
+		if i%2 == 1 {
+			wt, want = "/wt/b", "c-b1"
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := r.conversation(dir, wt)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if got != want {
+				errs <- fmt.Errorf("%s = %q, want %q", wt, got, want)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+
+	// Same-size overwrite with a different modtime triggers full re-read.
+	prevInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := `{"display":%q,"workspace":"/wt/a","conversationId":"c-new"}` + "\n"
+	padLen := int(prevInfo.Size()) - len(fmt.Sprintf(template, ""))
+	replacement := fmt.Sprintf(template, strings.Repeat("y", padLen))
+	if int64(len(replacement)) != prevInfo.Size() {
+		t.Fatalf("test bug: len(replacement)=%d != prevSize=%d", len(replacement), prevInfo.Size())
+	}
+	if err := os.WriteFile(path, []byte(replacement), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.conversation(dir, "/wt/a"); err != nil || got != "c-new" {
+		t.Fatalf("same-size overwrite a = %q, %v; want c-new", got, err)
+	}
+	if got, err := r.conversation(dir, "/wt/b"); err != nil || got != "" {
+		t.Fatalf("same-size overwrite b = %q, %v; want \"\"", got, err)
+	}
+
+	// Truncation resets state.
+	if err := os.WriteFile(path, []byte(`{"workspace":"/wt/b","conversationId":"c-b2"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.conversation(dir, "/wt/a"); err != nil || got != "" {
+		t.Fatalf("truncated a = %q, %v; want \"\"", got, err)
+	}
+	if got, err := r.conversation(dir, "/wt/b"); err != nil || got != "c-b2" {
+		t.Fatalf("truncated b = %q, %v; want c-b2", got, err)
+	}
+
+	// Deletion clears state.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.conversation(dir, "/wt/b"); err != nil || got != "" {
+		t.Fatalf("deleted b = %q, %v; want \"\"", got, err)
+	}
+}
+
+func BenchmarkAgyReader_IdlePoll(b *testing.B) {
+	dir := b.TempDir()
+	path := filepath.Join(dir, "history.jsonl")
+	line := `{"display":"work on task","timestamp":1794606231280,"workspace":"/wt/other","conversationId":"conv-0"}` + "\n"
+	var content strings.Builder
+	for range 20000 { // ~2.2 MiB history.jsonl
+		content.WriteString(line)
+	}
+	content.WriteString(`{"display":"target","timestamp":1794606231280,"workspace":"/wt/target","conversationId":"conv-target"}` + "\n")
+	if err := os.WriteFile(path, []byte(content.String()), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	r := NewAgyReader()
+	if got, err := r.conversation(dir, "/wt/target"); err != nil || got != "conv-target" {
+		b.Fatalf("warmup = %q, %v", got, err)
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		got, err := r.conversation(dir, "/wt/target")
+		if err != nil || got != "conv-target" {
+			b.Fatalf("poll = %q, %v", got, err)
+		}
+	}
+}

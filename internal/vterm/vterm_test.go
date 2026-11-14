@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
+	"github.com/mikeryanboss/vineyard/internal/session"
 )
 
 // start runs program on a new terminal of s and ends it with the test.
@@ -497,4 +498,96 @@ func TestWheelForwardsOnlyOnMouseAwareAltScreen(t *testing.T) {
 		t.Fatalf("Wheel down on SGR alt screen = %v, %v; want true, nil", ok, err)
 	}
 	waitFor(t, func() (string, error) { return s.Capture("sgr") }, "^[[<65;5;3M")
+}
+
+func TestCapture_CacheInvalidatedOnWriteAndResize(t *testing.T) {
+	s := New()
+	fifo := t.TempDir() + "/feed"
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	start(t, s, "c", fmt.Sprintf(`printf 'line-one-abcdefghij\n'; (cat %q) & wait; sleep 5`, fifo))
+	first := waitFor(t, func() (string, error) { return s.Capture("c") }, "line-one-abcdefghij")
+
+	// Idle capture reuses cached output and matches emulator directly.
+	second, err := s.Capture("c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Fatalf("cached capture differed:\n%q\nvs\n%q", second, first)
+	}
+
+	// Peer status bar sampling uses cached hash and detects idle vs changed.
+	b := newBar(true, "self", []session.Peer{{Terminal: "c", Title: "c", Running: true}}, nil, nil, true)
+	b.sample(s)
+	if !b.peers[0].Running {
+		t.Fatal("first bar sample should preserve Running")
+	}
+	b.sample(s)
+	if b.peers[0].Running {
+		t.Fatal("second identical bar sample should mark peer ready")
+	}
+
+	// Writing invalidates render and hash caches.
+	w, err := os.OpenFile(fifo, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.WriteString("line-two\n")
+	w.Close()
+	waitFor(t, func() (string, error) { return s.Capture("c") }, "line-two")
+	b.sample(s)
+	if !b.peers[0].Running {
+		t.Fatal("bar sample after output write should mark peer running")
+	}
+
+	// Resizing invalidates render cache.
+	if err := s.Resize("c", 12, 10); err != nil {
+		t.Fatal(err)
+	}
+	term, err := s.terminal("c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	term.mu.Lock()
+	invalidated := !term.renderedOK
+	wantRendered := term.emu.Render()
+	term.mu.Unlock()
+	if !invalidated {
+		t.Fatal("Resize must invalidate cached render")
+	}
+	got, err := s.Capture("c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != wantRendered {
+		t.Fatalf("capture after resize = %q, want %q", got, wantRendered)
+	}
+}
+
+func BenchmarkCapture_Idle(b *testing.B) {
+	s := New()
+	env := append(os.Environ(), "SHELL=/bin/sh")
+	if err := s.Start("bench", b.TempDir(), `printf 'ready\n'; sleep 30`, env, 120, 40); err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = s.Kill("bench") }()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		out, err := s.Capture("bench")
+		if err == nil && strings.Contains(out, "ready") {
+			break
+		}
+		if time.Now().After(deadline) {
+			b.Fatalf("timed out waiting for bench terminal")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := s.Capture("bench"); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

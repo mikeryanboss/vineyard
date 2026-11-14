@@ -26,6 +26,7 @@ type Model struct {
 	placeholder string
 	scrolling   bool
 	viewport    viewport.Model
+	rendered    string
 }
 
 // New returns an empty preview.
@@ -36,32 +37,41 @@ func New(theme common.Theme) Model {
 // SetSize sets the content area's size, which is also the size the agent's
 // tmux window is kept at.
 func (m Model) SetSize(width, height int) Model {
+	if m.width == width && m.height == height && (width <= 0 || height <= 0 || m.rendered != "") {
+		return m
+	}
 	m.width, m.height = width, height
 	m.viewport.SetWidth(width)
 	m.viewport.SetHeight(height)
-	return m
+	return m.rebuild()
 }
 
 // SetTheme replaces the theme.
 func (m Model) SetTheme(theme common.Theme) Model {
 	m.theme = theme
-	return m
+	return m.rebuild()
 }
 
 // SetScreen shows a freshly captured screen.
 func (m Model) SetScreen(screen string) Model {
+	if !m.scrolling && m.placeholder == "" && m.screen == screen && (m.width <= 0 || m.height <= 0 || m.rendered != "") {
+		return m
+	}
 	m.screen = screen
 	m.placeholder = ""
-	return m
+	return m.rebuild()
 }
 
 // SetPlaceholder replaces the screen with a message, for sessions without a
 // running terminal.
 func (m Model) SetPlaceholder(text string) Model {
+	if !m.scrolling && m.placeholder == text && m.screen == "" && (m.width <= 0 || m.height <= 0 || m.rendered != "") {
+		return m
+	}
 	m.placeholder = text
 	m.screen = ""
 	m.scrolling = false
-	return m
+	return m.rebuild()
 }
 
 // SetScrollback enters scroll mode showing history, scrolled to the bottom
@@ -80,7 +90,7 @@ func (m Model) SetScrollback(history string) Model {
 	m.viewport.GotoBottom()
 	m.viewport.ScrollUp(1)
 	m.scrolling = true
-	return m
+	return m.rebuild()
 }
 
 // Scrolling reports whether the preview shows scrollback instead of the live screen.
@@ -88,8 +98,11 @@ func (m Model) Scrolling() bool { return m.scrolling }
 
 // ExitScroll returns to the live screen.
 func (m Model) ExitScroll() Model {
+	if !m.scrolling {
+		return m
+	}
 	m.scrolling = false
-	return m
+	return m.rebuild()
 }
 
 // Update handles keys while the pane has focus.
@@ -105,7 +118,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(keyMsg, keys.Back):
 		m.scrolling = false
-		return m, func() tea.Msg { return common.LeavePaneMsg{} }
+		return m.rebuild(), func() tea.Msg { return common.LeavePaneMsg{} }
 	case key.Matches(keyMsg, keys.NextTab, keys.PrevTab):
 		back := key.Matches(keyMsg, keys.PrevTab)
 		return m, func() tea.Msg { return common.SwitchTabMsg{Back: back} }
@@ -145,7 +158,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	if m.viewport.AtBottom() {
 		m.scrolling = false
 	}
-	return m, nil
+	return m.rebuild(), nil
 }
 
 func scrollRequest(x, y, n int) tea.Cmd {
@@ -166,22 +179,24 @@ func (m Model) wheel(msg tea.MouseWheelMsg) (Model, tea.Cmd) {
 			m.scrolling = false
 		}
 	}
-	return m, nil
+	return m.rebuild(), nil
 }
 
-// View renders the content area at exactly its set size.
-func (m Model) View() string {
+func (m Model) rebuild() Model {
 	if m.width <= 0 || m.height <= 0 {
-		return ""
+		m.rendered = ""
+		return m
 	}
 	if m.placeholder != "" {
 		// Wrapped to fit: a longer line would wrap in the terminal and push
 		// the rest of the screen down.
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+		m.rendered = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
 			m.theme.StyleSubtitle.Render(ansi.Wordwrap(m.placeholder, m.width, "")))
+		return m
 	}
 	if m.scrolling {
-		return m.viewport.View()
+		m.rendered = m.viewport.View()
+		return m
 	}
 	lines := strings.Split(strings.TrimRight(m.screen, "\n"), "\n")
 	if len(lines) > m.height {
@@ -197,5 +212,11 @@ func (m Model) View() string {
 	for len(lines) < m.height {
 		lines = append(lines, strings.Repeat(" ", m.width))
 	}
-	return strings.Join(lines, "\n")
+	m.rendered = strings.Join(lines, "\n")
+	return m
+}
+
+// View renders the content area at exactly its set size.
+func (m Model) View() string {
+	return m.rendered
 }

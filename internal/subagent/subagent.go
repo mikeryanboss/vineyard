@@ -82,7 +82,11 @@ var (
 // Parse finds Claude Code's agent list on a captured screen. It reports false
 // when the screen has none, as when no subagent runs.
 func Parse(screen string) (List, bool) {
-	lines := strings.Split(ansi.Strip(screen), "\n")
+	stripped := ansi.Strip(screen)
+	if !strings.Contains(stripped, "● main") && !strings.Contains(stripped, "◯ main") {
+		return List{}, false
+	}
+	lines := strings.Split(stripped, "\n")
 	start := -1
 	for i, line := range lines {
 		if mainRow.MatchString(line) {

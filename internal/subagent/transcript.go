@@ -125,12 +125,29 @@ const resultLines = 3
 // grows long, and a poll needs only what was appended. It is safe for
 // concurrent use.
 type Reader struct {
+	mu   sync.Mutex
+	dirs map[string]*dirReader
+}
+
+type dirReader struct {
 	mu    sync.Mutex
 	files map[string]*transcript
 }
 
 // NewReader returns a Reader that has read nothing yet.
-func NewReader() *Reader { return &Reader{files: map[string]*transcript{}} }
+func NewReader() *Reader { return &Reader{dirs: map[string]*dirReader{}} }
+
+func (r *Reader) dir(path string) *dirReader {
+	key := filepath.Clean(path)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.dirs[key]
+	if d == nil {
+		d = &dirReader{files: map[string]*transcript{}}
+		r.dirs[key] = d
+	}
+	return d
+}
 
 // Load reads the subagents of the conversation last written to in dir, a
 // directory of transcripts. It finds none when dir holds no transcript.
@@ -143,19 +160,34 @@ func NewReader() *Reader { return &Reader{files: map[string]*transcript{}} }
 // starts. A Claude Code that exits, as when its session is paused, leaves its
 // conversation the newest in dir until its successor is sent a prompt.
 func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	main, err := newest(filepath.Join(dir, "*.jsonl"))
-	if main == "" || err != nil {
-		return Conversation{}, err
-	}
-	conv, err := r.update(main, false)
+	dr := r.dir(dir)
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
+	main, err := newestJSONL(dir)
 	if err != nil {
 		return Conversation{}, err
 	}
-	paths, err := filepath.Glob(filepath.Join(subagentDir(main), "agent-*.jsonl"))
+	if main == "" {
+		clear(dr.files)
+		return Conversation{}, nil
+	}
+	conv, err := dr.update(main, false)
 	if err != nil {
 		return Conversation{}, err
+	}
+	paths, err := agentFiles(subagentDir(main))
+	if err != nil {
+		return Conversation{}, err
+	}
+	live := make(map[string]bool, len(paths)+1)
+	live[main] = true
+	for _, path := range paths {
+		live[path] = true
+	}
+	for path := range dr.files {
+		if !live[path] {
+			delete(dr.files, path)
+		}
 	}
 	stops := map[string]stop{}
 	note := func(t *transcript) {
@@ -170,9 +202,9 @@ func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 	var read []*transcript
 	var agents []Agent
 	for _, path := range paths {
-		t, err := r.update(path, true)
+		t, err := dr.update(path, true)
 		if errors.Is(err, fs.ErrNotExist) {
-			continue // removed since the glob, or its meta file not written yet
+			continue // removed since the listing, or its meta file not written yet
 		}
 		if err != nil {
 			return Conversation{}, err
@@ -212,16 +244,17 @@ func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 // Events returns the condensed transcript of subagent id of the conversation
 // last written to in dir.
 func (r *Reader) Events(dir, id string) ([]Event, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	main, err := newest(filepath.Join(dir, "*.jsonl"))
+	dr := r.dir(dir)
+	dr.mu.Lock()
+	defer dr.mu.Unlock()
+	main, err := newestJSONL(dir)
 	if err != nil {
 		return nil, err
 	}
 	if main == "" {
 		return nil, fmt.Errorf("no conversation in %s", dir)
 	}
-	t, err := r.update(agentPath(main, id), true)
+	t, err := dr.update(agentPath(main, id), true)
 	if err != nil {
 		return nil, err
 	}
@@ -236,18 +269,28 @@ func agentPath(main, id string) string {
 	return filepath.Join(subagentDir(main), "agent-"+id+".jsonl")
 }
 
-// newest returns the most recently written file matching pattern, or "".
-func newest(pattern string) (string, error) {
-	paths, err := filepath.Glob(pattern)
+// newestJSONL returns the most recently written *.jsonl file in dir, or "".
+func newestJSONL(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}
 	var found string
 	var at time.Time
-	for _, path := range paths {
-		info, err := os.Stat(path)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		info, err := e.Info()
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			info, err = os.Stat(path)
+		}
 		if errors.Is(err, fs.ErrNotExist) {
-			continue // removed since the glob
+			continue // removed since the listing
 		}
 		if err != nil {
 			return "", err
@@ -257,6 +300,26 @@ func newest(pattern string) (string, error) {
 		}
 	}
 	return found, nil
+}
+
+// agentFiles returns sorted agent-*.jsonl files in dir.
+func agentFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "agent-") || !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		paths = append(paths, filepath.Join(dir, name))
+	}
+	return paths, nil
 }
 
 // tree orders agents so each is followed by those it started, siblings in
@@ -331,7 +394,7 @@ type transcript struct {
 // update reads what was appended to the transcript at path since the last
 // update. Only a subagent's transcript is read in full; of a conversation's,
 // only the lines with prompts and notifications.
-func (r *Reader) update(path string, subagent bool) (*transcript, error) {
+func (r *dirReader) update(path string, subagent bool) (*transcript, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err

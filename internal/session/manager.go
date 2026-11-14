@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mikeryanboss/vineyard/internal/config"
@@ -87,6 +88,9 @@ type Manager struct {
 	// agents.
 	Protocols func() ([]int, error)
 
+	// Agy reads Antigravity CLI history incrementally across polls and resumes.
+	Agy *AgyReader
+
 	now func() time.Time
 }
 
@@ -98,6 +102,7 @@ func NewManager(repo git.Repo, terminals map[string]Terminal, defaultMultiplexer
 		Terminals: terminals,
 		Default:   defaultMultiplexer,
 		Project:   project,
+		Agy:       NewAgyReader(),
 		now:       time.Now,
 	}
 }
@@ -305,7 +310,7 @@ func (m *Manager) Resume(s Session, width, height int) (Session, error) {
 		}
 	}
 	if !terminal.Exists(s.TmuxName) {
-		program, conversation, err := resumeCommand(s)
+		program, conversation, err := resumeCommand(s, m.Agy)
 		if err != nil {
 			return s, err
 		}
@@ -345,7 +350,7 @@ func ShellQuote(s string) string {
 // when it finds none, as after Claude Code cleaned up old transcripts, and
 // `agy --continue` falls back to parent and child directories, which would
 // cross main-checkout and worktree sessions.
-func resumeCommand(s Session) (program, conversation string, err error) {
+func resumeCommand(s Session, agy *AgyReader) (program, conversation string, err error) {
 	switch ProgramName(s.Program) {
 	case "claude":
 		if s.Conversation == "" {
@@ -367,7 +372,10 @@ func resumeCommand(s Session) (program, conversation string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		id, err := agyConversation(dir, s.WorktreePath)
+		if agy == nil {
+			agy = defaultAgyReader
+		}
+		id, err := agy.conversation(dir, s.WorktreePath)
 		if err != nil {
 			return "", "", err
 		}
@@ -402,54 +410,148 @@ func antigravityDir() (string, error) {
 	return filepath.Join(home, ".gemini", "antigravity-cli"), nil
 }
 
+// AgyReader reads Antigravity CLI's history.jsonl incrementally across polls,
+// avoiding re-scanning the full file when only new lines were appended.
+// It is safe for concurrent use.
+type AgyReader struct {
+	mu            sync.Mutex
+	path          string
+	info          fs.FileInfo
+	offset        int64
+	latest        map[string]string
+	tailWorkspace string
+	tailID        string
+}
+
+// NewAgyReader returns an AgyReader with no cached state.
+func NewAgyReader() *AgyReader {
+	return &AgyReader{latest: map[string]string{}}
+}
+
+var defaultAgyReader = NewAgyReader()
+
 // AgyConversation returns the ID of the latest Antigravity CLI conversation
 // recorded in history.jsonl for worktree, or "" when there is none.
 func AgyConversation(worktree string) (string, error) {
+	return defaultAgyReader.Conversation(worktree)
+}
+
+// Conversation returns the ID of the latest Antigravity CLI conversation
+// recorded in history.jsonl for worktree, or "" when there is none.
+func (r *AgyReader) Conversation(worktree string) (string, error) {
 	dir, err := antigravityDir()
 	if err != nil {
 		return "", err
 	}
-	return agyConversation(dir, worktree)
+	return r.conversation(dir, worktree)
 }
 
-func agyConversation(dir, worktree string) (string, error) {
+func (r *AgyReader) conversation(dir, worktree string) (string, error) {
 	path := filepath.Join(dir, "history.jsonl")
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		r.mu.Lock()
+		r.resetLocked("")
+		r.mu.Unlock()
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.path != path || r.info == nil || !os.SameFile(r.info, info) || info.Size() < r.info.Size() || (info.Size() == r.info.Size() && !info.ModTime().Equal(r.info.ModTime())) {
+		r.resetLocked(path)
+	}
+	if r.info != nil && info.Size() == r.info.Size() {
+		return r.lookupLocked(worktree), nil
+	}
+	if info.Size() == 0 && r.offset == 0 {
+		r.info = info
+		return "", nil
+	}
+
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
+		r.resetLocked("")
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	r := bufio.NewReader(f)
-	var id string
-	for n := 1; ; n++ {
-		raw, readErr := r.ReadBytes('\n')
+
+	fInfo, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !os.SameFile(info, fInfo) || fInfo.Size() < r.offset || (r.info != nil && fInfo.Size() < r.info.Size()) {
+		r.resetLocked(path)
+	}
+	if _, err := f.Seek(r.offset, io.SeekStart); err != nil {
+		return "", err
+	}
+
+	r.tailWorkspace, r.tailID = "", ""
+	reader := bufio.NewReaderSize(f, 64<<10)
+	for {
+		raw, readErr := reader.ReadBytes('\n')
 		if readErr != nil && readErr != io.EOF {
+			r.resetLocked("")
 			return "", fmt.Errorf("%s: %w", path, readErr)
 		}
 		trimmed := bytes.TrimSpace(raw)
+		var entry struct {
+			Workspace      string `json:"workspace"`
+			ConversationID string `json:"conversationId"`
+		}
+		validEntry := false
 		if len(trimmed) > 0 && bytes.Contains(trimmed, []byte(`"conversationId"`)) {
-			var entry struct {
-				Workspace      string `json:"workspace"`
-				ConversationID string `json:"conversationId"`
-			}
 			if err := json.Unmarshal(trimmed, &entry); err != nil {
 				if readErr == io.EOF {
 					break // a line still being written at EOF
 				}
-				return "", fmt.Errorf("%s:%d: %w", path, n, err)
+				badOffset := r.offset
+				r.resetLocked("")
+				return "", fmt.Errorf("%s at byte %d: %w", path, badOffset, err)
 			}
-			if entry.Workspace == worktree && entry.ConversationID != "" {
-				id = entry.ConversationID
-			}
+			validEntry = entry.Workspace != "" && entry.ConversationID != ""
 		}
 		if readErr == io.EOF {
-			break
+			if validEntry {
+				r.tailWorkspace, r.tailID = entry.Workspace, entry.ConversationID
+			}
+			break // leave offset before an unterminated EOF line
 		}
+		if validEntry {
+			r.latest[entry.Workspace] = entry.ConversationID
+		}
+		r.offset += int64(len(raw))
 	}
-	return id, nil
+	r.info = fInfo
+	return r.lookupLocked(worktree), nil
+}
+
+func (r *AgyReader) resetLocked(path string) {
+	r.path = path
+	r.info = nil
+	r.offset = 0
+	r.tailWorkspace = ""
+	r.tailID = ""
+	if r.latest == nil {
+		r.latest = map[string]string{}
+	} else {
+		clear(r.latest)
+	}
+}
+
+func (r *AgyReader) lookupLocked(worktree string) string {
+	if r.tailWorkspace == worktree && r.tailID != "" {
+		return r.tailID
+	}
+	return r.latest[worktree]
 }
 
 // KillResult reports what Kill left behind.
@@ -660,6 +762,9 @@ func (m *Manager) Running(s Session) (Session, bool, error) {
 // it. A session without a worktree gets <worktreeDir>/<id>, where it gets one
 // when it resumes. A main-checkout session gets the main checkout.
 func (m *Manager) Locate(sessions []Session, worktreeDir string) ([]Session, error) {
+	if len(sessions) == 0 {
+		return nil, nil
+	}
 	found, err := m.worktreesByID()
 	if err != nil {
 		return nil, err

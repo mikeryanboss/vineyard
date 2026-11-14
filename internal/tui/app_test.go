@@ -67,7 +67,9 @@ type fakeBackend struct {
 	fullscreen bool
 	wheels     [][3]int
 	// polls counts status checks.
-	polls int
+	polls         int
+	diffCalls     []string
+	diffStatCalls []string
 }
 
 func (f *fakeBackend) New(opts session.NewOptions) session.Session {
@@ -200,8 +202,18 @@ func (f *fakeBackend) TreeDiffTool(root string, s session.Session, command strin
 	}
 	return cmd, err
 }
-func (f *fakeBackend) Diff(s session.Session) (string, error)       { return f.diff, nil }
-func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error) { return git.Stat{Added: 3}, nil }
+func (f *fakeBackend) Diff(s session.Session) (string, error) {
+	f.mu.Lock()
+	f.diffCalls = append(f.diffCalls, s.ID)
+	f.mu.Unlock()
+	return f.diff, nil
+}
+func (f *fakeBackend) DiffStat(s session.Session) (git.Stat, error) {
+	f.mu.Lock()
+	f.diffStatCalls = append(f.diffStatCalls, s.ID)
+	f.mu.Unlock()
+	return git.Stat{Added: 3}, nil
+}
 
 func (f *fakeBackend) Branch(s session.Session) (string, error) {
 	f.mu.Lock()
@@ -2013,5 +2025,45 @@ func TestApp_DragBorderResizesListAndSavesConfig(t *testing.T) {
 	m = send(m, tea.MouseReleaseMsg{X: 30, Y: headerHeight + 3, Button: tea.MouseLeft})
 	if got, _, _ := m.layout(); got != 30 || len(backend.configs) != 1 {
 		t.Errorf("with ConfigErr: listWidth = %d, configs = %d; want 30 and no save", got, len(backend.configs))
+	}
+}
+
+func TestApp_SelectionDiffSkipsUnselectedStatsAndRendersOnDiffTab(t *testing.T) {
+	m, backend := newTestModel(t, testutil.Sessions())
+	m = send(m, diffTickMsg{})
+
+	backend.mu.Lock()
+	backend.diffCalls = nil
+	backend.diffStatCalls = nil
+	backend.mu.Unlock()
+
+	m = keys(m, "j")
+	sel, ok := m.selected()
+	if !ok {
+		t.Fatal("expected selected session after j")
+	}
+
+	backend.mu.Lock()
+	diffCalls := slices.Clone(backend.diffCalls)
+	statCalls := slices.Clone(backend.diffStatCalls)
+	backend.mu.Unlock()
+
+	if !slices.Equal(diffCalls, []string{sel.ID}) {
+		t.Errorf("Diff calls on j = %v, want [%s]", diffCalls, sel.ID)
+	}
+	if len(statCalls) != 0 {
+		t.Errorf("DiffStat calls on j = %v, want none", statCalls)
+	}
+	if m.stats[sel.ID].Added == 0 {
+		t.Errorf("stats for %s not updated from parsed diff while preview tab is active: %+v", sel.ID, m.stats[sel.ID])
+	}
+
+	m = keys(m, "tab")
+	if m.tab != tabDiff {
+		t.Fatalf("tab = %v, want tabDiff", m.tab)
+	}
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "auth.go") || !strings.Contains(view, "var timeout = 60") {
+		t.Errorf("diff tab missing rendered diff after becoming visible:\n%s", view)
 	}
 }

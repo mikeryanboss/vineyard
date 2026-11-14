@@ -196,3 +196,48 @@ func TestDiffView_ClicksFollowTheSummaryAndFoldHeaders(t *testing.T) {
 		t.Errorf("only the header, line 1 of the view, folds: Clickable(0, 1, 4) = %v, %v, %v", m.Clickable(0), m.Clickable(1), m.Clickable(4))
 	}
 }
+
+func TestDiffView_DefersRenderUntilVisibleAndCachesAcrossResizes(t *testing.T) {
+	theme := common.NewTheme(true)
+	hidden := New(theme).SetVisible(false).SetSize(72, 40).SetDiff(sampleDiff)
+	if len(hidden.Files()) != 3 {
+		t.Fatalf("hidden SetDiff parsed %d files, want 3", len(hidden.Files()))
+	}
+	if len(hidden.lines) != 0 {
+		t.Fatalf("hidden SetDiff rendered %d lines eagerly, want 0", len(hidden.lines))
+	}
+
+	shown := hidden.SetVisible(true)
+	want := newView(72, 40)
+	if shown.View() != want.View() {
+		t.Fatalf("shown view after SetVisible(true) differs from direct render")
+	}
+
+	narrow := shown.SetSize(44, 44)
+	if !narrow.prepared[0].ready {
+		t.Fatal("prepared file cache should be populated")
+	}
+	wantNarrow := newView(44, 44)
+	if narrow.View() != wantNarrow.View() {
+		t.Fatalf("resized view differs from fresh render")
+	}
+}
+
+func BenchmarkSetSize(b *testing.B) {
+	var diffBuilder strings.Builder
+	for i := range 20 {
+		diffBuilder.WriteString(strings.ReplaceAll(sampleDiff, "internal/auth/login.go", "internal/auth/login_"+string(rune('a'+i))+".go"))
+	}
+	m := New(common.NewTheme(true)).SetSize(80, 40).SetDiff(diffBuilder.String())
+	b.ResetTimer()
+	for i := range b.N {
+		w := 80
+		if i%2 == 1 {
+			w = 60
+		}
+		m = m.SetSize(w, 40)
+	}
+	if m.View() == "" {
+		b.Fatal("empty view")
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"syscall"
 
 	"github.com/mikeryanboss/vineyard/internal/config"
@@ -65,30 +66,53 @@ func runSessions(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	listed := []listedSession{}
-	for _, s := range sessions {
-		var paths []string
-		if s.MainCheckout || git.IsWorktree(s.WorktreePath) {
-			base, err := git.Base(s.WorktreePath, s.BaseCommit)
-			if err != nil {
-				return err
+	listed := make([]listedSession, len(sessions))
+	errs := make([]error, len(sessions))
+	workers := min(len(sessions), 6)
+	jobs := make(chan int, len(sessions))
+	for i := range sessions {
+		jobs <- i
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				s := sessions[i]
+				var paths []string
+				if s.MainCheckout || git.IsWorktree(s.WorktreePath) {
+					base, err := git.Base(s.WorktreePath, s.BaseCommit)
+					if err != nil {
+						errs[i] = err
+						continue
+					}
+					stat, err := git.DiffStat(s.WorktreePath, base)
+					if err != nil {
+						errs[i] = err
+						continue
+					}
+					paths = stat.Paths
+				}
+				listed[i] = listedSession{
+					ID:       s.ID,
+					Title:    s.Title,
+					Program:  session.ProgramName(s.Program),
+					Branch:   s.Branch,
+					Status:   string(s.Status),
+					Issues:   append([]int{}, s.Issues(paths)...),
+					Worktree: s.WorktreePath,
+					Agents:   append([]string{}, agents[s.WorktreePath]...),
+				}
 			}
-			stat, err := git.DiffStat(s.WorktreePath, base)
-			if err != nil {
-				return err
-			}
-			paths = stat.Paths
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
 		}
-		listed = append(listed, listedSession{
-			ID:       s.ID,
-			Title:    s.Title,
-			Program:  session.ProgramName(s.Program),
-			Branch:   s.Branch,
-			Status:   string(s.Status),
-			Issues:   append([]int{}, s.Issues(paths)...),
-			Worktree: s.WorktreePath,
-			Agents:   append([]string{}, agents[s.WorktreePath]...),
-		})
 	}
 	out, err := json.MarshalIndent(listed, "", "  ")
 	if err != nil {

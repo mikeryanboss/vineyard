@@ -133,6 +133,9 @@ type LiveBackend struct {
 	// Transcripts reads Claude Code's transcripts, remembering where it left
 	// off in each.
 	Transcripts *subagent.Reader
+	// Recaps reads Claude Code transcripts for user messages and recaps,
+	// resuming each unchanged file from its last read offset.
+	Recaps *recap.Reader
 	// Dir is the repository's .vineyard directory, which holds config.toml.
 	Dir string
 }
@@ -234,6 +237,9 @@ func (b LiveBackend) Conversation(s session.Session) (string, error) {
 	if session.ProgramName(s.Program) != "agy" {
 		return "", nil
 	}
+	if b.Manager != nil && b.Manager.Agy != nil {
+		return b.Manager.Agy.Conversation(s.WorktreePath)
+	}
 	return session.AgyConversation(s.WorktreePath)
 }
 
@@ -329,6 +335,9 @@ func (b LiveBackend) Recap(s session.Session) (recap.Recap, error) {
 	dir, err := recap.ProjectsDir()
 	if err != nil {
 		return recap.Recap{}, err
+	}
+	if b.Recaps != nil {
+		return b.Recaps.Load(dir, s.WorktreePath)
 	}
 	return recap.Load(dir, s.WorktreePath)
 }
