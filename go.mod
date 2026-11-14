@@ -1,16 +1,16 @@
 module github.com/mikeryanboss/vineyard
 
-go 1.25.0
+go 1.26.0
 
 require (
 	charm.land/bubbles/v2 v2.1.1
-	charm.land/bubbletea/v2 v2.0.8
+	charm.land/bubbletea/v2 v2.1.1
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/Mibokess/grapes v0.1.14
 	github.com/alecthomas/chroma/v2 v2.23.1
 	github.com/charmbracelet/colorprofile v0.4.3
-	github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7
-	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4
+	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/charmbracelet/x/vt v0.1.0
 	github.com/creack/pty v1.1.24
@@ -36,12 +36,12 @@ require (
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
+	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/xo/terminfo v1.0.0 // indirect
 	github.com/yuin/goldmark v1.7.17 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	go.withmatt.com/themes v0.0.0-20260803102313-713c66fa660f // indirect
