@@ -2,7 +2,7 @@
                                                                                 
   General       │  claude         claude                                        
   Profiles      │  terminal       $SHELL  in the main checkout  disabled        
-                │  codex          codex --full-auto                             
+  Session list  │  codex          codex --full-auto                             
                 │  + Add profile                                                
                                                                                 
                                                                                 

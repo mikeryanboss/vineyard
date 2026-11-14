@@ -234,13 +234,20 @@ func (b LiveBackend) Subagents(s session.Session) (subagent.Conversation, error)
 }
 
 func (b LiveBackend) Conversation(s session.Session) (string, error) {
-	if session.ProgramName(s.Program) != "agy" {
-		return "", nil
+	switch session.ProgramName(s.Program) {
+	case "claude":
+		dir, err := recap.ProjectsDir()
+		if err != nil {
+			return "", err
+		}
+		return subagent.ConversationID(recap.Dir(dir, s.WorktreePath))
+	case "agy":
+		if b.Manager != nil && b.Manager.Agy != nil {
+			return b.Manager.Agy.Conversation(s.WorktreePath)
+		}
+		return session.AgyConversation(s.WorktreePath)
 	}
-	if b.Manager != nil && b.Manager.Agy != nil {
-		return b.Manager.Agy.Conversation(s.WorktreePath)
-	}
-	return session.AgyConversation(s.WorktreePath)
+	return "", nil
 }
 
 func (b LiveBackend) SubagentEvents(s session.Session, id string) ([]subagent.Event, error) {

@@ -111,6 +111,14 @@ status_bar = true                     # bar on attached terminals; ctrl+k toggle
 peer_messages = true                  # let sessions message each other with vineyard send
 list_width = 30                       # session column width; omit to size with the window
 
+[list]
+issues = "after"                      # "after" (default), "before", or "off"
+issue_picker = "after"                # "after" ("Title #12") or "before" ("#12 Title")
+subagents = true                      # Claude Code subagents under sessions
+branch = true                         # branch line under each session
+diff_stats = true                     # +N -M line counts in the session list
+auto_tag = true                       # "auto" tag on auto-yes sessions
+
 disabled_profiles = ["terminal"]     # built-in profiles not to offer
 
 [[profiles]]

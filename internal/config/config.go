@@ -73,9 +73,50 @@ type Config struct {
 	// ListWidth is the width of the session list in columns, or 0 to size it
 	// with the window.
 	ListWidth int `toml:"list_width,omitempty"`
+	// List controls what each session shows in the session list and its issue
+	// picker.
+	List ListConfig `toml:"list"`
 	// Keys replace the default keys of the actions they name
 	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
 	Keys Keys `toml:"keys,omitempty"`
+}
+
+// Issue placement values for ListConfig.Issues and ListConfig.IssuePicker.
+const (
+	IssuesAfter  = "after"
+	IssuesBefore = "before"
+	IssuesOff    = "off"
+)
+
+// ListConfig controls what the session list and its issue picker show.
+type ListConfig struct {
+	// Issues places a session's issue numbers on its title line: IssuesAfter,
+	// IssuesBefore, or IssuesOff.
+	Issues string `toml:"issues"`
+	// IssuePicker places issue numbers in the session issue picker:
+	// IssuesAfter ("Title #12") or IssuesBefore ("#12 Title").
+	IssuePicker string `toml:"issue_picker"`
+	// Subagents shows Claude Code's subagents under each session and polls
+	// their transcripts.
+	Subagents bool `toml:"subagents"`
+	// Branch shows each session's branch line beneath its title.
+	Branch bool `toml:"branch"`
+	// DiffStats shows each session's +N -M line counts.
+	DiffStats bool `toml:"diff_stats"`
+	// AutoTag shows "auto" on sessions with auto-yes enabled.
+	AutoTag bool `toml:"auto_tag"`
+}
+
+// DefaultList returns the session list configuration used when omitted.
+func DefaultList() ListConfig {
+	return ListConfig{
+		Issues:      IssuesAfter,
+		IssuePicker: IssuesAfter,
+		Subagents:   true,
+		Branch:      true,
+		DiffStats:   true,
+		AutoTag:     true,
+	}
 }
 
 // MinListWidth is the narrowest session list column allowed, in cells.
@@ -106,6 +147,7 @@ func Defaults() Config {
 		Multiplexer:    MultiplexerVineyard,
 		StatusBar:      true,
 		PeerMessages:   true,
+		List:           DefaultList(),
 	}
 }
 
@@ -296,6 +338,22 @@ func Load(dir string) (Config, error) {
 	}
 	if cfg.ListWidth < 0 || (cfg.ListWidth > 0 && cfg.ListWidth < MinListWidth) {
 		return Defaults(), fmt.Errorf("%s: list_width %d: want 0 or at least %d", Path(dir), cfg.ListWidth, MinListWidth)
+	}
+	if cfg.List.Issues == "" {
+		cfg.List.Issues = IssuesAfter
+	}
+	switch cfg.List.Issues {
+	case IssuesAfter, IssuesBefore, IssuesOff:
+	default:
+		return Defaults(), fmt.Errorf("%s: list.issues %q: want %q, %q, or %q", Path(dir), cfg.List.Issues, IssuesAfter, IssuesBefore, IssuesOff)
+	}
+	if cfg.List.IssuePicker == "" {
+		cfg.List.IssuePicker = IssuesAfter
+	}
+	switch cfg.List.IssuePicker {
+	case IssuesAfter, IssuesBefore:
+	default:
+		return Defaults(), fmt.Errorf("%s: list.issue_picker %q: want %q or %q", Path(dir), cfg.List.IssuePicker, IssuesAfter, IssuesBefore)
 	}
 	if _, err := cfg.ResolvedKeys(); err != nil {
 		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)

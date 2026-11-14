@@ -2,7 +2,7 @@
                                                                                 
   General       │  Default agent              claude                            
   Profiles      │  Branch prefix              mboss/                            
-                │  Auto-yes for new sessions  off                               
+  Session list  │  Auto-yes for new sessions  off                               
                 │  Worktree directory                                           
                 │  Diff tool                                                    
                 │  Multiplexer                vineyard                          

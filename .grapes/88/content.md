@@ -26,14 +26,14 @@ Changes:
 - `README.md`: Configuration section.
 
 ## Acceptance Criteria
-- [ ] By default (`issues = "after"`), the session list renders issue numbers after the session title (`<Title> #12`), clipping issue numbers from the right before truncating a title that fits.
-- [ ] Setting `list.issues` to `"before"` restores `#12 <Title>` and `"off"` omits issue numbers from the session list; invalid `list.issues` or `list.issue_picker` values return an error from `config.Load`.
-- [ ] `list.issue_picker` formats choices in `showIssues` as `<Title> #<id>` (`"after"`, default) or `#<id> <Title>` (`"before"`).
-- [ ] Setting `list.subagents = false` hides subagent count and tree rows in the session list, skips subagent polling in `pollStatuses`, and still records Claude Code's conversation ID when leading.
-- [ ] Setting `list.branch = false` renders compact single-line session entries, keeps mouse selection/folding aligned on subagent rows, and places `+N -M` on the title line when `list.diff_stats = true`.
-- [ ] Setting `list.diff_stats = false` hides `+N -M` in the session list, and `list.auto_tag = false` hides `auto` on auto-yes sessions.
-- [ ] The `C` config screen edits and saves all six `Session list` settings, applying them to the open session list immediately.
-- [ ] `gofmt -l .`, `go vet ./...`, and `go test ./...` pass in under 10 seconds.
+- [x] By default (`issues = "after"`), the session list renders issue numbers after the session title (`<Title> #12`), clipping issue numbers from the right before truncating a title that fits.
+- [x] Setting `list.issues` to `"before"` restores `#12 <Title>` and `"off"` omits issue numbers from the session list; invalid `list.issues` or `list.issue_picker` values return an error from `config.Load`.
+- [x] `list.issue_picker` formats choices in `showIssues` as `<Title> #<id>` (`"after"`, default) or `#<id> <Title>` (`"before"`).
+- [x] Setting `list.subagents = false` hides subagent count and tree rows in the session list, skips subagent polling in `pollStatuses`, and still records Claude Code's conversation ID when leading.
+- [x] Setting `list.branch = false` renders compact single-line session entries, keeps mouse selection/folding aligned on subagent rows, and places `+N -M` on the title line when `list.diff_stats = true`.
+- [x] Setting `list.diff_stats = false` hides `+N -M` in the session list, and `list.auto_tag = false` hides `auto` on auto-yes sessions.
+- [x] The `C` config screen edits and saves all six `Session list` settings, applying them to the open session list immediately.
+- [x] `gofmt -l .`, `go vet ./...`, and `go test ./...` pass in under 10 seconds.
 
 ## Verify
 Run from the worktree root:

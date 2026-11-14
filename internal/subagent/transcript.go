@@ -241,6 +241,16 @@ func (r *Reader) Load(dir string, started time.Time) (Conversation, error) {
 	return Conversation{ID: id, Agents: tree(agents), Prompted: conv.prompted}, nil
 }
 
+// ConversationID returns the ID of the conversation last written to in dir,
+// or "" when dir holds no transcript.
+func ConversationID(dir string) (string, error) {
+	main, err := newestJSONL(dir)
+	if main == "" || err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(filepath.Base(main), ".jsonl"), nil
+}
+
 // Events returns the condensed transcript of subagent id of the conversation
 // last written to in dir.
 func (r *Reader) Events(dir, id string) ([]Event, error) {
