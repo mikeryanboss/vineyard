@@ -1,0 +1,6 @@
+title = 'Fix overview misalignment after detaching from a session or resizing'
+status = 'done'
+priority = 'high'
+labels = ['bug', 'tui']
+created = 2026-11-14T18:26:00Z
+updated = 2026-11-14T18:52:00Z

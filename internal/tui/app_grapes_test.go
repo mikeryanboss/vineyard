@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Mibokess/grapes/embedded"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/session"
@@ -648,5 +649,39 @@ func TestStartIssue_JumpsToTheIssuesSession(t *testing.T) {
 	m = update(m, tea.WindowSizeMsg{Width: 110, Height: 26})
 	if m.dialog != nil || selectedID(m) != "b" {
 		t.Errorf("dialog=%T selected=%q; want session b selected", m.dialog, selectedID(m))
+	}
+}
+
+func TestIssues_WindowResizeRefreshesIssueTab(t *testing.T) {
+	m, _ := newTestModel(t, []session.Session{
+		{ID: "a", Title: "embed", Status: session.StatusReady, Issue: 7},
+	})
+	root := t.TempDir()
+	writeIssue(t, root, 7, "Embed grapes")
+	paragraph := strings.Repeat("word ", 14) + "MIDMARKER " + strings.Repeat("more ", 10)
+	if err := os.WriteFile(filepath.Join(root, ".grapes", "7", "content.md"), []byte(paragraph+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m = withGrapes(t, m, root)
+	m = update(m, tea.WindowSizeMsg{Width: 130, Height: 26})
+
+	m = keys(m, "tab", "tab")
+	if m.tab != tabIssue {
+		t.Fatalf("tab = %v, want tabIssue", m.tab)
+	}
+	if !strings.Contains(screen(m), "MIDMARKER") {
+		t.Fatalf("wide issue tab missing MIDMARKER:\n%s", screen(m))
+	}
+
+	// Narrowing the window must re-wrap the issue text instead of clipping the wide render.
+	m = update(m, tea.WindowSizeMsg{Width: 72, Height: 26})
+	narrow := screen(m)
+	if !strings.Contains(narrow, "MIDMARKER") {
+		t.Errorf("narrowed issue tab clipped MIDMARKER instead of re-wrapping:\n%s", narrow)
+	}
+	for i, line := range strings.Split(narrow, "\n") {
+		if w := ansi.StringWidth(line); w > 72 {
+			t.Errorf("line %d width = %d, want <= 72: %q", i+1, w, line)
+		}
 	}
 }

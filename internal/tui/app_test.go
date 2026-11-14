@@ -1,19 +1,25 @@
 package tui
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"image/color"
+	"io"
 	"os/exec"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
+	"github.com/charmbracelet/x/vt"
+	"github.com/creack/pty"
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/recap"
@@ -43,6 +49,7 @@ type fakeBackend struct {
 	configs    []config.Config
 	recaps     map[string]recap.Recap // by session ID
 	attaches   int
+	attachCmd  tea.ExecCommand
 	tools      []*exec.Cmd // diff tools built
 	opened     [][2]int    // position and total of each subagent opened
 	openErr    error
@@ -120,8 +127,16 @@ func (f *fakeBackend) EnsureShell(s session.Session, w, h int) error {
 	}
 	return nil
 }
-func (f *fakeBackend) Capture(s session.Session) (string, error)               { return f.screen, f.captureErr }
-func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) { return f.screen, nil }
+func (f *fakeBackend) Capture(s session.Session) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.screen, f.captureErr
+}
+func (f *fakeBackend) CaptureHistory(s session.Session, n int) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.screen, nil
+}
 func (f *fakeBackend) Wheel(s session.Session, x, y, n int) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -133,9 +148,11 @@ func (f *fakeBackend) Wheel(s session.Session, x, y, n int) (bool, error) {
 	return true, nil
 }
 func (f *fakeBackend) AttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.attaches++
 	f.attached = how
-	return nil
+	return f.attachCmd
 }
 
 func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, error) {
@@ -149,12 +166,20 @@ func (f *fakeBackend) DiffTool(s session.Session, command string) (*exec.Cmd, er
 }
 
 func (f *fakeBackend) ShellAttachCommand(s session.Session, how session.Attachment) tea.ExecCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.shellAttaches++
 	f.attached = how
 	return nil
 }
-func (f *fakeBackend) CaptureShell(s session.Session) (string, error) { return f.shellScreen, nil }
+func (f *fakeBackend) CaptureShell(s session.Session) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.shellScreen, nil
+}
 func (f *fakeBackend) CaptureShellHistory(s session.Session, n int) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.shellScreen, nil
 }
 func (f *fakeBackend) ResizeShell(s session.Session, w, h int) error { return nil }
@@ -2103,5 +2128,276 @@ func TestApp_SubagentsDisabledSkipsPollingAndAppliesLive(t *testing.T) {
 	}
 	if got := m.sessions[0].Conversation; got != "conv-99" {
 		t.Errorf("Conversation = %q, want conv-99 recorded via Conversation()", got)
+	}
+}
+
+func TestApp_RestoreScreenCmd(t *testing.T) {
+	m, _ := newTestModel(t, testutil.Sessions())
+	if m.unicodeCore {
+		t.Fatal("unicodeCore should start false before terminal mode report")
+	}
+
+	// Unrecognized or permanently-reset mode reports must not enable ?2027h.
+	m = update(m, tea.ModeReportMsg{Mode: ansi.ModeUnicodeCore, Value: ansi.ModeNotRecognized})
+	m = update(m, tea.ModeReportMsg{Mode: ansi.ModeUnicodeCore, Value: ansi.ModePermanentlyReset})
+	if m.unicodeCore {
+		t.Fatal("unicodeCore enabled for unsupported terminal")
+	}
+	clearType := reflect.TypeOf(tea.ClearScreen())
+	if got := reflect.TypeOf(m.restoreScreenCmd()()); got != clearType {
+		t.Fatalf("restoreScreenCmd without unicodeCore returned %v, want %v", got, clearType)
+	}
+
+	// Terminals supporting mode 2027 reply ModeReset (2) to Bubble Tea's ?2027$p query.
+	m = update(m, tea.ModeReportMsg{Mode: ansi.ModeUnicodeCore, Value: ansi.ModeReset})
+	if !m.unicodeCore {
+		t.Fatal("unicodeCore not recorded from ModeReset report")
+	}
+
+	checkRestoreSeq := func(t *testing.T, cmd tea.Cmd) {
+		t.Helper()
+		seq := reflect.ValueOf(cmd())
+		if seq.Kind() != reflect.Slice || seq.Len() != 2 {
+			t.Fatalf("restore command = %T (%v), want 2-step sequence", cmd(), seq)
+		}
+		first := seq.Index(0).Interface().(tea.Cmd)()
+		wantRaw := tea.Raw(ansi.SetModeUnicodeCore)()
+		if !reflect.DeepEqual(first, wantRaw) {
+			t.Errorf("sequence[0] = %#v, want %#v", first, wantRaw)
+		}
+		second := seq.Index(1).Interface().(tea.Cmd)()
+		if reflect.TypeOf(second) != clearType {
+			t.Errorf("sequence[1] = %T, want %v", second, clearType)
+		}
+	}
+
+	checkRestoreSeq(t, m.restoreScreenCmd())
+
+	// Both attachDoneMsg and diffToolDoneMsg must run restoreScreenCmd first.
+	for name, msg := range map[string]tea.Msg{
+		"attachDoneMsg":       attachDoneMsg{id: "login-1"},
+		"diffToolDoneMsg/err": diffToolDoneMsg{err: errors.New("boom")},
+		"diffToolDoneMsg/ok":  diffToolDoneMsg{},
+	} {
+		_, cmd := m.Update(msg)
+		first := cmd
+		if batch, ok := cmd().(tea.BatchMsg); ok {
+			if len(batch) == 0 {
+				t.Fatalf("%s returned empty tea.BatchMsg", name)
+			}
+			first = batch[0]
+		}
+		checkRestoreSeq(t, first)
+	}
+}
+
+type fakeAttachCmd struct {
+	in      io.Reader
+	out     io.Writer
+	started chan struct{}
+}
+
+func (c *fakeAttachCmd) SetStdin(r io.Reader)  { c.in = r }
+func (c *fakeAttachCmd) SetStdout(w io.Writer) { c.out = w }
+func (c *fakeAttachCmd) SetStderr(io.Writer)   {}
+
+func (c *fakeAttachCmd) Run() error {
+	if f, ok := c.in.(term.File); ok {
+		state, err := term.MakeRaw(f.Fd())
+		if err != nil {
+			return err
+		}
+		defer func() { _ = term.Restore(f.Fd(), state) }()
+	}
+	_, _ = io.WriteString(c.out, ansi.SetModeAltScreenSaveCursor+"attached session")
+	close(c.started)
+	var b [1]byte
+	for {
+		n, err := c.in.Read(b[:])
+		if (n > 0 && b[0] == 0x11) || err != nil {
+			break
+		}
+	}
+	_, _ = io.WriteString(c.out, ansi.ResetModeAltScreenSaveCursor)
+	return nil
+}
+
+func TestApp_DetachRestoresUnicodeCoreAndRedrawsAfterResize(t *testing.T) {
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = slave.Close()
+		_ = master.Close()
+	})
+	if err := pty.Setsize(master, &pty.Winsize{Cols: 100, Rows: 26}); err != nil {
+		t.Fatal(err)
+	}
+
+	emu := vt.NewEmulator(100, 26)
+	// Close InputPipe directly: Emulator.Close races with a blocked Read (see internal/vterm/vterm.go).
+	t.Cleanup(func() { _ = emu.InputPipe().(io.Closer).Close() })
+	// Pre-register DEC mode 2027 as reset so DECRQM (?2027$p) reports ModeReset (2)
+	// like Ghostty, Kitty, WezTerm, Foot, VTE, and iTerm2.
+	_, _ = emu.Write([]byte(ansi.ResetModeUnicodeCore))
+
+	var (
+		emuMu  sync.Mutex
+		rawBuf bytes.Buffer
+	)
+	go func() { _, _ = io.Copy(master, emu) }()
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				emuMu.Lock()
+				rawBuf.Write(buf[:n])
+				_, _ = emu.Write(buf[:n])
+				emuMu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	emuState := func() (screen string, method any, alt bool, rawLen int) {
+		emuMu.Lock()
+		defer emuMu.Unlock()
+		return emu.String(), emu.WidthMethod(), emu.IsAltScreen(), rawBuf.Len()
+	}
+	waitUntil := func(desc string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				scr, method, alt, _ := emuState()
+				t.Fatalf("timed out waiting for %s (method=%v alt=%v):\n%s", desc, method, alt, scr)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	waitSettled := func() string {
+		t.Helper()
+		_, _, _, prev := emuState()
+		for {
+			time.Sleep(25 * time.Millisecond)
+			scr, _, _, cur := emuState()
+			if cur == prev {
+				return scr
+			}
+			prev = cur
+		}
+	}
+
+	attachCmd := &fakeAttachCmd{started: make(chan struct{})}
+	m, backend := newTestModel(t, testutil.Sessions())
+	backend.screen = "👨‍👩‍👧‍👦 family cluster\n> ready"
+	backend.attachCmd = attachCmd
+
+	p := tea.NewProgram(
+		m,
+		tea.WithInput(slave),
+		tea.WithOutput(slave),
+		tea.WithEnvironment([]string{"TERM=xterm-256color"}),
+	)
+	done := make(chan error, 1)
+	go func() {
+		_, runErr := p.Run()
+		done <- runErr
+	}()
+	t.Cleanup(func() {
+		p.Quit()
+		_ = master.Close()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	})
+
+	waitUntil("initial overview with mode 2027 enabled", func() bool {
+		scr, method, alt, _ := emuState()
+		return alt && method == ansi.GraphemeWidth &&
+			strings.Contains(scr, "family cluster") && strings.Contains(scr, "n new")
+	})
+
+	// Attach to the running session with Enter.
+	if _, err := master.Write([]byte("\r")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-attachCmd.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for AttachCommand to start")
+	}
+	waitUntil("attached alt screen with mode 2027 released", func() bool {
+		scr, method, alt, _ := emuState()
+		return alt && method == ansi.WcWidth && strings.Contains(scr, "attached session")
+	})
+
+	// Resize the terminal while attached (SIGWINCH arrives while Bubble Tea is released).
+	_, _, _, rawOffset := emuState()
+	emuMu.Lock()
+	emu.Resize(84, 24)
+	emuMu.Unlock()
+	if err := pty.Setsize(master, &pty.Winsize{Cols: 84, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Detach back to the overview with ctrl+q.
+	if _, err := master.Write([]byte{0x11}); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil("overview restored after detach", func() bool {
+		scr, method, alt, _ := emuState()
+		emuMu.Lock()
+		detachRaw := bytes.Clone(rawBuf.Bytes()[rawOffset:])
+		emuMu.Unlock()
+		setIdx := bytes.Index(detachRaw, []byte(ansi.SetModeUnicodeCore))
+		eraseIdx := bytes.LastIndex(detachRaw, []byte(ansi.EraseEntireScreen))
+		return alt && method == ansi.GraphemeWidth &&
+			setIdx >= 0 && eraseIdx > setIdx &&
+			strings.Contains(scr, "family cluster") && strings.Contains(scr, "n new")
+	})
+	afterDetach := waitSettled()
+
+	emuMu.Lock()
+	detachRaw := bytes.Clone(rawBuf.Bytes()[rawOffset:])
+	emuMu.Unlock()
+	setIdx := bytes.Index(detachRaw, []byte(ansi.SetModeUnicodeCore))
+	eraseIdx := bytes.LastIndex(detachRaw, []byte(ansi.EraseEntireScreen))
+	if setIdx < 0 || eraseIdx <= setIdx {
+		t.Fatalf("expected ?2027h before screen erase on detach; setIdx=%d eraseIdx=%d", setIdx, eraseIdx)
+	}
+
+	// Wiggling the terminal size (90x24 -> 84x24) must produce the exact same screen,
+	// proving detach already redrew cleanly at the new dimensions.
+	resizePTY := func(cols, rows int) {
+		t.Helper()
+		emuMu.Lock()
+		emu.Resize(cols, rows)
+		emuMu.Unlock()
+		if err := pty.Setsize(master, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}); err != nil {
+			t.Fatal(err)
+		}
+		// slave is not this test process's controlling TTY, so deliver SIGWINCH explicitly.
+		_ = syscall.Kill(syscall.Getpid(), syscall.SIGWINCH)
+	}
+	resizePTY(90, 24)
+	waitUntil("wiggle resize to 90x24", func() bool {
+		scr, _, _, _ := emuState()
+		return scr != afterDetach && strings.Contains(scr, "n new")
+	})
+	_ = waitSettled()
+
+	resizePTY(84, 24)
+	waitUntil("wiggle resize back to 84x24", func() bool {
+		scr, _, _, _ := emuState()
+		return scr == afterDetach
+	})
+	if afterWiggle := waitSettled(); afterDetach != afterWiggle {
+		t.Errorf("screen after detach differs from screen after resize wiggle:\nafter detach:\n%s\nafter wiggle:\n%s", afterDetach, afterWiggle)
 	}
 }

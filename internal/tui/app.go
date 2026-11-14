@@ -284,6 +284,10 @@ type Model struct {
 	theme   common.Theme
 	width   int
 	height  int
+	// unicodeCore reports that the terminal supports DEC mode 2027 (Unicode
+	// grapheme width); Bubble Tea resets it on ReleaseTerminal and does not
+	// re-enable it on RestoreTerminal.
+	unicodeCore bool
 
 	sessions []session.Session
 	stats    map[string]git.Stat
@@ -590,6 +594,17 @@ func (m *Model) resizeLayout() {
 	m.refreshIssue()
 	m.refreshRecap()
 	m.refreshTranscript()
+}
+
+// restoreScreenCmd restores terminal state lost across tea.Exec and forces a
+// full redraw. Bubble Tea resets DEC mode 2027 on ReleaseTerminal without
+// re-enabling it on RestoreTerminal; sequencing the mode before ClearScreen
+// writes ?2027h to Program's output buffer before pendingErase flushes.
+func (m Model) restoreScreenCmd() tea.Cmd {
+	if m.unicodeCore {
+		return tea.Sequence(tea.Raw(ansi.SetModeUnicodeCore), tea.ClearScreen)
+	}
+	return tea.ClearScreen
 }
 
 // setZoom zooms the pane in or out, re-rendering what depends on its width.
@@ -1098,9 +1113,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.applySizes()
-		m.refreshRecap()
-		m.refreshTranscript()
+		m.resizeLayout()
 		if id := m.startIssue; id != 0 {
 			m.startIssue = 0
 			next, cmd := m.updateGrapes(msg)
@@ -1114,6 +1127,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyTheme()
 		m.refreshRecap()
 		m.refreshTranscript()
+		return m.updateGrapes(msg)
+
+	case tea.ModeReportMsg:
+		if msg.Mode == ansi.ModeUnicodeCore &&
+			(msg.Value == ansi.ModeReset || msg.Value == ansi.ModeSet || msg.Value == ansi.ModePermanentlySet) {
+			m.unicodeCore = true
+		}
 		return m.updateGrapes(msg)
 
 	case tea.KeyPressMsg:
@@ -1359,7 +1379,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			delete(m.sizes, msg.id)
 		}
-		cmds := []tea.Cmd{m.shellCmd()}
+		cmds := []tea.Cmd{m.restoreScreenCmd(), m.shellCmd()}
 		if msg.err != nil {
 			cmds = append(cmds, m.setError(fmt.Errorf("attach: %w", msg.err)))
 		}
@@ -1401,10 +1421,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ExecProcess(msg.cmd, func(err error) tea.Msg { return diffToolDoneMsg{err: err} })
 
 	case diffToolDoneMsg:
+		cmds := []tea.Cmd{m.restoreScreenCmd()}
 		if msg.err != nil {
-			return m, m.setError(fmt.Errorf("diff tool: %w", msg.err))
+			cmds = append(cmds, m.setError(fmt.Errorf("diff tool: %w", msg.err)))
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case scrollbackMsg:
 		if msg.err != nil {
