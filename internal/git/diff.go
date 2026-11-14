@@ -2,10 +2,12 @@ package git
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // maxUntrackedFiles bounds the untracked files a diff includes. An agent that
@@ -39,14 +41,28 @@ func (s Stat) IsZero() bool { return s.Added == 0 && s.Removed == 0 }
 // the merge found it. A fast-forward leaves no merge commit, and the branch's
 // commits are then indistinguishable from the mainline's, so its work begins
 // at HEAD.
+const maxCachedBases = 4096
+
+var baseCache struct {
+	mu        sync.Mutex
+	bases     map[[2]string]string
+	ancestors map[[2]string]bool
+}
+
 func Base(dir, start string) (string, error) {
-	if _, err := run(dir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD"); err != nil {
-		if exitCode(err) == 1 {
+	out, err := run(dir, "rev-parse", "HEAD", "refs/remotes/origin/HEAD")
+	if err == nil {
+		if fields := strings.Fields(out); len(fields) == 2 {
+			return baseOnHashes(dir, fields[0], fields[1])
+		}
+	}
+	if _, verifyErr := run(dir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD"); verifyErr != nil {
+		if exitCode(verifyErr) == 1 {
 			return start, nil
 		}
-		return "", err
+		return "", verifyErr
 	}
-	return baseOn(dir, "origin/HEAD")
+	return "", err
 }
 
 // StackedBase is Base for a branch that may have been created from another
@@ -64,41 +80,93 @@ func StackedBase(dir, onto string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := run(dir, "merge-base", "--is-ancestor", mainline, stacked); err != nil {
-		if exitCode(err) == 1 {
-			return mainline, nil
-		}
+	if mainline == stacked {
+		return stacked, nil
+	}
+	anc, err := isAncestor(dir, mainline, stacked)
+	if err != nil {
 		return "", err
+	}
+	if !anc {
+		return mainline, nil
 	}
 	return stacked, nil
 }
 
 // baseOn is Base with the mainline's tip at mainline.
 func baseOn(dir, mainline string) (string, error) {
-	fork, err := run(dir, "merge-base", mainline, "HEAD")
+	out, err := run(dir, "rev-parse", "HEAD", mainline)
 	if err != nil {
 		return "", err
 	}
-	head, err := Head(dir)
-	if err != nil {
-		return "", err
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return "", fmt.Errorf("unexpected rev-parse output %q", out)
 	}
-	if fork = strings.TrimSpace(fork); fork != head {
+	return baseOnHashes(dir, fields[0], fields[1])
+}
+
+func baseOnHashes(dir, head, target string) (string, error) {
+	key := [2]string{head, target}
+	baseCache.mu.Lock()
+	fork, ok := baseCache.bases[key]
+	baseCache.mu.Unlock()
+	if ok {
 		return fork, nil
 	}
-	after, err := run(dir, "rev-list", "--first-parent", "--ancestry-path", "--reverse", "HEAD.."+mainline)
+
+	fork, err := run(dir, "merge-base", target, head)
 	if err != nil {
 		return "", err
 	}
-	merge, _, _ := strings.Cut(after, "\n")
-	if merge == "" {
-		return head, nil // HEAD is the mainline's tip
+	if fork = strings.TrimSpace(fork); fork == head {
+		after, err := run(dir, "rev-list", "--first-parent", "--ancestry-path", "--reverse", head+".."+target)
+		if err != nil {
+			return "", err
+		}
+		if merge, _, _ := strings.Cut(after, "\n"); merge != "" {
+			fork, err = run(dir, "merge-base", merge+"^1", head)
+			if err != nil {
+				return "", err
+			}
+			fork = strings.TrimSpace(fork)
+		}
 	}
-	fork, err = run(dir, "merge-base", merge+"^1", "HEAD")
-	if err != nil {
-		return "", err
+
+	baseCache.mu.Lock()
+	if baseCache.bases == nil || len(baseCache.bases) >= maxCachedBases {
+		baseCache.bases = map[[2]string]string{}
 	}
-	return strings.TrimSpace(fork), nil
+	baseCache.bases[key] = fork
+	baseCache.mu.Unlock()
+	return fork, nil
+}
+
+func isAncestor(dir, ancestor, commit string) (bool, error) {
+	key := [2]string{ancestor, commit}
+	baseCache.mu.Lock()
+	cached, ok := baseCache.ancestors[key]
+	baseCache.mu.Unlock()
+	if ok {
+		return cached, nil
+	}
+
+	var result bool
+	if _, err := run(dir, "merge-base", "--is-ancestor", ancestor, commit); err != nil {
+		if exitCode(err) != 1 {
+			return false, err
+		}
+	} else {
+		result = true
+	}
+
+	baseCache.mu.Lock()
+	if baseCache.ancestors == nil || len(baseCache.ancestors) >= maxCachedBases {
+		baseCache.ancestors = map[[2]string]bool{}
+	}
+	baseCache.ancestors[key] = result
+	baseCache.mu.Unlock()
+	return result, nil
 }
 
 // Diff returns the unified diff from base to the working tree in dir,
@@ -118,14 +186,146 @@ func Diff(dir, base string) (string, error) {
 	var b strings.Builder
 	b.WriteString(tracked)
 	for _, path := range untracked {
-		out, err := run(dir, "diff", "--no-color", "--no-ext-diff", "--no-index", "--", os.DevNull, path)
-		// --no-index exits 1 when the files differ, which they always do here.
-		if err != nil && exitCode(err) != 1 {
+		if err := appendUntrackedDiff(&b, dir, path); err != nil {
 			return "", err
 		}
-		b.WriteString(out)
 	}
 	return b.String(), nil
+}
+
+func appendUntrackedDiff(b *strings.Builder, dir, path string) error {
+	fullPath := filepath.Join(dir, path)
+	info, err := os.Lstat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.IsDir() {
+		return nil
+	}
+
+	var mode string
+	var data []byte
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		mode = "120000"
+		data = []byte(target)
+	} else {
+		mode = "100644"
+		if info.Mode()&0o111 != 0 {
+			mode = "100755"
+		}
+		data, err = os.ReadFile(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+	}
+
+	aPath := formatGitPath("a/" + path)
+	bPath := formatGitPath("b/" + path)
+	b.WriteString("diff --git ")
+	b.WriteString(aPath)
+	b.WriteByte(' ')
+	b.WriteString(bPath)
+	b.WriteString("\nnew file mode ")
+	b.WriteString(mode)
+	b.WriteString("\nindex 0000000..0000000\n")
+
+	if len(data) == 0 {
+		return nil
+	}
+	if bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
+		b.WriteString("Binary files /dev/null and ")
+		b.WriteString(bPath)
+		b.WriteString(" differ\n")
+		return nil
+	}
+
+	b.WriteString("--- /dev/null\n+++ ")
+	b.WriteString(bPath)
+	b.WriteByte('\n')
+
+	hasNewline := data[len(data)-1] == '\n'
+	lines := bytes.Split(data, []byte("\n"))
+	if hasNewline {
+		lines = lines[:len(lines)-1]
+	}
+	b.WriteString("@@ -0,0 +1")
+	if len(lines) != 1 {
+		b.WriteByte(',')
+		b.WriteString(strconv.Itoa(len(lines)))
+	}
+	b.WriteString(" @@\n")
+	for _, line := range lines {
+		b.WriteByte('+')
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	if !hasNewline {
+		b.WriteString("\\ No newline at end of file\n")
+	}
+	return nil
+}
+
+// formatGitPath C-quotes paths that contain characters git quotes in headers,
+// matching internal/diff.Parse's unquote expectations.
+func formatGitPath(path string) string {
+	quote := false
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		if c < 0x20 || c == 0x7f || c >= 0x80 || c == '"' || c == '\\' {
+			quote = true
+			break
+		}
+	}
+	if !quote {
+		return path
+	}
+	var b strings.Builder
+	b.Grow(len(path) + 2)
+	b.WriteByte('"')
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		switch c {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\a':
+			b.WriteString(`\a`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\v':
+			b.WriteString(`\v`)
+		default:
+			if c < 0x20 || c == 0x7f || c >= 0x80 {
+				fmt.Fprintf(&b, `\%03o`, c)
+			} else {
+				b.WriteByte(c)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // DiffStat summarises the diff from base to the working tree, including

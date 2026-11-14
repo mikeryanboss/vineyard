@@ -84,6 +84,27 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Equal reports whether s and o are field-for-field equal, comparing
+// CreatedAt as an instant in time.
+func (s Session) Equal(o Session) bool {
+	return s.ID == o.ID &&
+		s.Title == o.Title &&
+		s.Program == o.Program &&
+		s.Branch == o.Branch &&
+		s.BaseCommit == o.BaseCommit &&
+		s.WorktreePath == o.WorktreePath &&
+		s.TmuxName == o.TmuxName &&
+		s.Multiplexer == o.Multiplexer &&
+		s.Protocol == o.Protocol &&
+		s.Status == o.Status &&
+		s.AutoYes == o.AutoYes &&
+		s.PendingPrompt == o.PendingPrompt &&
+		s.Issue == o.Issue &&
+		s.MainCheckout == o.MainCheckout &&
+		s.Conversation == o.Conversation &&
+		s.CreatedAt.Equal(o.CreatedAt)
+}
+
 // ShellName is the tmux session name of the session's shell, a plain shell in
 // its worktree for running commands next to the agent.
 func (s Session) ShellName() string { return s.TmuxName + "-shell" }

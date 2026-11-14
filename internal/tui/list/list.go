@@ -5,7 +5,6 @@ package list
 import (
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -513,9 +512,15 @@ func count(agents []subagent.Agent) string {
 	if len(agents) == 1 {
 		noun = "subagent"
 	}
+	var counts [3]int
+	for _, a := range agents {
+		if a.Status >= 0 && int(a.Status) < len(counts) {
+			counts[a.Status]++
+		}
+	}
 	var parts []string
 	for _, status := range []subagent.Status{subagent.Running, subagent.Done, subagent.Stopped} {
-		if n := len(slices.DeleteFunc(slices.Clone(agents), func(a subagent.Agent) bool { return a.Status != status })); n > 0 {
+		if n := counts[status]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, statusWords[status]))
 		}
 	}

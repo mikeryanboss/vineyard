@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -204,6 +205,13 @@ func RemoveWorktree(repoRoot, path string) error {
 
 // IsWorktree reports whether path is the top of a usable git checkout.
 func IsWorktree(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return false
+	}
 	out, err := run(path, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return false

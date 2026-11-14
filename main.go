@@ -20,6 +20,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/git"
 	"github.com/mikeryanboss/vineyard/internal/logfile"
+	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/session"
 	"github.com/mikeryanboss/vineyard/internal/subagent"
 	"github.com/mikeryanboss/vineyard/internal/tmux"
@@ -233,7 +234,7 @@ func runTUI(program string, autoYes bool, issue int) (err error) {
 		GrapesErr:  grapesErr,
 		Issue:      issue,
 	}
-	model := tui.NewModel(tui.LiveBackend{Manager: manager, Terminals: terminals, Older: vineyards.Older, Store: store, Leader: leader, Transcripts: subagent.NewReader(), Dir: dir}, sessions, opts)
+	model := tui.NewModel(tui.LiveBackend{Manager: manager, Terminals: terminals, Older: vineyards.Older, Store: store, Leader: leader, Transcripts: subagent.NewReader(), Recaps: recap.NewReader(), Dir: dir}, sessions, opts)
 
 	in, out, closeTTY, err := terminal()
 	if err != nil {

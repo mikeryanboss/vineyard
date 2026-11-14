@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -490,4 +491,42 @@ func TestLoad_SubagentsTheUserStoppedStopped(t *testing.T) {
 			t.Errorf("prompt event %q, want only the task: the interruption marker is no message", e.Text)
 		}
 	}
+}
+
+func TestReader_ConcurrentDirs(t *testing.T) {
+	c1 := newTranscripts(t)
+	c2 := newTranscripts(t)
+	c1.main(human(t, 0, "One"))
+	c1.agent("a1", "worker", "t1", asked(t, 1, "/r1", "", "Work one."), said(t, 2, "Done one."))
+	c2.main(human(t, 0, "Two"))
+	c2.agent("a2", "worker", "t2", asked(t, 1, "/r2", "", "Work two."))
+
+	r := NewReader()
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c, id := c1, "a1"
+			if i%2 == 1 {
+				c, id = c2, "a2"
+			}
+			for range 10 {
+				conv, err := r.Load(c.dir, time.Time{})
+				if err != nil {
+					t.Errorf("Load(%s): %v", c.dir, err)
+					return
+				}
+				if len(conv.Agents) != 1 || conv.Agents[0].ID != id {
+					t.Errorf("Load(%s) = %+v, want agent %s", c.dir, conv.Agents, id)
+					return
+				}
+				if _, err := r.Events(c.dir, id); err != nil {
+					t.Errorf("Events(%s, %s): %v", c.dir, id, err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }

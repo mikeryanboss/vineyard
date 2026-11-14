@@ -8,13 +8,16 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"maps"
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"charm.land/bubbles/v2/cursor"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -67,10 +70,13 @@ const (
 )
 
 // seenScreen is a session's screen fingerprint and when a status check first
-// saw it.
+// saw it, along with the parsed screen predicates for that hash.
 type seenScreen struct {
-	hash  uint64
-	since time.Time
+	hash       uint64
+	since      time.Time
+	permission bool
+	trust      bool
+	subagents  subagent.List
 }
 
 type focus int
@@ -153,6 +159,7 @@ type (
 		// branches holds each polled session's checked-out branch, which
 		// the agent may have switched.
 		branches map[string]string
+		poll     bool
 	}
 	// transcriptMsg carries the condensed transcript of a session's subagent.
 	transcriptMsg struct {
@@ -295,8 +302,8 @@ type Model struct {
 	// session's subagents at the last status poll. The rows come from them.
 	conversations map[string]subagent.Conversation
 
-	previewInFlight bool
-	statusInFlight  bool
+	previewLoads   int
+	statusInFlight bool
 	// quickChecks counts the quick status checks still to run; each one
 	// schedules the next.
 	quickChecks    int
@@ -348,9 +355,9 @@ type Model struct {
 	agentTree string
 	// transcript shows the shown subagent's transcript in place of the
 	// preview. transcriptShown is the latest fetched, kept to re-render it.
-	transcript         textview.Model
-	transcriptShown    transcriptMsg
-	transcriptInFlight bool
+	transcript      textview.Model
+	transcriptShown transcriptMsg
+	transcriptLoads int
 	// lastClick is the last click on the list or pane, to tell double clicks.
 	lastClick clickAt
 
@@ -397,7 +404,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		sizes:    map[string][2]int{},
 		list:     list.New(theme),
 		preview:  preview.New(theme),
-		diff:     diffview.New(theme),
+		diff:     diffview.New(theme).SetVisible(false),
 		issue:    textview.New(theme),
 		recap:    textview.New(theme),
 
@@ -427,7 +434,8 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 	m.syncList()
 	// Mark the initial selection as shown; the first ticks fetch its screen and diff.
 	_ = m.refreshShown()
-	m.diffInFlight = false // the fetch refreshShown planned was discarded above
+	// Discard in-flight counts from the discarded startup commands above.
+	m.previewLoads, m.transcriptLoads, m.diffInFlight = 0, 0, false
 	return m
 }
 
@@ -655,6 +663,10 @@ func (m *Model) refreshShown() tea.Cmd {
 	}
 	otherSession := s.ID != m.shownID
 	m.shownID, m.shownAgent, m.agentTree = s.ID, a.ID, ""
+	if otherSession {
+		m.recapShown = recapMsg{}
+	}
+	m.transcriptShown = transcriptMsg{}
 	m.preview = m.preview.ExitScroll()
 	if otherSession { // its shell is another
 		m.terminal = m.terminal.SetPlaceholder("")
@@ -669,11 +681,9 @@ func (m *Model) refreshShown() tea.Cmd {
 	if !ok {
 		return shellCmd
 	}
-	m.diffInFlight = true
-	cmds := []tea.Cmd{m.diffCmd(), m.recapCmd(), shellCmd}
+	cmds := []tea.Cmd{m.selectedDiffCmd(), m.recapCmd(), shellCmd}
 	switch {
 	case a.ID != "":
-		m.transcriptInFlight = true
 		cmds = append(cmds, m.transcriptCmd())
 	case s.Status.Active() && !m.busy[s.ID]: // otherwise there is no live screen to capture
 		cmds = append(cmds, m.captureCmd(s))
@@ -769,10 +779,11 @@ func (m *Model) adopt(saved []session.Session) {
 
 // --- Commands ---
 
-func (m Model) captureCmd(s session.Session) tea.Cmd {
+func (m *Model) captureCmd(s session.Session) tea.Cmd {
 	backend := m.backend
 	w, h := m.agentSize()
 	applied := m.sizes[s.ID]
+	m.previewLoads++
 	return func() tea.Msg {
 		size := applied
 		if size != [2]int{w, h} {
@@ -800,6 +811,7 @@ func (m *Model) shellCmd() tea.Cmd {
 	backend := m.backend
 	w, h := m.agentSize()
 	applied := m.shellSizes[s.ID]
+	m.previewLoads++
 	return func() tea.Msg {
 		if err := backend.EnsureShell(s, w, h); err != nil {
 			return screenMsg{id: s.ID, err: err, shell: true}
@@ -823,6 +835,7 @@ func (m Model) statusCmd() tea.Cmd {
 			active = append(active, s)
 		}
 	}
+	hashes := maps.Clone(m.hashes)
 	return func() tea.Msg {
 		lead, err := backend.Lead()
 		if err != nil {
@@ -830,40 +843,86 @@ func (m Model) statusCmd() tea.Cmd {
 		}
 		at := now()
 		results := make([]screenStatus, len(active))
-		done := make(chan struct{}, len(active))
-		for i, s := range active {
+		workers := min(len(active), 8)
+		jobs := make(chan int, len(active))
+		for i := range active {
+			jobs <- i
+		}
+		close(jobs)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for range workers {
 			go func() {
-				defer func() { done <- struct{}{} }()
-				screen, err := backend.Capture(s)
-				if errors.Is(err, session.ErrOlderMultiplexer) {
-					results[i] = screenStatus{id: s.ID, unreachable: true}
-					return
-				}
-				if err != nil {
-					results[i] = screenStatus{id: s.ID, gone: true}
-					return
-				}
-				results[i] = screenStatus{
-					id:         s.ID,
-					hash:       session.ScreenHash(screen),
-					permission: session.AwaitingPermission(s.Program, screen),
-					trust:      session.AwaitingTrust(screen),
-				}
-				switch session.ProgramName(s.Program) {
-				case "claude":
-					results[i].subagents, _ = subagent.Parse(screen)
-					results[i].conversation, results[i].conversationErr = backend.Subagents(s)
-				case "agy":
-					if lead {
-						results[i].conversation.ID, results[i].conversationErr = backend.Conversation(s)
+				defer wg.Done()
+				for i := range jobs {
+					s := active[i]
+					screen, err := backend.Capture(s)
+					if errors.Is(err, session.ErrOlderMultiplexer) {
+						results[i] = screenStatus{id: s.ID, unreachable: true}
+						continue
 					}
+					if err != nil {
+						results[i] = screenStatus{id: s.ID, gone: true}
+						continue
+					}
+					hash := session.ScreenHash(screen)
+					st := screenStatus{id: s.ID, hash: hash}
+					if prev, ok := hashes[s.ID]; ok && prev.hash == hash {
+						st.permission = prev.permission
+						st.trust = prev.trust
+						st.subagents = prev.subagents
+					} else {
+						st.permission = session.AwaitingPermission(s.Program, screen)
+						st.trust = session.AwaitingTrust(screen)
+						if session.ProgramName(s.Program) == "claude" {
+							st.subagents, _ = subagent.Parse(screen)
+						}
+					}
+					switch session.ProgramName(s.Program) {
+					case "claude":
+						st.conversation, st.conversationErr = backend.Subagents(s)
+					case "agy":
+						if lead {
+							st.conversation.ID, st.conversationErr = backend.Conversation(s)
+						}
+					}
+					results[i] = st
 				}
 			}()
 		}
-		for range active {
-			<-done
-		}
+		wg.Wait()
 		return statusMsg{results: results, at: at, lead: lead, err: err}
+	}
+}
+
+func fetchSelectedDiff(backend Backend, selected session.Session, showDiff bool, agent subagent.Agent, ofAgent bool) diffMsg {
+	msg := diffMsg{selectedID: selected.ID, agent: agent.ID, hasRaw: showDiff, stats: map[string]git.Stat{}, branches: map[string]string{}}
+	if showDiff && ofAgent && agent.Dir != "" {
+		// A subagent working in another worktree has that one's diff.
+		if tree := backend.Worktree(agent.Dir); tree != "" && tree != selected.WorktreePath {
+			msg.tree = tree
+		}
+	}
+	if msg.tree != "" {
+		msg.raw, msg.rawErr = backend.TreeDiff(msg.tree, selected)
+	} else if showDiff {
+		msg.raw, msg.rawErr = backend.Diff(selected)
+		if branch, err := backend.Branch(selected); err == nil {
+			msg.branches[selected.ID] = branch
+		}
+	}
+	return msg
+}
+
+// selectedDiffCmd fetches only the selected session's diff on selection
+// changes, without polling every other session's worktree.
+func (m Model) selectedDiffCmd() tea.Cmd {
+	backend := m.backend
+	selected, hasSelected := m.selected()
+	agent, ofAgent := m.list.SelectedSubagent()
+	showDiff := hasSelected && m.diffable(selected)
+	return func() tea.Msg {
+		return fetchSelectedDiff(backend, selected, showDiff, agent, ofAgent)
 	}
 }
 
@@ -881,27 +940,48 @@ func (m Model) diffCmd() tea.Cmd {
 	}
 	showDiff := hasSelected && m.diffable(selected)
 	return func() tea.Msg {
-		msg := diffMsg{selectedID: selected.ID, agent: agent.ID, hasRaw: showDiff, stats: map[string]git.Stat{}, branches: map[string]string{}}
-		if showDiff && ofAgent && agent.Dir != "" {
-			// A subagent working in another worktree has that one's diff.
-			if tree := backend.Worktree(agent.Dir); tree != "" && tree != selected.WorktreePath {
-				msg.tree = tree
-			}
+		msg := fetchSelectedDiff(backend, selected, showDiff, agent, ofAgent)
+		msg.poll = true
+
+		type otherResult struct {
+			id        string
+			stat      git.Stat
+			hasStat   bool
+			branch    string
+			hasBranch bool
 		}
-		if msg.tree != "" {
-			msg.raw, msg.rawErr = backend.TreeDiff(msg.tree, selected)
-		} else if showDiff {
-			msg.raw, msg.rawErr = backend.Diff(selected)
-			if branch, err := backend.Branch(selected); err == nil {
-				msg.branches[selected.ID] = branch
-			}
+		res := make([]otherResult, len(others))
+		workers := min(len(others), 6)
+		jobs := make(chan int, len(others))
+		for i := range others {
+			jobs <- i
 		}
-		for _, s := range others {
-			if stat, err := backend.DiffStat(s); err == nil {
-				msg.stats[s.ID] = stat
+		close(jobs)
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for range workers {
+			go func() {
+				defer wg.Done()
+				for i := range jobs {
+					s := others[i]
+					r := otherResult{id: s.ID}
+					if stat, err := backend.DiffStat(s); err == nil {
+						r.stat, r.hasStat = stat, true
+					}
+					if branch, err := backend.Branch(s); err == nil {
+						r.branch, r.hasBranch = branch, true
+					}
+					res[i] = r
+				}
+			}()
+		}
+		wg.Wait()
+		for _, r := range res {
+			if r.hasStat {
+				msg.stats[r.id] = r.stat
 			}
-			if branch, err := backend.Branch(s); err == nil {
-				msg.branches[s.ID] = branch
+			if r.hasBranch {
+				msg.branches[r.id] = r.branch
 			}
 		}
 		return msg
@@ -922,10 +1002,11 @@ func (m Model) recapCmd() tea.Cmd {
 }
 
 // transcriptCmd reads the transcript of the selected subagent.
-func (m Model) transcriptCmd() tea.Cmd {
+func (m *Model) transcriptCmd() tea.Cmd {
 	s, _ := m.selected()
 	a, _ := m.list.SelectedSubagent()
 	backend := m.backend
+	m.transcriptLoads++
 	return func() tea.Msg {
 		events, err := backend.SubagentEvents(s, a.ID)
 		return transcriptMsg{id: s.ID, agent: a.ID, events: events, err: err}
@@ -958,8 +1039,11 @@ func (m Model) promptCmd(s session.Session, prompt string) tea.Cmd {
 // conversation or Claude Code's list cannot be read.
 func (m Model) shownSubagent(id string) string {
 	l := m.subagents[id]
+	if l.Shown <= 0 {
+		return ""
+	}
 	ids, ok := subagent.Match(m.conversations[id].Agents, l, now())
-	if !ok || l.Shown <= 0 {
+	if !ok {
 		return ""
 	}
 	return ids[l.Shown-1]
@@ -1029,30 +1113,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case previewTickMsg:
 		next := tick(previewInterval, func(time.Time) tea.Msg { return previewTickMsg{} })
 		if m.tab == tabTerminal {
-			if m.previewInFlight || m.terminal.Scrolling() {
+			if m.previewLoads > 0 || m.terminal.Scrolling() {
 				return m, next
 			}
-			cmd := m.shellCmd()
-			m.previewInFlight = cmd != nil
-			return m, tea.Batch(next, cmd)
+			return m, tea.Batch(next, m.shellCmd())
 		}
 		if m.shownAgent != "" {
-			if m.transcriptInFlight {
+			if m.transcriptLoads > 0 {
 				return m, next
 			}
-			m.transcriptInFlight = true
 			return m, tea.Batch(next, m.transcriptCmd())
 		}
 		s, ok := m.selected()
-		if !ok || !s.Status.Active() || m.busy[s.ID] || m.previewInFlight || m.preview.Scrolling() {
+		if !ok || !s.Status.Active() || m.busy[s.ID] || m.previewLoads > 0 || m.preview.Scrolling() {
 			return m, next
 		}
-		m.previewInFlight = true
 		return m, tea.Batch(next, m.captureCmd(s))
 
 	case transcriptMsg:
-		m.transcriptInFlight = false
+		m.transcriptLoads = max(0, m.transcriptLoads-1)
 		if msg.id == m.shownID && msg.agent == m.shownAgent {
+			if m.transcriptShown.id == msg.id && m.transcriptShown.agent == msg.agent &&
+				sameErr(m.transcriptShown.err, msg.err) &&
+				slices.Equal(m.transcriptShown.events, msg.events) {
+				return m, nil
+			}
 			first := m.transcriptShown.id != msg.id || m.transcriptShown.agent != msg.agent
 			m.transcriptShown = msg
 			m.refreshTranscript()
@@ -1063,7 +1148,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case screenMsg:
-		m.previewInFlight = false
+		m.previewLoads = max(0, m.previewLoads-1)
 		if msg.shell {
 			switch {
 			case msg.id != m.shownID || m.terminal.Scrolling():
@@ -1123,7 +1208,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(next, m.diffCmd(), m.recapCmd())
 
 	case diffMsg:
-		m.diffInFlight = false
+		if msg.poll {
+			m.diffInFlight = false
+		}
 		shown, _ := m.selected()
 		shownIssues := m.shownIssues(shown)
 		for id, stat := range msg.stats {
@@ -1155,6 +1242,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case recapMsg:
 		if msg.id == m.shownID {
+			if m.recapShown.id == msg.id && sameErr(m.recapShown.err, msg.err) && m.recapShown.recap.Equal(msg.recap) {
+				return m, nil
+			}
 			m.recapShown = msg
 			m.refreshRecap()
 		}
@@ -1313,16 +1403,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.scrolled {
 			if msg.shell {
-				if !m.previewInFlight && m.tab == tabTerminal && !m.terminal.Scrolling() {
-					cmd := m.shellCmd()
-					m.previewInFlight = cmd != nil
-					return m, cmd
+				if m.previewLoads == 0 && m.tab == tabTerminal && !m.terminal.Scrolling() {
+					return m, m.shellCmd()
 				}
 				return m, nil
 			}
 			s, ok := m.selected()
-			if !m.previewInFlight && ok && s.ID == msg.id && s.Status.Active() && !m.busy[s.ID] && !m.preview.Scrolling() {
-				m.previewInFlight = true
+			if m.previewLoads == 0 && ok && s.ID == msg.id && s.Status.Active() && !m.busy[s.ID] && !m.preview.Scrolling() {
 				return m, m.captureCmd(s)
 			}
 			return m, nil
@@ -1374,7 +1461,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// progress; the next tick reloads.
 			return m, nil
 		}
+		before := slices.Clone(m.sessions)
+		beforeShown := m.shownID
 		m.adopt(msg.sessions)
+		if m.shownID == beforeShown && slices.EqualFunc(before, m.sessions, session.Session.Equal) {
+			return m, nil
+		}
 		m.syncList()
 		return m, m.refreshShown()
 
@@ -1505,11 +1597,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return next, tea.Batch(cmd, grapesCmd)
 }
 
+func sameErr(a, b error) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Error() == b.Error()
+}
+
 // updateGrapes passes msg to grapes, when there is one. A grapes reload may
 // change what issues say, so the issue tab is rebuilt.
 func (m Model) updateGrapes(msg tea.Msg) (Model, tea.Cmd) {
 	if m.grapesErr != nil {
 		return m, nil
+	}
+	if !m.issuesOpen {
+		switch msg.(type) {
+		case cursor.BlinkMsg, tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
+			return m, nil
+		}
 	}
 	var cmd tea.Cmd
 	m.grapes, cmd = m.grapes.Update(msg)
@@ -1753,6 +1858,9 @@ func (m Model) shownIssues(s session.Session) []int {
 // lists the others. Only the direct parent counts, since grapes loads parent
 // cycles and walking further up could loop.
 func (m Model) mainIssues(ids []int) []int {
+	if len(ids) <= 1 || m.grapesErr != nil {
+		return ids
+	}
 	return slices.DeleteFunc(slices.Clone(ids), func(id int) bool {
 		issue, _ := m.grapes.Issue(id)
 		return issue.Parent > 0 && slices.Contains(ids, issue.Parent)
@@ -1905,7 +2013,13 @@ func (m Model) applyStatus(msg statusMsg) (tea.Model, tea.Cmd) {
 		previous, seen := m.hashes[s.ID]
 		same := seen && previous.hash == r.hash
 		if !same {
-			m.hashes[s.ID] = seenScreen{hash: r.hash, since: msg.at}
+			m.hashes[s.ID] = seenScreen{
+				hash:       r.hash,
+				since:      msg.at,
+				permission: r.permission,
+				trust:      r.trust,
+				subagents:  r.subagents,
+			}
 		}
 		// Only a screen seen unchanged for stillFor proves the agent is
 		// waiting. The saved status may be stale, for example right after a
@@ -1976,6 +2090,7 @@ func (m *Model) switchTab(back bool) tea.Cmd {
 // screen if t shows it.
 func (m *Model) showTab(t tab) tea.Cmd {
 	m.tab = t
+	m.diff = m.diff.SetVisible(t == tabDiff)
 	m.preview = m.preview.ExitScroll()
 	m.terminal = m.terminal.ExitScroll()
 	m.refreshIssue()
@@ -2814,10 +2929,7 @@ func (m Model) renderPane() string {
 	gap := max(1, innerWidth-ansi.StringWidth(tabs)-ansi.StringWidth(info)-1)
 	tabBar := ansi.Truncate(tabs+strings.Repeat(" ", gap)+info+" ", innerWidth, "")
 
-	content := m.preview.View()
-	if m.shownAgent != "" {
-		content = m.transcript.View()
-	}
+	var content string
 	switch m.tab {
 	case tabDiff:
 		content = m.diff.View()
@@ -2831,6 +2943,11 @@ func (m Model) renderPane() string {
 		content = m.terminal.View()
 	case tabRecap:
 		content = m.recap.View()
+	default:
+		content = m.preview.View()
+		if m.shownAgent != "" {
+			content = m.transcript.View()
+		}
 	}
 	style := t.StylePane
 	if m.focus == focusPane {

@@ -196,8 +196,10 @@ is shown as an error, not skipped.
 
 `recapCmd` reads the transcripts only while the tab is shown, and only for
 sessions whose program is `claude`: on switching to the tab, on selecting a
-session, and on each diff tick. The latest result is kept in `recapShown`, so
-`refreshRecap` can re-render it on resize and theme changes.
+session, and on each diff tick. `recap.Reader` keeps the byte offset reached in
+each transcript file so subsequent polls parse only newly appended lines,
+resetting when a file is replaced or truncated. The latest result is kept in
+`recapShown`, so `refreshRecap` can re-render it on resize and theme changes.
 
 ## Terminal Tab
 

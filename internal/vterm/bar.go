@@ -1,7 +1,6 @@
 package vterm
 
 import (
-	"hash/fnv"
 	"strconv"
 	"strings"
 	"time"
@@ -78,11 +77,9 @@ func (b *bar) sample(s *Server) {
 			p.gone = true
 			continue
 		}
-		h := fnv.New64a()
 		t.mu.Lock()
-		h.Write([]byte(t.emu.Render()))
+		_, screen := t.render()
 		t.mu.Unlock()
-		screen := h.Sum64()
 		if p.sampled {
 			p.Running = screen != p.screen
 		}

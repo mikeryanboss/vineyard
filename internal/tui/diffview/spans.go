@@ -78,6 +78,15 @@ func (h *highlighter) color(t chroma.TokenType) color.Color {
 	return c
 }
 
+// runeWidth returns the terminal cell width of r, fast-pathing printable ASCII
+// so common code lines do not allocate a string per rune.
+func runeWidth(r rune) int {
+	if r >= 0x20 && r < 0x7f {
+		return 1
+	}
+	return ansi.StringWidth(string(r))
+}
+
 // expandTabs replaces tabs with spaces up to the next tab stop, so widths
 // measured from the text match what the terminal shows.
 func expandTabs(s string) string {
@@ -94,7 +103,7 @@ func expandTabs(s string) string {
 			continue
 		}
 		b.WriteRune(r)
-		col += ansi.StringWidth(string(r))
+		col += runeWidth(r)
 	}
 	return b.String()
 }
@@ -171,7 +180,7 @@ func wrapPoints(text []rune, width int) []int {
 	var points []int
 	rowStart, used, lastSpace := 0, 0, -1
 	for i := 0; i < len(text); i++ {
-		w := ansi.StringWidth(string(text[i]))
+		w := runeWidth(text[i])
 		if used+w > width && used > 0 {
 			brk := i
 			if lastSpace >= rowStart && lastSpace+1-rowStart >= width/2 {
@@ -181,7 +190,7 @@ func wrapPoints(text []rune, width int) []int {
 			rowStart, lastSpace = brk, -1
 			used = 0
 			for j := brk; j < i; j++ {
-				used += ansi.StringWidth(string(text[j]))
+				used += runeWidth(text[j])
 			}
 		}
 		if text[i] == ' ' {

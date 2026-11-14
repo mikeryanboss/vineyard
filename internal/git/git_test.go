@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mikeryanboss/vineyard/internal/diff"
 )
 
 // newRepo creates a repository with one commit and returns its path. Git runs
@@ -334,5 +337,163 @@ func TestParseNumstat_SkipsBinaryCountsAndKeepsRenamedPaths(t *testing.T) {
 	want := Stat{Added: 15, Removed: 1, Paths: []string{"a.go", "image.png", "old.go", "new.go", "b.go"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseNumstat = %+v, want %+v", got, want)
+	}
+}
+
+func TestDiff_UntrackedVariants(t *testing.T) {
+	root := newRepo(t)
+	base, _ := Head(root)
+
+	writeFile(t, root, "empty.txt", "")
+	writeFile(t, root, "single.txt", "one\n")
+	writeFile(t, root, "nonl.txt", "no newline")
+	writeFile(t, root, "multi.txt", "a\nb\nc\n")
+	writeFile(t, root, "script.sh", "#!/bin/sh\necho hi\n")
+	if err := os.Chmod(filepath.Join(root, "script.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin.dat"), []byte{0x89, 0x50, 0x4e, 0x00, 0x01}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "with space.txt", "sp\n")
+	writeFile(t, root, `with"quote.txt`, "q\n")
+	writeFile(t, root, "with\ttab.txt", "tb\n")
+
+	raw, err := Diff(root, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, "new file mode 100755") {
+		t.Errorf("missing executable mode 100755 in diff:\n%s", raw)
+	}
+
+	parsed := diff.Parse(raw)
+	byPath := map[string]diff.File{}
+	for _, f := range parsed {
+		if f.Status != diff.Added {
+			t.Errorf("file %q status = %v, want Added", f.Path(), f.Status)
+		}
+		byPath[f.Path()] = f
+	}
+
+	if f, ok := byPath["empty.txt"]; !ok || len(f.Hunks) != 0 || f.Binary {
+		t.Errorf("empty.txt = %+v (ok=%v), want empty non-binary Added", f, ok)
+	}
+	if f, ok := byPath["single.txt"]; !ok || f.Added != 1 || len(f.Hunks) != 1 || f.Hunks[0].Lines[0].NoNewline {
+		t.Errorf("single.txt = %+v (ok=%v), want 1 added line with newline", f, ok)
+	}
+	if f, ok := byPath["nonl.txt"]; !ok || f.Added != 1 || len(f.Hunks) != 1 || !f.Hunks[0].Lines[0].NoNewline {
+		t.Errorf("nonl.txt = %+v (ok=%v), want 1 added line with NoNewline", f, ok)
+	}
+	if f, ok := byPath["multi.txt"]; !ok || f.Added != 3 || len(f.Hunks) != 1 || f.Hunks[0].NewLines != 3 {
+		t.Errorf("multi.txt = %+v (ok=%v), want 3 added lines", f, ok)
+	}
+	if f, ok := byPath["bin.dat"]; !ok || !f.Binary {
+		t.Errorf("bin.dat = %+v (ok=%v), want Binary", f, ok)
+	}
+	for _, special := range []string{"script.sh", "with space.txt", `with"quote.txt`, "with\ttab.txt"} {
+		if _, ok := byPath[special]; !ok {
+			t.Errorf("parsed files missing %q (got keys: %v)", special, slices.Collect(func(yield func(string) bool) {
+				for k := range byPath {
+					if !yield(k) {
+						return
+					}
+				}
+			}))
+		}
+	}
+}
+
+func TestBase_CachedMatchesFresh(t *testing.T) {
+	root := newRepo(t)
+	start, _ := Head(root)
+	mustGit(t, root, "update-ref", "refs/remotes/origin/main", "main")
+	mustGit(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	wt := filepath.Join(t.TempDir(), "wt")
+	mustGit(t, root, "worktree", "add", "-q", "-b", "feat", wt)
+	writeFile(t, wt, "f1.txt", "1\n")
+	mustGit(t, wt, "add", "-A")
+	mustGit(t, wt, "commit", "-q", "-m", "c1")
+
+	b1, err := Base(wt, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, err := Base(wt, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b1 != start || b2 != start {
+		t.Fatalf("Base = %q, %q; want %q", b1, b2, start)
+	}
+
+	writeFile(t, wt, "f2.txt", "2\n")
+	mustGit(t, wt, "add", "-A")
+	mustGit(t, wt, "commit", "-q", "-m", "c2")
+	b3, err := Base(wt, start)
+	if err != nil || b3 != start {
+		t.Fatalf("Base after new commit = %q, %v; want %q", b3, err, start)
+	}
+
+	onto, _ := Head(wt)
+	sb1, err := StackedBase(wt, onto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb2, err := StackedBase(wt, onto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sb1 != onto || sb2 != onto {
+		t.Fatalf("StackedBase on same tip = %q, %q; want %q", sb1, sb2, onto)
+	}
+}
+
+func BenchmarkDiff_Untracked(b *testing.B) {
+	b.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	b.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	b.Setenv("GIT_AUTHOR_NAME", "Test")
+	b.Setenv("GIT_AUTHOR_EMAIL", "test@example.com")
+	b.Setenv("GIT_COMMITTER_NAME", "Test")
+	b.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
+
+	dir := b.TempDir()
+	cmd := exec.Command("git", "init", "-q", "-b", "main")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		b.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "initial"}} {
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			b.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	base, err := Head(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	payload := strings.Repeat("line of untracked code\n", 40)
+	for i := range 20 {
+		name := fmt.Sprintf("untracked_%02d.go", i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(payload), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		out, err := Diff(dir, base)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if out == "" {
+			b.Fatal("empty diff")
+		}
 	}
 }
