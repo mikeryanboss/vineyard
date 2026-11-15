@@ -34,6 +34,7 @@ import (
 	"github.com/mikeryanboss/vineyard/internal/tui/diffview"
 	"github.com/mikeryanboss/vineyard/internal/tui/list"
 	"github.com/mikeryanboss/vineyard/internal/tui/preview"
+	"github.com/mikeryanboss/vineyard/internal/tui/recapview"
 	"github.com/mikeryanboss/vineyard/internal/tui/settings"
 	"github.com/mikeryanboss/vineyard/internal/tui/textview"
 )
@@ -338,7 +339,7 @@ type Model struct {
 	preview preview.Model
 	diff    diffview.Model
 	issue   textview.Model
-	recap   textview.Model
+	recap   recapview.Model
 	dialog  dialog.Dialog
 	focus   focus
 	tab     tab
@@ -410,7 +411,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		preview:  preview.New(theme),
 		diff:     diffview.New(theme).SetVisible(false),
 		issue:    textview.New(theme),
-		recap:    textview.New(theme),
+		recap:    recapview.New(theme).SetConfig(opts.Config.Recap).SetVisible(false),
 
 		transcript: textview.New(theme),
 		terminal:   preview.New(theme),
@@ -581,6 +582,7 @@ func (m *Model) applyTheme() {
 func (m *Model) setFocus(f focus) {
 	m.focus = f
 	m.list = m.list.SetFocused(f == focusList)
+	m.recap = m.recap.SetFocused(f == focusPane && m.tab == tabRecap)
 	if f == focusList {
 		m.preview = m.preview.ExitScroll()
 		m.terminal = m.terminal.ExitScroll()
@@ -687,6 +689,7 @@ func (m *Model) refreshShown() tea.Cmd {
 	m.shownID, m.shownAgent, m.agentTree = s.ID, a.ID, ""
 	if otherSession {
 		m.recapShown = recapMsg{}
+		m.recap = m.recap.Reset()
 	}
 	m.transcriptShown = transcriptMsg{}
 	m.preview = m.preview.ExitScroll()
@@ -697,7 +700,6 @@ func (m *Model) refreshShown() tea.Cmd {
 	m.diff = m.diff.SetDiff("")
 	m.issue = m.issue.GotoTop()
 	m.refreshIssue()
-	m.recap = m.recap.SetContent("") // so a conversation opens at its end, a subagent's recap at its top
 	m.refreshRecap()
 	shellCmd := m.shellCmd()
 	if !ok {
@@ -1018,7 +1020,7 @@ func (m Model) diffCmd() tea.Cmd {
 // recapCmd reads the selected session's recaps, while the recap tab is shown.
 func (m Model) recapCmd() tea.Cmd {
 	s, ok := m.selected()
-	if m.tab != tabRecap || !ok || !isClaude(s) || m.shownAgent != "" {
+	if m.tab != tabRecap || !ok || !hasRecap(s) || m.shownAgent != "" {
 		return nil
 	}
 	backend := m.backend
@@ -1476,6 +1478,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			clear(m.hashes)
 		}
 		m.opts.Config = msg.config
+		m.recap = m.recap.SetConfig(msg.config.Recap)
 		m.configOpen = false
 		m.syncList()
 		m.resizeLayout()
@@ -1699,9 +1702,9 @@ func (m *Model) refreshIssue() {
 }
 
 // refreshRecap renders the shown session's conversation into the recap tab,
-// while the tab is shown: the user's messages and Claude Code's recaps, oldest
-// first. It keeps the scroll position, following new entries while scrolled
-// to the bottom.
+// while the tab is shown: user prompts, final agent responses, and away
+// recaps, oldest first. It preserves expanded cards and follows new entries
+// while scrolled to the bottom.
 func (m *Model) refreshRecap() {
 	if m.tab != tabRecap {
 		return
@@ -1715,52 +1718,22 @@ func (m *Model) refreshRecap() {
 	switch {
 	case !ok:
 		m.recap = m.recap.SetPlaceholder(noSession())
-		return
-	case !isClaude(s):
-		m.recap = m.recap.SetPlaceholder("Recaps come from Claude Code; this session runs " + session.ProgramName(s.Program) + ".")
-		return
+	case !hasRecap(s):
+		m.recap = m.recap.SetPlaceholder("Recaps come from Claude Code and Antigravity CLI; this session runs " + session.ProgramName(s.Program) + ".")
 	case r.id != s.ID:
 		m.recap = m.recap.SetPlaceholder("Reading recaps…")
-		return
 	case r.err != nil:
 		m.recap = m.recap.SetPlaceholder("Cannot read recaps: " + r.err.Error())
-		return
 	case !r.recap.Found:
-		m.recap = m.recap.SetPlaceholder("Claude Code has no transcript for this session yet.")
-		return
+		agent := "Claude Code"
+		if session.ProgramName(s.Program) == "agy" {
+			agent = "Antigravity CLI"
+		}
+		m.recap = m.recap.SetPlaceholder(agent + " has no transcript for this session yet.")
 	case len(r.recap.Entries) == 0:
 		m.recap = m.recap.SetPlaceholder("Nothing said in this session yet.")
-		return
-	}
-	width, _ := m.paneContentSize()
-	width = max(1, width-2) // a column of margin on each side
-	t := m.theme
-	// header puts a label on the left of a line and a time on its right.
-	header := func(label string, at time.Time) string {
-		stamp := t.StyleFaint.Render(at.Local().Format("Jan 2 15:04"))
-		return label + strings.Repeat(" ", max(1, width-lipgloss.Width(label)-lipgloss.Width(stamp))) + stamp
-	}
-	accent := lipgloss.NewStyle().Foreground(t.ColorAccent)
-	message := lipgloss.NewStyle().Background(t.ColorSurface).Foreground(t.ColorText).Padding(0, 2).Width(width)
-	var parts []string
-	if r.recap.Title != "" {
-		parts = append(parts, t.StyleTitle.Render(ansi.Wrap(r.recap.Title, width, ""))+"\n"+t.StyleSeparator.Render(strings.Repeat("─", width)))
-	}
-	for _, e := range r.recap.Entries {
-		if !e.Recap {
-			parts = append(parts, header(accent.Render("❯ ")+t.StyleTitle.Render("You"), e.Time)+"\n"+message.Render(e.Text))
-			continue
-		}
-		lines := strings.Split(ansi.Wrap(e.Text, max(1, width-2), ""), "\n")
-		for i, line := range lines {
-			lines[i] = accent.Render("│ ") + line
-		}
-		parts = append(parts, header(accent.Bold(true).Render("✻ Recap"), e.Time)+"\n"+strings.Join(lines, "\n"))
-	}
-	following := m.recap.AtBottom()
-	m.recap = m.recap.SetContent(lipgloss.NewStyle().PaddingLeft(1).Render(strings.Join(parts, "\n\n")))
-	if following {
-		m.recap = m.recap.GotoBottom()
+	default:
+		m.recap = m.recap.SetRecap(s.ID, r.recap)
 	}
 }
 
@@ -1852,9 +1825,18 @@ func (m Model) renderAgentRecap(a subagent.Agent) string {
 	return b.String()
 }
 
-// isClaude reports whether s runs Claude Code, the only agent whose recaps
-// vineyard reads.
+// isClaude reports whether s runs Claude Code, whose subagents vineyard lists.
 func isClaude(s session.Session) bool { return session.ProgramName(s.Program) == "claude" }
+
+// hasRecap reports whether vineyard reads conversation transcripts for s.
+func hasRecap(s session.Session) bool {
+	switch session.ProgramName(s.Program) {
+	case "claude", "agy":
+		return true
+	default:
+		return false
+	}
+}
 
 // issuesOf returns the grapes issues session s works on: the one it was
 // started for and those whose files its diff changes, in ascending order.
@@ -2138,6 +2120,7 @@ func (m *Model) switchTab(back bool) tea.Cmd {
 func (m *Model) showTab(t tab) tea.Cmd {
 	m.tab = t
 	m.diff = m.diff.SetVisible(t == tabDiff)
+	m.recap = m.recap.SetVisible(t == tabRecap).SetFocused(m.focus == focusPane && t == tabRecap)
 	m.preview = m.preview.ExitScroll()
 	m.terminal = m.terminal.ExitScroll()
 	m.refreshIssue()
@@ -2759,7 +2742,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return next, tea.Batch(cleanup, enterCmd)
 	case click:
 		m.setFocus(focusPane)
-		m.lastClick.acted = m.tab == tabDiff && m.diff.Clickable(content.Mouse().Y)
+		m.lastClick.acted = m.tab == tabDiff && m.diff.Clickable(content.Mouse().Y) ||
+			m.tab == tabRecap && m.recap.Clickable(content.Mouse().X, content.Mouse().Y)
 	}
 	switch m.tab {
 	case tabDiff:
@@ -2971,6 +2955,10 @@ func (m Model) renderPane() string {
 		} else {
 			info = "summary"
 		}
+	case m.tab == tabRecap && m.recap.EntryCount() > 0:
+		if i := m.recap.CurrentEntry(); i >= 0 {
+			info = fmt.Sprintf("entry %d of %d", i+1, m.recap.EntryCount())
+		}
 	}
 	info = t.StyleFaint.Render(info)
 	gap := max(1, innerWidth-ansi.StringWidth(tabs)-ansi.StringWidth(info)-1)
@@ -3030,6 +3018,14 @@ func (m Model) renderStatusBar() string {
 			{hint(pane.Down, pane.Up), "scroll"}, {hint(pane.HalfDown, pane.HalfUp), "page"},
 			{hint(pane.NextFile, pane.PrevFile), "next/prev file"}, {hint(pane.Fold), "fold"},
 			{hint(pane.FoldAll, pane.UnfoldAll), "fold all/none"}, {hint(pane.Top, pane.Bottom), "top/bottom"},
+			{hint(pane.NextTab), tabNames[m.nextTab()]}, {hint(pane.Back), "back"},
+		}
+	case m.focus == focusPane && m.tab == tabRecap && m.recap.EntryCount() > 0:
+		hints = [][2]string{
+			{hint(pane.Down, pane.Up), "scroll"}, {hint(pane.HalfDown, pane.HalfUp), "page"},
+			{hint(pane.NextFile, pane.PrevFile), "next/prev"}, {hint(pane.Fold), "expand/fold"},
+			{hint(pane.FoldPrompts, pane.FoldResponses, pane.FoldRecaps), "fold kind"},
+			{hint(pane.UnfoldAll, pane.FoldAll), "all"}, {hint(pane.Top, pane.Bottom), "top/bottom"},
 			{hint(pane.NextTab), tabNames[m.nextTab()]}, {hint(pane.Back), "back"},
 		}
 	case m.focus == focusPane && (m.tab == tabIssue || m.tab == tabRecap || m.tab == tabPreview && m.shownAgent != ""):

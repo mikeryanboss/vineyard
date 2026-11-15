@@ -1,10 +1,12 @@
-// Package recap reads what Claude Code has recorded about a session: its
-// title, the user's messages, and its recaps.
+// Package recap reads what Claude Code and Antigravity CLI have recorded about
+// a session: its title, the user's prompts, the agent's final responses, and
+// Claude Code's away recaps.
 //
 // Claude Code keeps one JSON-lines transcript per conversation, under a
-// directory named after the conversation's working directory. It writes a
-// recap into the transcript when the user returns after being away. None of
-// this is documented; the format was read off Claude Code 2.1.280 to 2.1.296.
+// directory named after the conversation's working directory, writing an
+// away_summary recap when the user returns after being away. Antigravity CLI
+// keeps prompt history in history.jsonl, per-step JSON-lines transcripts under
+// brain/<id>/.system_generated/logs/, and titles under annotations/<id>.pbtxt.
 package recap
 
 import (
@@ -24,22 +26,29 @@ import (
 	"time"
 )
 
-// Entry is one message the user typed, or one recap.
+// Kind distinguishes user prompts, final agent responses, and away recaps.
+type Kind int
+
+const (
+	KindPrompt Kind = iota
+	KindResponse
+	KindRecap
+)
+
+// Entry is one user prompt, one final agent response, or one away recap.
 type Entry struct {
 	Time time.Time
 	Text string
-	// Recap reports whether Claude Code wrote the entry as a recap, rather
-	// than the user typing it.
-	Recap bool
+	Kind Kind
 }
 
 // Recap is what the transcripts of one working directory say.
 type Recap struct {
-	// Found reports whether there is any transcript at all.
+	// Found reports whether there is any transcript or history at all.
 	Found bool
-	// Title comes from the most recently written transcript.
+	// Title comes from the most recently written conversation.
 	Title string
-	// Entries are the messages and recaps of every transcript, oldest first.
+	// Entries are the prompts, final responses, and recaps, oldest first.
 	Entries []Entry
 }
 
@@ -47,7 +56,7 @@ type Recap struct {
 func (r Recap) Equal(o Recap) bool {
 	return r.Found == o.Found && r.Title == o.Title &&
 		slices.EqualFunc(r.Entries, o.Entries, func(a, b Entry) bool {
-			return a.Recap == b.Recap && a.Text == b.Text && a.Time.Equal(b.Time)
+			return a.Kind == b.Kind && a.Text == b.Text && a.Time.Equal(b.Time)
 		})
 }
 
@@ -83,34 +92,43 @@ func Dir(projectsDir, cwd string) string {
 // hint is the suffix Claude Code appends to every recap.
 const hint = " (disable recaps in /config)"
 
-// line holds the fields of the transcript lines Load reads.
+// line holds the fields of the Claude Code transcript lines Load reads.
 type line struct {
-	Type      string    `json:"type"`
-	Subtype   string    `json:"subtype"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-	AITitle   string    `json:"aiTitle"`
+	Type        string    `json:"type"`
+	Subtype     string    `json:"subtype"`
+	IsSidechain bool      `json:"isSidechain"`
+	IsAPIError  bool      `json:"isApiErrorMessage"`
+	Content     string    `json:"content"`
+	Timestamp   time.Time `json:"timestamp"`
+	AITitle     string    `json:"aiTitle"`
 	// Origin's kind is "human" on the messages the user typed, and empty on
 	// tool results, slash commands, and the text Claude Code adds.
 	Origin struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
 	Message struct {
-		// Content is a string, or a list of blocks.
-		Content json.RawMessage `json:"content"`
+		Model      string          `json:"model"`
+		StopReason string          `json:"stop_reason"`
+		Content    json.RawMessage `json:"content"`
 	} `json:"message"`
 }
 
 // Markers that a transcript line is one Load reads. Checking for them before
 // decoding skips the bulk of a transcript, which is tool output.
-var markers = [][]byte{[]byte(`"away_summary"`), []byte(`"ai-title"`), []byte(`"origin":{"kind":"human"}`)}
+var markers = [][]byte{
+	[]byte(`"away_summary"`),
+	[]byte(`"ai-title"`),
+	[]byte(`"origin":{"kind":"human"}`),
+	[]byte(`"end_turn"`),
+}
 
-// Reader reads Claude Code transcripts incrementally across polls, keeping
-// previously parsed entries per file so unchanged logs are not re-scanned.
-// It is safe for concurrent use.
+// Reader reads Claude Code and Antigravity CLI transcripts incrementally
+// across polls, keeping previously parsed entries per file so unchanged logs
+// are not re-scanned. It is safe for concurrent use.
 type Reader struct {
 	mu    sync.Mutex
 	files map[string]*transcript
+	agy   agyState
 }
 
 type transcript struct {
@@ -126,7 +144,10 @@ type transcript struct {
 
 // NewReader returns a Reader with no cached transcript state.
 func NewReader() *Reader {
-	return &Reader{files: map[string]*transcript{}}
+	return &Reader{
+		files: map[string]*transcript{},
+		agy:   newAgyState(),
+	}
 }
 
 // Load reads the transcripts Claude Code wrote while working in cwd.
@@ -276,7 +297,7 @@ func (r *Reader) updateLocked(path string, info fs.FileInfo) (*transcript, error
 			}
 			switch {
 			case l.Type == "system" && l.Subtype == "away_summary":
-				parsedEntry = Entry{Time: l.Timestamp, Text: strings.TrimSuffix(l.Content, hint), Recap: true}
+				parsedEntry = Entry{Time: l.Timestamp, Text: strings.TrimSuffix(l.Content, hint), Kind: KindRecap}
 				hasEntry = true
 			case l.Type == "user" && l.Origin.Kind == "human":
 				text, err := messageText(l.Message.Content)
@@ -288,8 +309,22 @@ func (r *Reader) updateLocked(path string, info fs.FileInfo) (*transcript, error
 					delete(r.files, path)
 					return nil, fmt.Errorf("%s:%d: %w", path, lineNo, err)
 				}
-				parsedEntry = Entry{Time: l.Timestamp, Text: text}
+				parsedEntry = Entry{Time: l.Timestamp, Text: text, Kind: KindPrompt}
 				hasEntry = true
+			case l.Type == "assistant" && !l.IsSidechain && !l.IsAPIError && l.Message.StopReason == "end_turn" && l.Message.Model != "<synthetic>":
+				text, err := messageText(l.Message.Content)
+				if err != nil {
+					if readErr == io.EOF {
+						break
+					}
+					lineNo := t.lineNo
+					delete(r.files, path)
+					return nil, fmt.Errorf("%s:%d: %w", path, lineNo, err)
+				}
+				if text = strings.TrimRight(text, "\n"); strings.TrimSpace(text) != "" {
+					parsedEntry = Entry{Time: l.Timestamp, Text: text, Kind: KindResponse}
+					hasEntry = true
+				}
 			case l.Type == "ai-title":
 				parsedTitle = l.AITitle
 				hasTitle = true
@@ -318,7 +353,7 @@ func (r *Reader) updateLocked(path string, info fs.FileInfo) (*transcript, error
 }
 
 // messageText returns a message's text: the string it holds, or its text
-// blocks, leaving out images.
+// blocks, leaving out images and thinking blocks.
 func messageText(content json.RawMessage) (string, error) {
 	var s string
 	if json.Unmarshal(content, &s) == nil {

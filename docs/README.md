@@ -9,7 +9,8 @@ A Go terminal application that runs coding agents in parallel. A session is one
 agent program in a detached terminal of a multiplexer, tmux or Vineyard's own
 server, working in its own git worktree and branch. The TUI lists sessions,
 mirrors the selected agent's screen, shows its diff, its issue, and its
-conversation with Claude Code's recaps, lists Claude Code's subagents under it
+conversation (prompts, responses, and Claude Code's recaps), lists Claude
+Code's subagents under it
 with their status, and hands the terminal to the multiplexer when the user
 attaches. Its issues screen is the [grapes](https://github.com/Mibokess/grapes)
 issue tracker, embedded, and links each issue to the sessions working on it.
@@ -63,7 +64,7 @@ main.go
 | Issue tab | `refreshIssue` in `internal/tui/app.go` | `internal/tui/textview/` |
 | Prompt of a session started from an issue | `internal/prompt/`, `promptData` in `internal/tui/app.go` | templates in `internal/config/templates.go`, `ForIssue` in `internal/tui/dialog/` |
 | Terminal tab | `shellCmd` in `internal/tui/app.go` | Terminal Tab in `architecture.md` |
-| Recap tab | `refreshRecap` in `internal/tui/app.go` | `internal/recap/`, Recaps in `architecture.md` |
+| Recap tab | `refreshRecap` in `internal/tui/app.go`, `internal/tui/recapview/` | `internal/recap/`, Recaps in `architecture.md` |
 | Subagent rows, their status, opening a subagent | `internal/subagent/` (`transcript.go` reads the transcripts, `subagent.go` the screen) | `openSubagent` in `internal/tui/app.go`, Subagents in `architecture.md` |
 | A selected subagent's tabs | `refreshShown`, `refreshTranscript`, `shownIssues`, `renderAgentRecap` in `internal/tui/app.go` | `TreeDiff` in `internal/tui/backend.go`, Subagents in `architecture.md` |
 | Releases | `.github/workflows/auto-tag.yml`, automatic on merge | Releases in `development.md` |
@@ -84,7 +85,7 @@ internal/vterm/            Vineyard's own multiplexer: background server and its
 internal/logfile/          the logs failures leave: append, restart past 1 MB, tail
 internal/session/          session model, lifecycle manager, store, screen detection
 internal/diff/             unified diff parser
-internal/recap/            Claude Code transcripts: a session's title, messages, and recaps
+internal/recap/            Claude Code and Antigravity CLI transcripts: titles, prompts, responses, and recaps
 internal/subagent/         Claude Code's subagents: read from its transcripts and screen, opened by its keys
 internal/prompt/           rendering an issue session's prompt from a template
 internal/tui/app.go        root Bubble Tea model
@@ -92,7 +93,8 @@ internal/tui/backend.go    the root model's seam to the multiplexer, git, and st
 internal/tui/list/         session list view
 internal/tui/preview/      terminal mirror view
 internal/tui/diffview/     diff view
-internal/tui/textview/     scrollable text pane of the issue and recap tabs
+internal/tui/recapview/    collapsible recap pane view
+internal/tui/textview/     scrollable text pane of the issue and subagent transcript tabs
 internal/tui/dialog/       new-session and confirmation dialogs
 internal/tui/settings/     config screen
 internal/tui/common/       theme, keys, messages

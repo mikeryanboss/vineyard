@@ -348,3 +348,24 @@ func TestSettings_SessionListCategory(t *testing.T) {
 		t.Errorf("saved list = %+v, want %+v", saved.Config.List, want)
 	}
 }
+
+func TestSettings_RecapCategory(t *testing.T) {
+	cfg := twoProfiles()
+	cfg.Recap = config.DefaultRecap()
+	m, _ := press(newSettings(cfg, nil), "j", "j", "j", "l")      // Recap -> Prompts
+	m, _ = press(m, "enter", "j", "enter")                        // picker: preview -> collapsed
+	m, _ = press(m, "j", "enter", "j", "j", "j", "enter")         // Responses -> off
+	m, cmd := press(m, "j", "enter", "j", "j", "enter", "ctrl+s") // Recaps -> expanded
+	saved, ok := msgOf(cmd).(common.SaveConfigMsg)
+	if !ok {
+		t.Fatalf("ctrl+s produced %T, want SaveConfigMsg", msgOf(cmd))
+	}
+	want := config.RecapConfig{
+		Prompts:   config.RecapCollapsed,
+		Responses: config.RecapOff,
+		Recaps:    config.RecapExpanded,
+	}
+	if saved.Config.Recap != want {
+		t.Errorf("saved recap = %+v, want %+v", saved.Config.Recap, want)
+	}
+}

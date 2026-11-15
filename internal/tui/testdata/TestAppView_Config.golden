@@ -5,7 +5,7 @@
   General       │  Default agent              claude                                                          
   Profiles      │  Branch prefix              test/                                                           
   Session list  │  Auto-yes for new sessions  off                                                             
-                │  Worktree directory         .vineyard/worktrees                                             
+  Recap         │  Worktree directory         .vineyard/worktrees                                             
                 │  Diff tool                                                                                  
                 │  Multiplexer                vineyard                                                        
                 │  Status bar while attached  off                                                             

@@ -76,6 +76,9 @@ type Config struct {
 	// List controls what each session shows in the session list and its issue
 	// picker.
 	List ListConfig `toml:"list"`
+	// Recap controls which entries the recap tab shows and how each kind opens
+	// by default.
+	Recap RecapConfig `toml:"recap"`
 	// Keys replace the default keys of the actions they name
 	// (DefaultKeys); an empty list unbinds an action. Use ResolvedKeys.
 	Keys Keys `toml:"keys,omitempty"`
@@ -119,6 +122,37 @@ func DefaultList() ListConfig {
 	}
 }
 
+// Recap entry display modes for RecapConfig.Prompts, Responses, and Recaps.
+const (
+	RecapPreview   = "preview"
+	RecapCollapsed = "collapsed"
+	RecapExpanded  = "expanded"
+	RecapOff       = "off"
+)
+
+// RecapConfig controls which entries the recap tab shows and how each kind
+// opens by default.
+type RecapConfig struct {
+	// Prompts sets how user prompts appear: RecapPreview, RecapCollapsed,
+	// RecapExpanded, or RecapOff.
+	Prompts string `toml:"prompts"`
+	// Responses sets how final assistant responses appear: RecapPreview,
+	// RecapCollapsed, RecapExpanded, or RecapOff.
+	Responses string `toml:"responses"`
+	// Recaps sets how away recaps appear: RecapPreview, RecapCollapsed,
+	// RecapExpanded, or RecapOff.
+	Recaps string `toml:"recaps"`
+}
+
+// DefaultRecap returns the recap tab configuration used when omitted.
+func DefaultRecap() RecapConfig {
+	return RecapConfig{
+		Prompts:   RecapPreview,
+		Responses: RecapPreview,
+		Recaps:    RecapPreview,
+	}
+}
+
 // MinListWidth is the narrowest session list column allowed, in cells.
 const MinListWidth = 16
 
@@ -148,6 +182,7 @@ func Defaults() Config {
 		StatusBar:      true,
 		PeerMessages:   true,
 		List:           DefaultList(),
+		Recap:          DefaultRecap(),
 	}
 }
 
@@ -354,6 +389,24 @@ func Load(dir string) (Config, error) {
 	case IssuesAfter, IssuesBefore:
 	default:
 		return Defaults(), fmt.Errorf("%s: list.issue_picker %q: want %q or %q", Path(dir), cfg.List.IssuePicker, IssuesAfter, IssuesBefore)
+	}
+	for _, f := range []struct {
+		name string
+		val  *string
+	}{
+		{"prompts", &cfg.Recap.Prompts},
+		{"responses", &cfg.Recap.Responses},
+		{"recaps", &cfg.Recap.Recaps},
+	} {
+		if *f.val == "" {
+			*f.val = RecapPreview
+		}
+		switch *f.val {
+		case RecapPreview, RecapCollapsed, RecapExpanded, RecapOff:
+		default:
+			return Defaults(), fmt.Errorf("%s: recap.%s %q: want %q, %q, %q, or %q",
+				Path(dir), f.name, *f.val, RecapPreview, RecapCollapsed, RecapExpanded, RecapOff)
+		}
 	}
 	if _, err := cfg.ResolvedKeys(); err != nil {
 		return Defaults(), fmt.Errorf("%s: %w", Path(dir), err)

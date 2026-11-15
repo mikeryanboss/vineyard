@@ -1,0 +1,6 @@
+title = 'Show collapsible prompts, final responses, and recaps for Claude Code and Antigravity CLI'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'recap', 'agy']
+created = 2026-11-15T09:37:00Z
+updated = 2026-11-15T10:47:00Z
