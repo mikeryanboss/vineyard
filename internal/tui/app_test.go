@@ -519,6 +519,25 @@ func TestApp_NewFromProfileStartsAMainCheckoutTerminal(t *testing.T) {
 	}
 }
 
+func TestApp_NewFromProfileCanOverrideWhere(t *testing.T) {
+	m, _ := newTestModel(t, nil)
+	m = keys(m, "N", "enter")
+	m = typeText(m, "main claude")
+	m = keys(m, "tab", "right", "enter")
+	s, ok := m.selected()
+	if !ok || !s.MainCheckout || s.Program != "claude" || s.Title != "main claude" {
+		t.Fatalf("selected = %+v, want claude running in the main checkout", s)
+	}
+
+	m = keys(m, "N", "right", "enter")
+	m = typeText(m, "worktree shell")
+	m = keys(m, "tab", "space", "enter")
+	s, ok = m.selected()
+	if !ok || s.MainCheckout || s.Program != "$SHELL" || s.Branch != "test/worktree-shell" {
+		t.Fatalf("selected = %+v, want terminal running in a new worktree", s)
+	}
+}
+
 // T starts the terminal profile with no dialog and attaches once it runs: a
 // failed start attaches to nothing, and a disabled profile starts nothing.
 func TestApp_TerminalKeyStartsAndAttachesATerminal(t *testing.T) {

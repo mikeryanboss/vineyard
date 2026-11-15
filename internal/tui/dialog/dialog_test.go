@@ -256,6 +256,67 @@ func TestNewSession_ClicksFocusFieldsAndStepTheProfile(t *testing.T) {
 	}
 }
 
+func TestNewSession_WhereTogglesCheckoutLocation(t *testing.T) {
+	choices := []config.Profile{
+		{Name: "claude", Program: "claude"},
+		{Name: "terminal", Program: "$SHELL", MainCheckout: true},
+	}
+	var d dialog.Dialog
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), choices, true, 60)
+
+	// Switching profiles resets Where to the newly chosen profile's default.
+	if view := testutil.StripANSI(d.View()); !strings.Contains(view, "‹ new worktree ›") || !strings.Contains(view, "Runs claude in a new worktree.") {
+		t.Fatalf("claude should default to a new worktree:\n%s", view)
+	}
+	d, _ = press(d, "right")
+	if view := testutil.StripANSI(d.View()); !strings.Contains(view, "‹ main checkout ›") || !strings.Contains(view, "Runs $SHELL in the main checkout.") {
+		t.Fatalf("terminal should default to the main checkout:\n%s", view)
+	}
+	d, _ = press(d, "left")
+
+	// Tab past Title to Where and switch to main checkout.
+	d, _ = press(d, "enter")
+	d = typeText(d, "Fix login")
+	d, _ = press(d, "tab")
+	hasWhereHint := false
+	for _, h := range d.Hints() {
+		if h == [2]string{"←/→", "where"} {
+			hasWhereHint = true
+		}
+	}
+	if !hasWhereHint {
+		t.Errorf("on Where, hints = %v, want ←/→ where", d.Hints())
+	}
+
+	d, _ = press(d, "right")
+	if view := testutil.StripANSI(d.View()); !strings.Contains(view, "‹ main checkout ›") || !strings.Contains(view, "Runs claude in the main checkout.") {
+		t.Fatalf("stepping Where should show main checkout:\n%s", view)
+	}
+	_, msg := press(d, "enter")
+	got, ok := msg.(common.NewSessionMsg)
+	if !ok || got.Title != "Fix login" || got.Profile.Name != "claude" || !got.Profile.MainCheckout {
+		t.Fatalf("enter on Where produced %#v, want claude with MainCheckout=true", msg)
+	}
+
+	// Clicking the Where picker arrow toggles a main-checkout profile back to a new worktree.
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), choices[1:], true, 60)
+	d, _ = click(t, d, "›")
+	if view := testutil.StripANSI(d.View()); !strings.Contains(view, "‹ new worktree ›") || !strings.Contains(view, "Runs $SHELL in a new worktree.") {
+		t.Fatalf("clicking Where › should toggle to new worktree:\n%s", view)
+	}
+	_, msg = press(d, "enter")
+	if got, ok := msg.(common.NewSessionMsg); !ok || got.Profile.MainCheckout {
+		t.Fatalf("enter after clicking Where produced %#v, want MainCheckout=false", msg)
+	}
+
+	// Issue sessions never offer Where.
+	d, _ = dialog.NewSessionDialog(common.NewTheme(true), choices[:1], true, 60)
+	d, _ = d.(*dialog.NewSession).ForIssue("Docs", nil, prompt.Data{Issue: prompt.Issue{ID: 7}}, 40)
+	if view := testutil.StripANSI(d.View()); strings.Contains(view, "Where") {
+		t.Errorf("issue dialog must not show Where:\n%s", view)
+	}
+}
+
 func TestNewSession_OffersTheProfileKeysOnItsFieldOnly(t *testing.T) {
 	var d dialog.Dialog
 	d, _ = dialog.NewSessionDialog(common.NewTheme(true), profiles, true, 60)

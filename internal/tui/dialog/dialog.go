@@ -35,6 +35,7 @@ type field int
 
 const (
 	fieldTitle field = iota
+	fieldWhere
 	fieldTemplate
 	fieldSubIssues
 	fieldPrompt
@@ -48,20 +49,22 @@ const (
 	contentLeft = 3
 )
 
-// NewSession asks for a title and, when choosing, the profile to run. For a
-// grapes issue, it also offers prompt templates and the prompt.
+// NewSession asks for a title and, when choosing, the profile and checkout
+// location to run in. For a grapes issue, it also offers prompt templates and
+// the prompt.
 type NewSession struct {
-	theme      common.Theme
-	width      int
-	title      textinput.Model
-	prompt     textarea.Model
-	withPrompt bool
-	issue      int // the grapes issue the session is for, or 0
-	profiles   []config.Profile
-	choose     bool // whether the profile picker is offered
-	profile    int
-	focus      field
-	err        string
+	theme        common.Theme
+	width        int
+	title        textinput.Model
+	prompt       textarea.Model
+	withPrompt   bool
+	issue        int // the grapes issue the session is for, or 0
+	profiles     []config.Profile
+	choose       bool // whether the profile picker is offered
+	profile      int
+	mainCheckout bool
+	focus        field
+	err          string
 
 	// For an issue: the templates offered, the one the prompt was rendered
 	// from (-1 for none), and what it was rendered with.
@@ -93,13 +96,18 @@ func NewSessionDialog(theme common.Theme, profiles []config.Profile, choose bool
 	prompt.SetHeight(5)
 	prompt.SetStyles(textarea.DefaultStyles(theme.IsDark))
 
+	var mainCheckout bool
+	if len(profiles) > 0 {
+		mainCheckout = profiles[0].MainCheckout
+	}
 	d := &NewSession{
-		theme:    theme,
-		width:    width,
-		title:    title,
-		prompt:   prompt,
-		profiles: profiles,
-		choose:   choose,
+		theme:        theme,
+		width:        width,
+		title:        title,
+		prompt:       prompt,
+		profiles:     profiles,
+		choose:       choose,
+		mainCheckout: mainCheckout,
 	}
 	if d.picks() {
 		return d, d.focusOn(fieldProfile)
@@ -109,6 +117,21 @@ func NewSessionDialog(theme common.Theme, profiles []config.Profile, choose bool
 
 // picks reports whether the dialog shows the profile picker.
 func (d *NewSession) picks() bool { return d.choose && len(d.profiles) > 1 }
+
+// picksWhere reports whether the dialog offers choosing between a new
+// worktree and the main checkout. Issue sessions always work on a branch of
+// their own.
+func (d *NewSession) picksWhere() bool { return d.choose && d.issue == 0 }
+
+// selectedProfile returns the chosen profile with the dialog's checkout
+// choice applied when offered.
+func (d *NewSession) selectedProfile() config.Profile {
+	p := d.profiles[d.profile]
+	if d.picksWhere() {
+		p.MainCheckout = d.mainCheckout
+	}
+	return p
+}
 
 // ForIssue fills the dialog in for a session working on the grapes issue
 // data describes: its title, and a prompt rendered from the template among
@@ -165,6 +188,9 @@ func (d *NewSession) fields() []field {
 		fields = append(fields, fieldProfile)
 	}
 	fields = append(fields, fieldTitle)
+	if d.picksWhere() {
+		fields = append(fields, fieldWhere)
+	}
 	if len(d.templates) > 0 {
 		fields = append(fields, fieldTemplate)
 	}
@@ -197,14 +223,17 @@ func (d *NewSession) focusOn(f field) tea.Cmd {
 	return nil
 }
 
-// step shows the next template or agent, or the previous one for a negative
-// step, when field f offers them.
+// step shows the next template, profile, or checkout location, or the previous
+// one for a negative step, when field f offers them.
 func (d *NewSession) step(f field, step int) {
 	switch f {
 	case fieldTemplate:
 		d.cycleTemplate(step)
 	case fieldProfile:
 		d.profile = (d.profile + step + len(d.profiles)) % len(d.profiles)
+		d.mainCheckout = d.profiles[d.profile].MainCheckout
+	case fieldWhere:
+		d.mainCheckout = !d.mainCheckout
 	}
 }
 
@@ -247,7 +276,7 @@ func (d *NewSession) submit() tea.Cmd {
 	if d.withPrompt {
 		msg.Prompt = strings.TrimSpace(d.prompt.Value())
 	}
-	msg.Profile = d.profiles[d.profile]
+	msg.Profile = d.selectedProfile()
 	return func() tea.Msg { return msg }
 }
 
@@ -293,10 +322,13 @@ func (d *NewSession) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 				return d, d.move(1)
 			}
 			return d, d.submit()
-		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keys.PrevOption):
+		case (d.focus == fieldTemplate || d.focus == fieldProfile || d.focus == fieldWhere) && key.Matches(k, keys.PrevOption):
 			d.step(d.focus, -1)
 			return d, nil
-		case (d.focus == fieldTemplate || d.focus == fieldProfile) && key.Matches(k, keys.NextOption):
+		case (d.focus == fieldTemplate || d.focus == fieldProfile || d.focus == fieldWhere) && key.Matches(k, keys.NextOption):
+			d.step(d.focus, 1)
+			return d, nil
+		case d.focus == fieldWhere && key.Matches(k, keys.Toggle):
 			d.step(d.focus, 1)
 			return d, nil
 		case d.focus == fieldSubIssues && key.Matches(k, keys.Toggle):
@@ -343,12 +375,19 @@ func (d *NewSession) blocks() []block {
 	if d.issue > 0 {
 		heading = fmt.Sprintf("New session for #%d", d.issue)
 	}
-	runs := text(t.StyleFaint.Render(profileSummary(d.profiles[d.profile])))
+	runs := text(t.StyleFaint.Render(profileSummary(d.selectedProfile())))
 	blocks := []block{text(t.StyleTitle.Render(heading)), text("")}
 	if d.picks() {
 		blocks = append(blocks, label("Profile", fieldProfile), picker(d.profiles[d.profile].Name, fieldProfile), runs, text(""))
 	}
 	blocks = append(blocks, label("Title", fieldTitle), block{field: fieldTitle, text: d.title.View()})
+	if d.picksWhere() {
+		where := "new worktree"
+		if d.mainCheckout {
+			where = "main checkout"
+		}
+		blocks = append(blocks, text(""), label("Where", fieldWhere), picker(where, fieldWhere))
+	}
 	if d.issue > 0 {
 		if len(d.templates) > 0 {
 			name := "none"
@@ -424,6 +463,8 @@ func (d *NewSession) Hints() [][2]string {
 		hints = append(hints, [2]string{hint(keys.Toggle), "toggle"})
 	case d.focus == fieldProfile:
 		hints = append(hints, [2]string{hint(keys.PrevOption, keys.NextOption), "profile"})
+	case d.focus == fieldWhere:
+		hints = append(hints, [2]string{hint(keys.PrevOption, keys.NextOption), "where"})
 	}
 	return append(hints, [2]string{hint(keys.Cancel), "cancel"})
 }

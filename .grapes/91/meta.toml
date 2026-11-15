@@ -1,0 +1,6 @@
+title = 'Allow overriding worktree vs main checkout in new-profile session dialog (N)'
+status = 'done'
+priority = 'medium'
+labels = ['tui', 'dialog']
+created = 2026-11-15T18:42:00Z
+updated = 2026-11-15T18:45:00Z
