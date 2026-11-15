@@ -3,21 +3,21 @@
  Sessions 5                      ╭───────────────────────────────────────────────────────────────────────────╮
                                  │ Preview   Diff   Issue   Terminal   Recap                                 │
 ▌◑ Fix login redirect            │                                                                           │
-▌  ⑂ mboss/fix-login-redirect    │                                                                           │
-                    ╭────────────────────────────────────────────────────────────────────╮                   │
- ● Add unit tests fo│                                                                    │                   │
-   ⑂ mboss/add-unit-│  New session                                                       │                   │
+▌  ⑂ mboss/fix-login╭────────────────────────────────────────────────────────────────────╮                   │
                     │                                                                    │                   │
- ○ Docs pass        │  Profile                                                           │                   │
-   ⑂ mboss/docs-pass│  ‹ claude ›                                                        │                   │
-                    │  Runs claude in a new worktree, on Vineyard's server.              │                   │
- × Cache layer      │                                                                    │                   │
-   ⑂ mboss/cache-lay│  Title                                                             │                   │
-                    │  What is this session for?                                         │                   │
- ◌ Starting up      │                                                                    │                   │
-   ⑂ loading…       ╰────────────────────────────────────────────────────────────────────╯                   │
-                                 │                                                                           │
-                                 │                                                                           │
+ ● Add unit tests fo│  New session                                                       │                   │
+   ⑂ mboss/add-unit-│                                                                    │                   │
+                    │  Profile                                                           │                   │
+ ○ Docs pass        │  ‹ claude ›                                                        │                   │
+   ⑂ mboss/docs-pass│  Runs claude in a new worktree, on Vineyard's server.              │                   │
+                    │                                                                    │                   │
+ × Cache layer      │  Title                                                             │                   │
+   ⑂ mboss/cache-lay│  What is this session for?                                         │                   │
+                    │                                                                    │                   │
+ ◌ Starting up      │  Where                                                             │                   │
+   ⑂ loading…       │  ‹ new worktree ›                                                  │                   │
+                    │                                                                    │                   │
+                    ╰────────────────────────────────────────────────────────────────────╯                   │
                                  │                                                                           │
                                  │                                                                           │
                                  │                                                                           │
