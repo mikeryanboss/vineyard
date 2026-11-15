@@ -65,7 +65,8 @@ Run `vineyard` inside a git repository.
 These are the default keys; [Keys](#keys) changes them.
 
 The mouse works too: click a session, a subagent, a tab, a diff file's header
-to fold it or its line in the summary to go to it, a dialog's field or answer,
+to fold it or its line in the summary to go to it, a truncated recap entry to
+expand it or its header to fold it back, a dialog's field or answer,
 or a config field (click it again to edit it); click `▸ N subagents` to show a
 session's subagents and `▾ N subagents` to hide them. A double click acts:
 on a session, the preview, or the diff's code it does what `enter` does, on a
@@ -226,7 +227,7 @@ top = ["g", "home"]
 bottom = ["G", "end"]                       # back to live in the preview
 next_file = ["]", "n"]
 prev_file = ["[", "p"]
-fold = ["enter", "o"]                       # fold a diff file
+fold = ["enter", "o"]                       # fold a diff file or recap entry
 fold_all = ["c"]
 unfold_all = ["e"]
 next_tab = ["tab"]

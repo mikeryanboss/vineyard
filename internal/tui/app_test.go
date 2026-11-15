@@ -1246,19 +1246,20 @@ func TestApp_ShiftTabSwitchesToThePreviousTab(t *testing.T) {
 	}
 }
 
-// The recap tab shows the selected session's conversation, the user's
-// messages and Claude Code's recaps, oldest first and opened at its end, and
-// says why other agents have none.
+// The recap tab shows the selected session's conversation: user prompts, final
+// agent responses, and away recaps, oldest first and opened at its end, and
+// says why unsupported agents have none.
 func TestRecapTab_ShowsTheSelectedSessionsConversation(t *testing.T) {
 	m, backend := newTestModel(t, testutil.Sessions())
 	at := time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC)
-	entries := []recap.Entry{{Time: at, Text: "fix the login redirect"}}
+	entries := []recap.Entry{{Time: at, Kind: recap.KindPrompt, Text: "fix the login redirect"}}
 	for i := range 30 {
-		entries = append(entries, recap.Entry{Time: at.Add(time.Duration(i) * time.Minute), Text: "and then?"})
+		entries = append(entries, recap.Entry{Time: at.Add(time.Duration(i) * time.Minute), Kind: recap.KindPrompt, Text: "and then?"})
 	}
 	entries = append(entries,
-		recap.Entry{Time: at.Add(time.Hour), Text: "now run the tests"},
-		recap.Entry{Time: at.Add(2 * time.Hour), Text: "The redirect is fixed. Next, run the tests.", Recap: true},
+		recap.Entry{Time: at.Add(time.Hour), Kind: recap.KindPrompt, Text: "now run the tests"},
+		recap.Entry{Time: at.Add(90 * time.Minute), Kind: recap.KindResponse, Text: "Redirect fixed and tests pass."},
+		recap.Entry{Time: at.Add(2 * time.Hour), Kind: recap.KindRecap, Text: "The redirect is fixed. Next, run the tests."},
 	)
 	backend.recaps = map[string]recap.Recap{
 		"login-1": {Found: true, Title: "Login redirect fix", Entries: entries},
@@ -1270,12 +1271,18 @@ func TestRecapTab_ShowsTheSelectedSessionsConversation(t *testing.T) {
 		t.Fatalf("shift+tab from preview should reach the recap tab, got %v", m.tab)
 	}
 	got := screen(m)
-	message, summary := strings.Index(got, "now run the tests"), strings.Index(got, "The redirect is fixed")
-	if message < 0 || summary < 0 || message > summary || !strings.Contains(got, "You") || !strings.Contains(got, "Recap") {
-		t.Fatalf("the recap tab should show the last message, then the recap after it, each labelled:\n%s", got)
+	message := strings.Index(got, "now run the tests")
+	reply := strings.Index(got, "Redirect fixed and tests pass.")
+	summary := strings.Index(got, "The redirect is fixed")
+	if message < 0 || reply < 0 || summary < 0 || !(message < reply && reply < summary) ||
+		!strings.Contains(got, "You") || !strings.Contains(got, "Response") || !strings.Contains(got, "Recap") {
+		t.Fatalf("the recap tab should show prompt, response, and recap in order, each labelled:\n%s", got)
 	}
 	if strings.Contains(got, "fix the login redirect") {
 		t.Errorf("the recap tab should open at the end of a long conversation:\n%s", got)
+	}
+	if !strings.Contains(got, "entry 34 of 34") {
+		t.Errorf("the recap tab bar should show the active entry position:\n%s", got)
 	}
 
 	m = keys(m, "j")
@@ -1284,12 +1291,82 @@ func TestRecapTab_ShowsTheSelectedSessionsConversation(t *testing.T) {
 	}
 	m = keys(m, "j")
 	if got := screen(m); !strings.Contains(got, "this session runs codex") {
-		t.Errorf("a session of another agent should say recaps come from Claude Code:\n%s", got)
+		t.Errorf("a session of another agent should say recaps come from Claude Code and Antigravity CLI:\n%s", got)
 	}
 
 	m = keys(m, "tab")
 	if m.tab != tabPreview {
 		t.Errorf("tab from the recap tab should return to the preview, got %v", m.tab)
+	}
+}
+
+func TestRecapTab_AntigravityAndCollapsibleEntries(t *testing.T) {
+	c := clock(t)
+	sessions := []session.Session{{
+		ID:           "agy-1",
+		Title:        "Antigravity feature",
+		Program:      "agy",
+		Conversation: "conv-1",
+		Status:       session.StatusReady,
+	}}
+	m, backend := newTestModel(t, sessions)
+	at := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	backend.recaps = map[string]recap.Recap{
+		"agy-1": {
+			Found: true,
+			Title: "Add recap tab support for agy",
+			Entries: []recap.Entry{
+				{
+					Time: at,
+					Kind: recap.KindPrompt,
+					Text: "p1\np2\np3\np4\np5\np6",
+				},
+				{
+					Time: at.Add(time.Minute),
+					Kind: recap.KindResponse,
+					Text: "r1\nr2\nr3\nr4\nr5\nr6",
+				},
+			},
+		},
+	}
+
+	m = keys(m, "shift+tab")
+	got := screen(m)
+	if !strings.Contains(got, "Add recap tab support for agy") || !strings.Contains(got, "1 prompt · 1 response") {
+		t.Fatalf("agy session should show title and counts:\n%s", got)
+	}
+	if strings.Contains(got, "p5") || strings.Contains(got, "r5") || !strings.Contains(got, "… 2 more lines") {
+		t.Fatalf("entries should default to collapsed 4-line previews:\n%s", got)
+	}
+
+	// Double-clicking a truncated entry expands it on the first click and must
+	// not zoom the pane on the second click.
+	m = doubleClickOn(t, m, c, "… 2 more lines", headerHeight+2)
+	got = screen(m)
+	if m.zoomed || !strings.Contains(got, "p6") {
+		t.Fatalf("double-clicking a collapsed entry should expand it without zooming (zoomed=%v):\n%s", m.zoomed, got)
+	}
+	if !strings.Contains(got, "expand/fold") {
+		t.Errorf("focused recap pane should show expand/fold hints in the status bar:\n%s", got)
+	}
+
+	// Double-clicking the body of an already expanded entry zooms the pane.
+	*c = c.Add(time.Second)
+	m = doubleClickOn(t, m, c, "p5", headerHeight+2)
+	if !m.zoomed {
+		t.Fatalf("double-clicking body text of an expanded entry should zoom the pane")
+	}
+	m = keys(m, "esc") // unzoom
+
+	// Keyboard expand-all and fold-all work while the pane has focus.
+	m = keys(m, "l") // focus pane
+	m = keys(m, "e")
+	if got := screen(m); !strings.Contains(got, "r6") {
+		t.Errorf("pressing 'e' should expand all entries:\n%s", got)
+	}
+	m = keys(m, "c")
+	if got := screen(m); strings.Contains(got, "r6") || strings.Contains(got, "p6") {
+		t.Errorf("pressing 'c' should fold all entries back to previews:\n%s", got)
 	}
 }
 

@@ -181,25 +181,42 @@ which also covers resizes and theme changes, since both reach grapes through
 
 ## Recaps
 
-The pane's recap tab shows the selected session's conversation as Claude Code
-recorded it, read by `internal/recap` from Claude Code's transcripts:
-`$CLAUDE_CONFIG_DIR/projects` (default `~/.claude/projects`), in the directory
-named after the session's worktree path with every non-alphanumeric character
-replaced by `-`. Under the `ai-title`, it lists every message the user typed
-(`"type":"user"` with `"origin":{"kind":"human"}`; tool results, slash commands,
-and text Claude Code adds have no such origin) and every recap
-(`"subtype":"away_summary"`, written when the user returns after being away),
-oldest first across all of the directory's transcripts. It opens at the newest
-entry and follows new ones while scrolled to the bottom. The format is
-undocumented and was read off Claude Code 2.1.280 to 2.1.296; a malformed line
-is shown as an error, not skipped.
+The pane's recap tab (`internal/tui/recapview`) shows the selected session's
+conversation as Claude Code or Antigravity CLI recorded it, read incrementally
+by `internal/recap`:
+
+- **Claude Code (`claude`):** `$CLAUDE_CONFIG_DIR/projects` (default
+  `~/.claude/projects`), in the directory named after the session's worktree
+  path with every non-alphanumeric character replaced by `-`. Under the
+  `ai-title`, it lists every message the user typed (`"type":"user"` with
+  `"origin":{"kind":"human"}`; tool results, slash commands, and text Claude
+  Code adds have no such origin), every final assistant response
+  (`"type":"assistant"` on the main chain with `"stop_reason":"end_turn"`,
+  excluding `<synthetic>` placeholders), and every away recap
+  (`"subtype":"away_summary"`), oldest first across the directory's transcripts.
+- **Antigravity CLI (`agy`):** `$ANTIGRAVITY_GEMINI_DIR/antigravity-cli`
+  (default `~/.gemini/antigravity-cli`). `LoadAgy` reads user prompts for the
+  session's worktree from `history.jsonl` (matching an unlinked first-turn
+  prompt against step 0 of `brain/<id>/.system_generated/logs/transcript_full.jsonl`
+  when `history.jsonl` omits `conversationId`), reads user inputs and final
+  `PLANNER_RESPONSE` messages with non-empty `content` from each matched
+  conversation's `transcript_full.jsonl` (falling back to `transcript.jsonl`),
+  and reads the conversation title from `annotations/<id>.pbtxt`.
+
+`recapview` renders entries chronologically under the title and entry counts,
+limiting each entry by default to `PreviewLines` (4 wrapped lines) with a
+`… N more lines` hint. Clicking a truncated entry expands it, clicking an
+expanded entry's header folds it back, and `]`/`[`, `enter`/`o`, and `e`/`c`
+navigate and fold entries from the keyboard. The view opens at the newest entry
+and follows new ones while scrolled to the bottom.
 
 `recapCmd` reads the transcripts only while the tab is shown, and only for
-sessions whose program is `claude`: on switching to the tab, on selecting a
-session, and on each diff tick. `recap.Reader` keeps the byte offset reached in
-each transcript file so subsequent polls parse only newly appended lines,
-resetting when a file is replaced or truncated. The latest result is kept in
-`recapShown`, so `refreshRecap` can re-render it on resize and theme changes.
+`claude` and `agy` sessions (`hasRecap`): on switching to the tab, on selecting
+a session, and on each diff tick. `recap.Reader` keeps the byte offset reached
+in each transcript file (and `history.jsonl`) so subsequent polls parse only
+newly appended lines, resetting when a file is replaced or truncated. The latest
+result is kept in `recapShown`, so `refreshRecap` can re-render it on resize and
+theme changes while preserving which entries are expanded.
 
 ## Terminal Tab
 

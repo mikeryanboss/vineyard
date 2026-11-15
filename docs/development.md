@@ -254,7 +254,7 @@ goreleaser release --snapshot --clean --skip=publish   # writes dist/; delete it
 | List appearance | `tui/list/list.go` | list golden tests |
 | Config field | `config/config.go`, `tui/settings/settings.go`, README | `config_test.go`, `settings_test.go` |
 | Persisted session field | `session/session.go` | `TestStore_RoundTrip`; keep old files loadable |
-| Recap tab or transcript format | `recap/recap.go`, `tui/app.go` (`recapCmd`, `refreshRecap`) | `recap_test.go`, `app_test.go` |
+| Recap tab or transcript format | `recap/`, `tui/recapview/`, `tui/app.go` (`recapCmd`, `refreshRecap`) | `recap_test.go`, `recapview_test.go`, `app_test.go` |
 | Issues screen, issue tab, or session–issue links | `tui/app.go` (`issuesOf`, `showSessions`, `showIssues`, `refreshIssue`) | `app_grapes_test.go` |
 | Issue session prompts, example templates | `prompt/prompt.go`, `config/templates/`, `tui/dialog/dialog.go` (`ForIssue`) | `prompt_test.go`, `dialog_test.go`, `app_grapes_test.go` |
 | What a failure leaves for diagnosis | `vterm/daemon.go` (server log), `tui/app.go` (`setError`, `logPanic`), `runDebug` in `main.go` | `TestInfoAndLogDescribeTheServer`, `TestApp_LogsErrorsAndPanics`, `TestRun_DebugPrintsPaths` |

@@ -133,8 +133,9 @@ type LiveBackend struct {
 	// Transcripts reads Claude Code's transcripts, remembering where it left
 	// off in each.
 	Transcripts *subagent.Reader
-	// Recaps reads Claude Code transcripts for user messages and recaps,
-	// resuming each unchanged file from its last read offset.
+	// Recaps reads Claude Code and Antigravity CLI transcripts for prompts,
+	// final responses, and recaps, resuming unchanged files from their last
+	// read offset.
 	Recaps *recap.Reader
 	// Dir is the repository's .vineyard directory, which holds config.toml.
 	Dir string
@@ -339,14 +340,26 @@ func (b LiveBackend) Branch(s session.Session) (string, error) {
 }
 
 func (b LiveBackend) Recap(s session.Session) (recap.Recap, error) {
-	dir, err := recap.ProjectsDir()
-	if err != nil {
-		return recap.Recap{}, err
+	switch session.ProgramName(s.Program) {
+	case "agy":
+		dir, err := recap.AntigravityDir()
+		if err != nil {
+			return recap.Recap{}, err
+		}
+		if b.Recaps != nil {
+			return b.Recaps.LoadAgy(dir, s.WorktreePath, s.Conversation)
+		}
+		return recap.LoadAgy(dir, s.WorktreePath, s.Conversation)
+	default:
+		dir, err := recap.ProjectsDir()
+		if err != nil {
+			return recap.Recap{}, err
+		}
+		if b.Recaps != nil {
+			return b.Recaps.Load(dir, s.WorktreePath)
+		}
+		return recap.Load(dir, s.WorktreePath)
 	}
-	if b.Recaps != nil {
-		return b.Recaps.Load(dir, s.WorktreePath)
-	}
-	return recap.Load(dir, s.WorktreePath)
 }
 
 func (b LiveBackend) SaveConfig(cfg config.Config) error { return config.Save(b.Dir, cfg) }
