@@ -65,8 +65,9 @@ Run `vineyard` inside a git repository.
 These are the default keys; [Keys](#keys) changes them.
 
 The mouse works too: click a session, a subagent, a tab, a diff file's header
-to fold it or its line in the summary to go to it, a truncated recap entry to
-expand it or its header to fold it back, a dialog's field or answer,
+to fold it or its line in the summary to go to it, a recap header chip to
+collapse or reopen a kind (or expand/collapse all), a truncated recap entry to
+expand it or its header to fold it, a dialog's field or answer,
 or a config field (click it again to edit it); click `▸ N subagents` to show a
 session's subagents and `▾ N subagents` to hide them. A double click acts:
 on a session, the preview, or the diff's code it does what `enter` does, on a
@@ -119,6 +120,11 @@ subagents = true                      # Claude Code subagents under sessions
 branch = true                         # branch line under each session
 diff_stats = true                     # +N -M line counts in the session list
 auto_tag = true                       # "auto" tag on auto-yes sessions
+
+[recap]
+prompts = "preview"                   # "preview" (default, 4 lines), "collapsed", "expanded", or "off"
+responses = "preview"
+recaps = "preview"
 
 disabled_profiles = ["terminal"]     # built-in profiles not to offer
 
@@ -230,6 +236,9 @@ prev_file = ["[", "p"]
 fold = ["enter", "o"]                       # fold a diff file or recap entry
 fold_all = ["c"]
 unfold_all = ["e"]
+fold_prompts = ["1"]                        # collapse/reopen prompts in recap
+fold_responses = ["2"]                      # collapse/reopen responses in recap
+fold_recaps = ["3"]                         # collapse/reopen recaps in recap
 next_tab = ["tab"]
 prev_tab = ["shift+tab"]
 back = ["esc", "h", "left", "q"]

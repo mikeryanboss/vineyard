@@ -1332,22 +1332,35 @@ func TestRecapTab_AntigravityAndCollapsibleEntries(t *testing.T) {
 
 	m = keys(m, "shift+tab")
 	got := screen(m)
-	if !strings.Contains(got, "Add recap tab support for agy") || !strings.Contains(got, "1 prompt · 1 response") {
-		t.Fatalf("agy session should show title and counts:\n%s", got)
+	if !strings.Contains(got, "Add recap tab support for agy") || !strings.Contains(got, "▾ 1 prompt") || !strings.Contains(got, "▾ 1 response") {
+		t.Fatalf("agy session should show title and clickable kind chips:\n%s", got)
 	}
 	if strings.Contains(got, "p5") || strings.Contains(got, "r5") || !strings.Contains(got, "… 2 more lines") {
 		t.Fatalf("entries should default to collapsed 4-line previews:\n%s", got)
 	}
 
+	// Clicking a kind chip collapses all entries of that kind without zooming on double-click.
+	m = doubleClickOn(t, m, c, "▾ 1 response", headerHeight+2)
+	got = screen(m)
+	if m.zoomed || !strings.Contains(got, "▸ 1 response") || strings.Contains(got, "r2") {
+		t.Fatalf("clicking response chip should collapse responses without zooming (zoomed=%v):\n%s", m.zoomed, got)
+	}
+	*c = c.Add(time.Second)
+	m = clickOn(t, m, "▸ 1 response", headerHeight+2)
+	if got := screen(m); !strings.Contains(got, "▾ 1 response") || !strings.Contains(got, "r2") {
+		t.Fatalf("clicking collapsed response chip should restore preview:\n%s", got)
+	}
+
 	// Double-clicking a truncated entry expands it on the first click and must
 	// not zoom the pane on the second click.
+	*c = c.Add(time.Second)
 	m = doubleClickOn(t, m, c, "… 2 more lines", headerHeight+2)
 	got = screen(m)
 	if m.zoomed || !strings.Contains(got, "p6") {
 		t.Fatalf("double-clicking a collapsed entry should expand it without zooming (zoomed=%v):\n%s", m.zoomed, got)
 	}
-	if !strings.Contains(got, "expand/fold") {
-		t.Errorf("focused recap pane should show expand/fold hints in the status bar:\n%s", got)
+	if !strings.Contains(got, "expand/fold") || !strings.Contains(got, "fold kind") {
+		t.Errorf("focused recap pane should show expand/fold and fold kind hints in the status bar:\n%s", got)
 	}
 
 	// Double-clicking the body of an already expanded entry zooms the pane.
@@ -1358,15 +1371,25 @@ func TestRecapTab_AntigravityAndCollapsibleEntries(t *testing.T) {
 	}
 	m = keys(m, "esc") // unzoom
 
-	// Keyboard expand-all and fold-all work while the pane has focus.
+	// Keyboard expand-all, fold-all, and per-kind fold work while the pane has focus.
 	m = keys(m, "l") // focus pane
 	m = keys(m, "e")
 	if got := screen(m); !strings.Contains(got, "r6") {
 		t.Errorf("pressing 'e' should expand all entries:\n%s", got)
 	}
 	m = keys(m, "c")
-	if got := screen(m); strings.Contains(got, "r6") || strings.Contains(got, "p6") {
-		t.Errorf("pressing 'c' should fold all entries back to previews:\n%s", got)
+	if got := screen(m); strings.Contains(got, "r2") || strings.Contains(got, "p2") {
+		t.Errorf("pressing 'c' should collapse all entries to 1-line headers:\n%s", got)
+	}
+	m = keys(m, "2")
+	if got := screen(m); !strings.Contains(got, "r2") || strings.Contains(got, "p2") {
+		t.Errorf("pressing '2' should reopen responses while keeping prompts collapsed:\n%s", got)
+	}
+
+	// Saving Recap settings from the Config screen updates visibility immediately.
+	m = keys(m, "esc", "C", "j", "j", "j", "l", "j", "enter", "j", "j", "j", "enter", "ctrl+s")
+	if got := screen(m); strings.Contains(got, "Response") || strings.Contains(got, "1 response") {
+		t.Errorf("setting responses = off in Config should hide responses in Recap tab:\n%s", got)
 	}
 }
 

@@ -62,20 +62,23 @@ type ListKeys struct {
 // PaneKeys act on the preview, diff, issue, terminal, or recap pane once it
 // has focus.
 type PaneKeys struct {
-	Up        key.Binding
-	Down      key.Binding
-	HalfUp    key.Binding
-	HalfDown  key.Binding
-	Top       key.Binding
-	Bottom    key.Binding
-	NextFile  key.Binding
-	PrevFile  key.Binding
-	Fold      key.Binding
-	FoldAll   key.Binding
-	UnfoldAll key.Binding
-	NextTab   key.Binding
-	PrevTab   key.Binding
-	Back      key.Binding
+	Up            key.Binding
+	Down          key.Binding
+	HalfUp        key.Binding
+	HalfDown      key.Binding
+	Top           key.Binding
+	Bottom        key.Binding
+	NextFile      key.Binding
+	PrevFile      key.Binding
+	Fold          key.Binding
+	FoldAll       key.Binding
+	UnfoldAll     key.Binding
+	FoldPrompts   key.Binding
+	FoldResponses key.Binding
+	FoldRecaps    key.Binding
+	NextTab       key.Binding
+	PrevTab       key.Binding
+	Back          key.Binding
 }
 
 // SettingsKeys act on the config screen.
@@ -173,20 +176,23 @@ func NewKeyMap(keys config.Keys) KeyMap {
 			Quit:           b("list", "quit"),
 		},
 		Pane: PaneKeys{
-			Up:        b("pane", "up"),
-			Down:      b("pane", "down"),
-			HalfUp:    b("pane", "half_up"),
-			HalfDown:  b("pane", "half_down"),
-			Top:       b("pane", "top"),
-			Bottom:    b("pane", "bottom"),
-			NextFile:  b("pane", "next_file"),
-			PrevFile:  b("pane", "prev_file"),
-			Fold:      b("pane", "fold"),
-			FoldAll:   b("pane", "fold_all"),
-			UnfoldAll: b("pane", "unfold_all"),
-			NextTab:   b("pane", "next_tab"),
-			PrevTab:   b("pane", "prev_tab"),
-			Back:      b("pane", "back"),
+			Up:            b("pane", "up"),
+			Down:          b("pane", "down"),
+			HalfUp:        b("pane", "half_up"),
+			HalfDown:      b("pane", "half_down"),
+			Top:           b("pane", "top"),
+			Bottom:        b("pane", "bottom"),
+			NextFile:      b("pane", "next_file"),
+			PrevFile:      b("pane", "prev_file"),
+			Fold:          b("pane", "fold"),
+			FoldAll:       b("pane", "fold_all"),
+			UnfoldAll:     b("pane", "unfold_all"),
+			FoldPrompts:   b("pane", "fold_prompts"),
+			FoldResponses: b("pane", "fold_responses"),
+			FoldRecaps:    b("pane", "fold_recaps"),
+			NextTab:       b("pane", "next_tab"),
+			PrevTab:       b("pane", "prev_tab"),
+			Back:          b("pane", "back"),
 		},
 		Settings: SettingsKeys{
 			Up:          b("settings", "up"),

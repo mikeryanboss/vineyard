@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mikeryanboss/vineyard/internal/config"
 	"github.com/mikeryanboss/vineyard/internal/recap"
 	"github.com/mikeryanboss/vineyard/internal/tui/common"
 	"github.com/mikeryanboss/vineyard/internal/tui/testutil"
@@ -35,116 +36,186 @@ func sampleRecap() recap.Recap {
 	}
 }
 
-func TestRecapView_DefaultLimitsLongEntriesAndShowsCounts(t *testing.T) {
-	m := New(common.NewTheme(true)).SetSize(72, 40).SetRecap("s1", sampleRecap())
+func TestRecapView_DefaultPreviewAndHeaderChips(t *testing.T) {
+	m := New(common.NewTheme(true)).SetSize(80, 40).SetRecap("s1", sampleRecap())
 	view := ansi.Strip(m.View())
 
-	if !strings.Contains(view, "Recap Tab Feature") {
-		t.Fatalf("missing title:\n%s", view)
+	for _, want := range []string{
+		"Recap Tab Feature",
+		"▾ 2 prompts",
+		"▾ 1 response",
+		"▾ 1 recap",
+		"expand all",
+		"collapse all",
+		"▸ … 3 more lines",
+		"▸ … 2 more lines",
+		"▸ … 1 more line",
+		"short follow-up",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("missing %q in view:\n%s", want, view)
+		}
 	}
-	if !strings.Contains(view, "2 prompts · 1 response · 1 recap") {
-		t.Errorf("missing summary counts:\n%s", view)
-	}
-	if !strings.Contains(view, "▸ ❯ You") || !strings.Contains(view, "… 3 more lines") {
-		t.Errorf("7-line prompt should show ▸ and 3 hidden lines:\n%s", view)
-	}
-	if strings.Contains(view, "prompt-one line 5") {
-		t.Errorf("line 5 should be hidden by default:\n%s", view)
-	}
-	if !strings.Contains(view, "▸ ● Response") || !strings.Contains(view, "… 2 more lines") {
-		t.Errorf("6-line response should show ▸ and 2 hidden lines:\n%s", view)
-	}
-	if !strings.Contains(view, "short follow-up") || strings.Contains(view, "▸ ❯ You\n  short follow-up") {
-		t.Errorf("1-line prompt should be shown in full without a fold chevron:\n%s", view)
-	}
-	if !strings.Contains(view, "▸ ✻ Recap") || !strings.Contains(view, "… 1 more line") {
-		t.Errorf("5-line recap should show singular 1 more line:\n%s", view)
+	if strings.Contains(view, "prompt-one line 5") || strings.Contains(view, "response-one line 5") {
+		t.Errorf("lines past PreviewLines should be hidden in preview mode:\n%s", view)
 	}
 }
 
-func TestRecapView_KeyboardNavigationAndToggleIncludesBottomEntry(t *testing.T) {
-	m := New(common.NewTheme(true)).SetSize(72, 16).SetFocused(true).SetRecap("s1", sampleRecap())
-	// Opens at the newest entry (index 3), even though multiple compact cards fit on screen.
+func TestRecapView_KeyboardNavigationCyclingAndKindFolding(t *testing.T) {
+	m := New(common.NewTheme(true)).SetSize(80, 18).SetFocused(true).SetRecap("s1", sampleRecap())
 	if got := m.CurrentEntry(); got != 3 {
 		t.Fatalf("initial CurrentEntry = %d, want 3 (newest)", got)
 	}
 
-	// Pressing enter expands the bottom entry even when maxYOffset < its start line.
+	// On a long entry, enter cycles: Preview -> Expanded -> Collapsed -> Preview.
 	m, _ = m.Update(testutil.Key("enter"))
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "away-recap line 5") || !strings.Contains(view, "▾ ✻ Recap") {
-		t.Fatalf("enter on bottom entry should expand it:\n%s", view)
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "away-recap line 5") {
+		t.Fatalf("first enter should expand bottom entry:\n%s", view)
 	}
 	m, _ = m.Update(testutil.Key("enter"))
-	if view := ansi.Strip(m.View()); strings.Contains(view, "away-recap line 5") {
-		t.Fatalf("second enter should fold bottom entry back to preview:\n%s", view)
+	if view := ansi.Strip(m.View()); strings.Contains(view, "away-recap line 2") || !strings.Contains(view, "▸ ✻ Recap") {
+		t.Fatalf("second enter should collapse bottom entry to 1-line header:\n%s", view)
+	}
+	m, _ = m.Update(testutil.Key("enter"))
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "away-recap line 4") || strings.Contains(view, "away-recap line 5") {
+		t.Fatalf("third enter should return bottom entry to 4-line preview:\n%s", view)
 	}
 
-	// Walk backward with [ to entry 0, then forward with ].
-	for want := 2; want >= 0; want-- {
-		m, _ = m.Update(testutil.Key("["))
-		if got := m.CurrentEntry(); got != want {
-			t.Fatalf("after [, CurrentEntry = %d, want %d", got, want)
+	// Keys 1, 2, 3 toggle prompts, responses, and recaps between collapsed and preview.
+	m, _ = m.Update(testutil.Key("1"))
+	rendered := ansi.Strip(m.View())
+	if !strings.Contains(rendered, "▸ 2 prompts") || strings.Contains(rendered, "short follow-up\n") {
+		// Note: 1-line collapsed header shows snippet on the You header line, not a body row.
+		if m.spans[0].state != stateCollapsed || m.spans[2].state != stateCollapsed {
+			t.Fatalf("key 1 should collapse all prompts: spans=%+v\n%s", m.spans, rendered)
 		}
 	}
-	// One more [ at entry 0 reveals the title at line 0.
-	m, _ = m.Update(testutil.Key("["))
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "Recap Tab Feature") {
-		t.Errorf("[ at first entry should scroll to show title:\n%s", view)
+	m, _ = m.Update(testutil.Key("1"))
+	if m.spans[0].state != statePreview || m.spans[2].state != statePreview {
+		t.Fatalf("pressing 1 again should uncollapse prompts to preview: spans=%+v", m.spans)
 	}
 
-	m, _ = m.Update(testutil.Key("]"))
-	if got := m.CurrentEntry(); got != 1 {
-		t.Fatalf("after ], CurrentEntry = %d, want 1", got)
+	m, _ = m.Update(testutil.Key("2"))
+	if m.spans[1].state != stateCollapsed || !strings.Contains(ansi.Strip(m.View()), "▸ 1 response") {
+		t.Fatalf("key 2 should collapse responses")
+	}
+	m, _ = m.Update(testutil.Key("3"))
+	if m.spans[3].state != stateCollapsed || !strings.Contains(ansi.Strip(m.View()), "▸ 1 recap") {
+		t.Fatalf("key 3 should collapse recaps")
 	}
 
 	// Expand all with e, collapse all with c.
 	m, _ = m.Update(testutil.Key("e"))
-	fullText := ansi.Strip(strings.Join(m.lines, "\n"))
-	if !strings.Contains(fullText, "prompt-one line 7") || !strings.Contains(fullText, "response-one line 6") || !strings.Contains(fullText, "away-recap line 5") {
-		t.Errorf("e should expand every entry:\n%s", fullText)
+	fullBody := ansi.Strip(strings.Join(m.lines, "\n"))
+	if !strings.Contains(fullBody, "prompt-one line 7") || !strings.Contains(fullBody, "response-one line 6") || !strings.Contains(fullBody, "away-recap line 5") {
+		t.Errorf("e should expand every entry:\n%s", fullBody)
 	}
 	m, _ = m.Update(testutil.Key("c"))
-	compactText := ansi.Strip(strings.Join(m.lines, "\n"))
-	if strings.Contains(compactText, "prompt-one line 7") || strings.Contains(compactText, "response-one line 6") {
-		t.Errorf("c should collapse every entry back to preview:\n%s", compactText)
+	for i, sp := range m.spans {
+		if sp.state != stateCollapsed || sp.end-sp.start != 1 {
+			t.Errorf("after c, entry %d span = %+v, want 1-line stateCollapsed", i, sp)
+		}
 	}
 }
 
-func TestRecapView_ClicksExpandTruncatedBodyAndFoldExpandedHeader(t *testing.T) {
-	m := New(common.NewTheme(true)).SetSize(72, 40).SetRecap("s1", sampleRecap())
-	// Entry 1 (response-one): click on its "… 2 more lines" row expands it.
-	sp := m.spans[1]
-	moreRow := sp.end - 1
-	if !m.Clickable(moreRow) || !m.Clickable(sp.start) {
-		t.Fatalf("truncated card header (%d) and more-lines row (%d) should both be clickable", sp.start, moreRow)
-	}
-	// Short card (entry 2) has nothing hidden, so Clickable is false.
-	if m.Clickable(m.spans[2].start) {
-		t.Errorf("short non-collapsible entry should not capture clicks as folds")
+func TestRecapView_MouseClicksOnChipsHeadersAndPreviewBodies(t *testing.T) {
+	m := New(common.NewTheme(true)).SetSize(80, 40).SetRecap("s1", sampleRecap())
+	hdrH := len(m.headerLines)
+	if hdrH == 0 {
+		t.Fatal("expected pinned header lines")
 	}
 
-	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: moreRow})
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "response-one line 6") || !strings.Contains(view, "▾ ● Response") {
-		t.Fatalf("click on more-lines row should expand response:\n%s", view)
+	// Clicking a chip toggles its kind; clicking past the chips is not clickable.
+	var respChip chipSpan
+	for _, c := range m.chips {
+		if c.action == chipToggleResponses {
+			respChip = c
+		}
 	}
-	// While expanded, header is clickable, body lines are not (so double-click can still zoom).
-	expSpan := m.spans[1]
-	if !m.Clickable(expSpan.start) || m.Clickable(expSpan.start+2) {
-		t.Errorf("expanded card: header clickable=%v, body clickable=%v; want true, false", m.Clickable(expSpan.start), m.Clickable(expSpan.start+2))
+	if !m.Clickable(respChip.startX+1, respChip.line) {
+		t.Fatal("response chip should be clickable")
+	}
+	if m.Clickable(79, respChip.line) {
+		t.Fatal("empty space at right edge of chip bar should not be clickable")
 	}
 
-	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: expSpan.start})
-	if view := ansi.Strip(m.View()); strings.Contains(view, "response-one line 6") {
-		t.Errorf("click on expanded header should collapse back to preview:\n%s", view)
+	m, _ = m.Update(tea.MouseClickMsg{X: respChip.startX + 1, Y: respChip.line})
+	if m.spans[1].state != stateCollapsed || !strings.Contains(ansi.Strip(m.View()), "▸ 1 response") {
+		t.Fatalf("clicking response chip should collapse all responses:\n%s", ansi.Strip(m.View()))
+	}
+	// Click again to reopen responses to preview.
+	m, _ = m.Update(tea.MouseClickMsg{X: respChip.startX + 1, Y: respChip.line})
+	if m.spans[1].state != statePreview {
+		t.Fatalf("clicking collapsed response chip should restore preview, got %v", m.spans[1].state)
+	}
+
+	// Clicking "▸ … 2 more lines" on response-one expands it to full.
+	moreViewY := hdrH + m.spans[1].end - 1
+	if !m.Clickable(4, moreViewY) {
+		t.Fatal("more-lines row should be clickable")
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: moreViewY})
+	if m.spans[1].state != stateExpanded || !strings.Contains(ansi.Strip(m.View()), "response-one line 6") {
+		t.Fatalf("clicking preview body should expand entry:\n%s", ansi.Strip(m.View()))
+	}
+
+	// Body of an expanded entry is NOT clickable (so double-click zooms), while header IS clickable.
+	headerViewY := hdrH + m.spans[1].start
+	if !m.Clickable(4, headerViewY) || m.Clickable(4, headerViewY+2) {
+		t.Errorf("expanded entry: header clickable=%v, body clickable=%v; want true, false",
+			m.Clickable(4, headerViewY), m.Clickable(4, headerViewY+2))
+	}
+
+	// Clicking expanded header folds back to preview, and clicking header again collapses to 1 line.
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: headerViewY})
+	if m.spans[1].state != statePreview {
+		t.Fatalf("clicking expanded header should fold to preview, got %v", m.spans[1].state)
+	}
+	m, _ = m.Update(tea.MouseClickMsg{X: 4, Y: hdrH + m.spans[1].start})
+	if m.spans[1].state != stateCollapsed {
+		t.Fatalf("clicking preview header should collapse to 1-line header, got %v", m.spans[1].state)
 	}
 }
 
-func TestRecapView_PreservesExpandedAcrossLiveUpdatesAndResetsOnNewSession(t *testing.T) {
+func TestRecapView_ConfigModesHideCollapseAndExpand(t *testing.T) {
+	cfg := config.RecapConfig{
+		Prompts:   config.RecapCollapsed,
+		Responses: config.RecapOff,
+		Recaps:    config.RecapExpanded,
+	}
+	m := New(common.NewTheme(true)).SetConfig(cfg).SetSize(80, 40).SetRecap("s1", sampleRecap())
+	view := ansi.Strip(m.View())
+
+	if m.EntryCount() != 3 {
+		t.Fatalf("EntryCount = %d, want 3 (responses hidden)", m.EntryCount())
+	}
+	if strings.Contains(view, "response") || strings.Contains(view, "Response") {
+		t.Errorf("responses = off should hide response entries and chip:\n%s", view)
+	}
+	if !strings.Contains(view, "▸ 2 prompts") || m.spans[0].state != stateCollapsed {
+		t.Errorf("prompts = collapsed should start collapsed:\n%s", view)
+	}
+	if !strings.Contains(view, "away-recap line 5") || m.spans[2].state != stateExpanded {
+		t.Errorf("recaps = expanded should show all lines of recap:\n%s", view)
+	}
+
+	// Hiding all kinds shows a clear message rather than claiming nothing was said.
+	allOff := config.RecapConfig{
+		Prompts:   config.RecapOff,
+		Responses: config.RecapOff,
+		Recaps:    config.RecapOff,
+	}
+	m = m.SetConfig(allOff)
+	if got := ansi.Strip(m.View()); !strings.Contains(got, "hidden by recap settings") || m.EntryCount() != 0 {
+		t.Errorf("all kinds off should explain entries are hidden:\n%s", got)
+	}
+}
+
+func TestRecapView_PreservesStateAcrossLiveUpdatesAndResetsOnNewSession(t *testing.T) {
 	r := sampleRecap()
-	m := New(common.NewTheme(true)).SetSize(72, 20).SetRecap("s1", r)
-	// Expand entry 0, then return to bottom so live updates follow.
+	m := New(common.NewTheme(true)).SetSize(80, 20).SetRecap("s1", r)
 	m, _ = m.Update(testutil.Key("g"))
-	m, _ = m.Update(testutil.Key("enter"))
+	m, _ = m.Update(testutil.Key("enter")) // expand entry 0
 	m, _ = m.Update(testutil.Key("G"))
 
 	r.Entries = append(r.Entries, recap.Entry{
@@ -161,10 +232,9 @@ func TestRecapView_PreservesExpandedAcrossLiveUpdatesAndResetsOnNewSession(t *te
 		t.Errorf("view at bottom should follow new entry:\n%s", view)
 	}
 
-	// Switching session resets expanded state.
 	m = m.SetRecap("s2", sampleRecap())
 	s2Rendered := ansi.Strip(strings.Join(m.lines, "\n"))
 	if strings.Contains(s2Rendered, "prompt-one line 7") {
-		t.Errorf("switching session should reset expanded entries:\n%s", s2Rendered)
+		t.Errorf("switching session should reset per-entry overrides:\n%s", s2Rendered)
 	}
 }

@@ -411,7 +411,7 @@ func NewModel(backend Backend, sessions []session.Session, opts Options) Model {
 		preview:  preview.New(theme),
 		diff:     diffview.New(theme).SetVisible(false),
 		issue:    textview.New(theme),
-		recap:    recapview.New(theme).SetVisible(false),
+		recap:    recapview.New(theme).SetConfig(opts.Config.Recap).SetVisible(false),
 
 		transcript: textview.New(theme),
 		terminal:   preview.New(theme),
@@ -1478,6 +1478,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			clear(m.hashes)
 		}
 		m.opts.Config = msg.config
+		m.recap = m.recap.SetConfig(msg.config.Recap)
 		m.configOpen = false
 		m.syncList()
 		m.resizeLayout()
@@ -2742,7 +2743,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case click:
 		m.setFocus(focusPane)
 		m.lastClick.acted = m.tab == tabDiff && m.diff.Clickable(content.Mouse().Y) ||
-			m.tab == tabRecap && m.recap.Clickable(content.Mouse().Y)
+			m.tab == tabRecap && m.recap.Clickable(content.Mouse().X, content.Mouse().Y)
 	}
 	switch m.tab {
 	case tabDiff:
@@ -3023,7 +3024,8 @@ func (m Model) renderStatusBar() string {
 		hints = [][2]string{
 			{hint(pane.Down, pane.Up), "scroll"}, {hint(pane.HalfDown, pane.HalfUp), "page"},
 			{hint(pane.NextFile, pane.PrevFile), "next/prev"}, {hint(pane.Fold), "expand/fold"},
-			{hint(pane.UnfoldAll, pane.FoldAll), "expand/fold all"}, {hint(pane.Top, pane.Bottom), "top/bottom"},
+			{hint(pane.FoldPrompts, pane.FoldResponses, pane.FoldRecaps), "fold kind"},
+			{hint(pane.UnfoldAll, pane.FoldAll), "all"}, {hint(pane.Top, pane.Bottom), "top/bottom"},
 			{hint(pane.NextTab), tabNames[m.nextTab()]}, {hint(pane.Back), "back"},
 		}
 	case m.focus == focusPane && (m.tab == tabIssue || m.tab == tabRecap || m.tab == tabPreview && m.shownAgent != ""):

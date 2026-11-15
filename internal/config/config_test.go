@@ -308,6 +308,7 @@ func TestSave_RoundTripsThroughLoad(t *testing.T) {
 		Multiplexer:      MultiplexerTmux,
 		ListWidth:        28,
 		List:             ListConfig{Issues: IssuesBefore, IssuePicker: IssuesBefore, Subagents: false, Branch: true, DiffStats: false, AutoTag: true},
+		Recap:            RecapConfig{Prompts: RecapCollapsed, Responses: RecapOff, Recaps: RecapExpanded},
 		Keys:             Keys{"list": {"kill": {"x"}, "auto_yes": {}}},
 	}
 	if err := Save(home, want); err != nil {
@@ -389,6 +390,35 @@ func TestLoad_ListOptions(t *testing.T) {
 	for _, bad := range []string{"[list]\nissue_picker = 'off'\n", "[list]\nissue_picker = 'sideways'\n"} {
 		if _, err := Load(writeConfig(t, bad)); err == nil || !strings.Contains(err.Error(), "list.issue_picker") {
 			t.Errorf("%q gave %v, want a list.issue_picker error", bad, err)
+		}
+	}
+}
+
+func TestLoad_RecapOptions(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil || cfg.Recap != DefaultRecap() {
+		t.Fatalf("default recap = %+v, %v; want %+v", cfg.Recap, err, DefaultRecap())
+	}
+
+	cfg, err = Load(writeConfig(t, "[recap]\nprompts = 'collapsed'\nresponses = 'off'\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := RecapConfig{Prompts: RecapCollapsed, Responses: RecapOff, Recaps: RecapPreview}
+	if cfg.Recap != want {
+		t.Errorf("recap = %+v, want %+v", cfg.Recap, want)
+	}
+
+	for _, field := range []string{"prompts", "responses", "recaps"} {
+		for _, valid := range []string{RecapPreview, RecapCollapsed, RecapExpanded, RecapOff, ""} {
+			cfg, err := Load(writeConfig(t, fmt.Sprintf("[recap]\n%s = %q\n", field, valid)))
+			if err != nil {
+				t.Errorf("recap.%s = %q failed: %v", field, valid, err)
+			}
+			_ = cfg
+		}
+		if _, err := Load(writeConfig(t, fmt.Sprintf("[recap]\n%s = 'bogus'\n", field))); err == nil || !strings.Contains(err.Error(), "recap."+field) {
+			t.Errorf("invalid recap.%s gave %v, want a recap.%s error", field, err, field)
 		}
 	}
 }

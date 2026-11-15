@@ -60,6 +60,9 @@ const (
 	idListBranch
 	idListDiffStats
 	idListAutoTag
+	idRecapPrompts
+	idRecapResponses
+	idRecapRecaps
 	idProfile
 	idAddProfile
 )
@@ -72,7 +75,7 @@ type field struct {
 	profile int      // for fieldProfile: index into cfg.Profiles
 }
 
-var categories = []string{"General", "Profiles", "Session list"}
+var categories = []string{"General", "Profiles", "Session list", "Recap"}
 
 // profileMultiplexers are the multiplexers m cycles a profile through: the
 // configured default (""), then each one.
@@ -183,6 +186,13 @@ func (m Model) fields() []field {
 			{id: idListDiffStats, label: "Diff stats", kind: fieldEnum, options: []string{"on", "off"}},
 			{id: idListAutoTag, label: "Auto-yes tag", kind: fieldEnum, options: []string{"on", "off"}},
 		}
+	case "Recap":
+		modes := []string{config.RecapPreview, config.RecapCollapsed, config.RecapExpanded, config.RecapOff}
+		return []field{
+			{id: idRecapPrompts, label: "Prompts", kind: fieldEnum, options: modes},
+			{id: idRecapResponses, label: "Responses", kind: fieldEnum, options: modes},
+			{id: idRecapRecaps, label: "Recaps", kind: fieldEnum, options: modes},
+		}
 	}
 	fields := make([]field, 0, len(m.cfg.Profiles)+1)
 	for i, p := range m.cfg.Profiles {
@@ -261,6 +271,21 @@ func (m Model) value(f field) string {
 			return "on"
 		}
 		return "off"
+	case idRecapPrompts:
+		if m.cfg.Recap.Prompts == "" {
+			return config.RecapPreview
+		}
+		return m.cfg.Recap.Prompts
+	case idRecapResponses:
+		if m.cfg.Recap.Responses == "" {
+			return config.RecapPreview
+		}
+		return m.cfg.Recap.Responses
+	case idRecapRecaps:
+		if m.cfg.Recap.Recaps == "" {
+			return config.RecapPreview
+		}
+		return m.cfg.Recap.Recaps
 	case idProfile:
 		return m.cfg.Profiles[f.profile].Program
 	}
@@ -303,6 +328,12 @@ func (m *Model) setValue(f field, v string) {
 		m.cfg.List.DiffStats = v == "on"
 	case idListAutoTag:
 		m.cfg.List.AutoTag = v == "on"
+	case idRecapPrompts:
+		m.cfg.Recap.Prompts = v
+	case idRecapResponses:
+		m.cfg.Recap.Responses = v
+	case idRecapRecaps:
+		m.cfg.Recap.Recaps = v
 	case idProfile:
 		m.cfg.Profiles[f.profile].Program = v
 	}

@@ -203,12 +203,17 @@ by `internal/recap`:
   conversation's `transcript_full.jsonl` (falling back to `transcript.jsonl`),
   and reads the conversation title from `annotations/<id>.pbtxt`.
 
-`recapview` renders entries chronologically under the title and entry counts,
-limiting each entry by default to `PreviewLines` (4 wrapped lines) with a
-`… N more lines` hint. Clicking a truncated entry expands it, clicking an
-expanded entry's header folds it back, and `]`/`[`, `enter`/`o`, and `e`/`c`
-navigate and fold entries from the keyboard. The view opens at the newest entry
-and follows new ones while scrolled to the bottom.
+`recapview` renders entries chronologically under a pinned header bar with the
+conversation title and clickable chips (`▾ N prompts`, `▾ N responses`,
+`▾ N recaps`, `expand all`, `collapse all`). `[recap]` in `.vineyard/config.toml`
+(`config.RecapConfig`, edited under the Config screen's `Recap` category) sets
+each kind to `"preview"` (default, 4 wrapped lines with `▸ … N more lines`),
+`"collapsed"` (1-line header with snippet), `"expanded"` (all lines), or `"off"`
+(hidden). Clicking a kind chip or pressing `1`/`2`/`3` collapses or reopens all
+entries of that kind; clicking a truncated preview body expands it, clicking an
+entry's header folds it, and `]`/`[`, `enter`/`o`, and `e`/`c` navigate and
+cycle entries from the keyboard. The view opens at the newest entry and follows
+new ones while scrolled to the bottom.
 
 `recapCmd` reads the transcripts only while the tab is shown, and only for
 `claude` and `agy` sessions (`hasRecap`): on switching to the tab, on selecting
